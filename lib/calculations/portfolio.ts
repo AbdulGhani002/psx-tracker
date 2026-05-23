@@ -1,4 +1,4 @@
-import type { Holding, Transaction } from "@/lib/models";
+import type { Holding, Transaction } from "@/lib/types";
 import { deriveFromTransactions } from "./holding";
 import { xirr, type CashFlow } from "./xirr";
 

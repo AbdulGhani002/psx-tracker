@@ -1,4 +1,4 @@
-import type { Transaction } from "@/lib/models";
+import type { Transaction } from "@/lib/types";
 
 export type HoldingDerived = {
   shares: number;

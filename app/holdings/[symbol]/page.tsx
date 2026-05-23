@@ -21,7 +21,7 @@ import {
   fmtPct,
   fmtDate,
 } from "@/lib/format";
-import type { Transaction } from "@/lib/models";
+import type { Transaction } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 

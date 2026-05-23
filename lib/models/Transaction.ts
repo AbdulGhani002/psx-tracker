@@ -1,7 +1,7 @@
 import { Schema, model, models, type InferSchemaType, type Model } from "mongoose";
+import { TRANSACTION_TYPES, type TransactionType } from "@/lib/types";
 
-export const TRANSACTION_TYPES = ["BUY", "SELL", "DIVIDEND", "BONUS", "RIGHT", "SPLIT"] as const;
-export type TransactionType = (typeof TRANSACTION_TYPES)[number];
+export { TRANSACTION_TYPES, type TransactionType };
 
 const TransactionSchema = new Schema(
   {
