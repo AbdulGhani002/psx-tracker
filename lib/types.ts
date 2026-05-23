@@ -32,6 +32,11 @@ export type Transaction = {
   netAmount: number;
   notes: string;
   ratio: string;
+  warrantNo?: string | null;
+  taxDeducted?: number;
+  zakatDeducted?: number;
+  financialYear?: string;
+  dividendType?: string;
   createdAt: Date | string;
   updatedAt: Date | string;
 };

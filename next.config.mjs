@@ -4,6 +4,10 @@ const nextConfig = {
   output: "standalone",
   experimental: {
     serverActions: { allowedOrigins: ["localhost:3010"] },
+    serverComponentsExternalPackages: ["unpdf"],
+    outputFileTracingIncludes: {
+      "/api/dividends/**/*": ["./node_modules/unpdf/**/*"],
+    },
   },
 };
 

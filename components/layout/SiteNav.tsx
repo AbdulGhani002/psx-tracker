@@ -7,6 +7,7 @@ const NAV_ITEMS = [
   { href: "/", label: "Overview" },
   { href: "/holdings", label: "Holdings" },
   { href: "/transactions", label: "Transactions" },
+  { href: "/dividends", label: "Dividends" },
   { href: "/model", label: "Model" },
   { href: "/rebalance", label: "Rebalance" },
   { href: "/log", label: "Log" },
