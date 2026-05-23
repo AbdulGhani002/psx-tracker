@@ -2,9 +2,9 @@ import { connectDb } from "@/lib/db";
 import { PriceSnapshotModel } from "@/lib/models";
 import { StubFetcher } from "./stub";
 import { PSXScraperFetcher } from "./scraper";
-import { isMarketHoursNow, type PriceFetcher, type PriceQuote } from "./types";
+import { isMarketHoursNow, type CompanyInfo, type PriceFetcher, type PriceQuote } from "./types";
 
-export type { PriceQuote } from "./types";
+export type { PriceQuote, CompanyInfo } from "./types";
 
 const CACHE_TTL_MS = 15 * 60 * 1000;
 
@@ -12,8 +12,8 @@ let activeFetcher: PriceFetcher | null = null;
 
 export function getFetcher(): PriceFetcher {
   if (activeFetcher) return activeFetcher;
-  const strategy = process.env.PRICE_FETCHER_STRATEGY ?? "stub";
-  activeFetcher = strategy === "psx-scraper" ? new PSXScraperFetcher() : new StubFetcher();
+  const strategy = process.env.PRICE_FETCHER_STRATEGY ?? "psx-scraper";
+  activeFetcher = strategy === "stub" ? new StubFetcher() : new PSXScraperFetcher();
   return activeFetcher;
 }
 
@@ -63,14 +63,8 @@ export async function getPrices(symbols: string[]): Promise<Map<string, number>>
     const fresh = await fetcher.fetchBatch(stale);
     for (const [sym, quote] of fresh) {
       out.set(sym, quote.price);
-      // Best-effort write; do not block on cache failure.
-      try {
-        await writeSnapshot(quote);
-      } catch {
-        /* swallow */
-      }
+      try { await writeSnapshot(quote); } catch { /* swallow */ }
     }
-    // Symbols we couldn't refresh: use stale cache if any.
     for (const sym of stale) {
       if (!out.has(sym)) {
         const cached = await readLatestFromCache(sym);
@@ -86,11 +80,13 @@ export async function refreshPrice(symbol: string): Promise<PriceQuote | null> {
   await connectDb();
   const q = await getFetcher().fetchPrice(symbol);
   if (q) {
-    try {
-      await writeSnapshot(q);
-    } catch {
-      /* swallow */
-    }
+    try { await writeSnapshot(q); } catch { /* swallow */ }
   }
   return q;
+}
+
+export async function getCompanyInfo(symbol: string): Promise<CompanyInfo | null> {
+  const fetcher = getFetcher();
+  if (!fetcher.fetchCompanyInfo) return null;
+  return fetcher.fetchCompanyInfo(symbol);
 }

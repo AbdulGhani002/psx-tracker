@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
@@ -24,10 +24,23 @@ const TYPE_HINTS: Record<TransactionType, string> = {
   SPLIT: "Share split. Use the ratio field (e.g. 1:2 means 1 old → 2 new).",
 };
 
+type Lookup = {
+  symbol: string;
+  name: string;
+  sector: string;
+  price: number | null;
+  asOf: string | null;
+};
+
 export function NewTransactionForm({ existingSymbols, defaultSymbol }: Props) {
   const router = useRouter();
-  const [symbol, setSymbol] = useState<string>(defaultSymbol ?? existingSymbols[0] ?? "");
-  const [customSymbol, setCustomSymbol] = useState("");
+  const initialSymbol =
+    defaultSymbol && existingSymbols.includes(defaultSymbol)
+      ? defaultSymbol
+      : existingSymbols[0] ?? "__new__";
+
+  const [symbolMode, setSymbolMode] = useState<string>(initialSymbol);
+  const [customSymbol, setCustomSymbol] = useState(defaultSymbol && !existingSymbols.includes(defaultSymbol) ? defaultSymbol : "");
   const [type, setType] = useState<TransactionType>("BUY");
   const [date, setDate] = useState<string>(new Date().toISOString().slice(0, 10));
   const [shares, setShares] = useState<number>(0);
@@ -38,8 +51,48 @@ export function NewTransactionForm({ existingSymbols, defaultSymbol }: Props) {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const isCustom = !existingSymbols.includes(symbol) || symbol === "__new__";
-  const finalSymbol = (isCustom ? customSymbol : symbol).trim().toUpperCase();
+  const [lookup, setLookup] = useState<Lookup | null>(null);
+  const [lookupLoading, setLookupLoading] = useState(false);
+  const [lookupError, setLookupError] = useState<string | null>(null);
+  const lookupAbort = useRef<AbortController | null>(null);
+
+  const isCustom = symbolMode === "__new__";
+  const finalSymbol = (isCustom ? customSymbol : symbolMode).trim().toUpperCase();
+
+  // Look up symbol whenever it stabilises.
+  useEffect(() => {
+    if (!finalSymbol || finalSymbol.length < 2) {
+      setLookup(null);
+      setLookupError(null);
+      return;
+    }
+    const t = setTimeout(() => {
+      lookupAbort.current?.abort();
+      const ac = new AbortController();
+      lookupAbort.current = ac;
+      setLookupLoading(true);
+      setLookupError(null);
+      fetch(`/api/lookup/${encodeURIComponent(finalSymbol)}`, { signal: ac.signal })
+        .then(async (res) => {
+          if (!res.ok) {
+            setLookup(null);
+            setLookupError(res.status === 404 ? "Not found on PSX." : "Lookup failed.");
+            return;
+          }
+          const data = (await res.json()) as Lookup;
+          setLookup(data);
+          if (data.price != null && price === 0 && (type === "BUY" || type === "SELL")) {
+            setPrice(data.price);
+          }
+        })
+        .catch((e) => {
+          if (e?.name !== "AbortError") setLookupError("Lookup failed.");
+        })
+        .finally(() => setLookupLoading(false));
+    }, 350);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [finalSymbol]);
 
   const totalAmount = shares * price;
   const netAmount =
@@ -92,8 +145,8 @@ export function NewTransactionForm({ existingSymbols, defaultSymbol }: Props) {
         <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-5">
           <Select
             label="Symbol"
-            value={symbol}
-            onChange={setSymbol}
+            value={symbolMode}
+            onChange={setSymbolMode}
             options={[
               ...existingSymbols.map((s) => ({ value: s, label: s })),
               { value: "__new__", label: "+ Add new symbol" },
@@ -105,8 +158,41 @@ export function NewTransactionForm({ existingSymbols, defaultSymbol }: Props) {
               value={customSymbol}
               onChange={(e) => setCustomSymbol(e.target.value.toUpperCase())}
               placeholder="e.g. ENGRO"
+              hint="We'll fetch the company name and sector from PSX."
             />
           )}
+
+          {finalSymbol && (
+            <div className="md:col-span-2">
+              <div className="border-l-[3px] border-l-[var(--accent)] bg-[var(--paper-2)] p-4">
+                <div className="label-cap mb-1">PSX lookup — {finalSymbol}</div>
+                {lookupLoading ? (
+                  <div className="text-[12px] text-muted">Fetching from dps.psx.com.pk…</div>
+                ) : lookupError ? (
+                  <div className="text-[12px]" style={{ color: "var(--negative)" }}>{lookupError}</div>
+                ) : lookup ? (
+                  <div className="text-[13px] leading-relaxed">
+                    <div className="font-display" style={{ fontSize: 17, fontVariationSettings: "'opsz' 144" }}>
+                      {lookup.name}
+                    </div>
+                    <div className="mt-1 text-muted text-[12px]">
+                      {lookup.sector}
+                      {lookup.price != null && (
+                        <>
+                          {" · "}
+                          <span className="font-mono mono-num text-ink">{fmtRs(lookup.price, true)}</span>
+                        </>
+                      )}
+                      {lookup.asOf && <span className="font-mono"> · as of {lookup.asOf}</span>}
+                    </div>
+                  </div>
+                ) : (
+                  <div className="text-[12px] text-muted">Type at least two characters.</div>
+                )}
+              </div>
+            </div>
+          )}
+
           <Select
             label="Type"
             value={type}
@@ -142,6 +228,11 @@ export function NewTransactionForm({ existingSymbols, defaultSymbol }: Props) {
               onChange={setPrice}
               step={0.01}
               min={0}
+              hint={
+                lookup?.price != null && type !== "DIVIDEND"
+                  ? `PSX last: ${fmtRs(lookup.price, true)}`
+                  : undefined
+              }
             />
           )}
           {(type === "BUY" || type === "SELL" || type === "RIGHT" || type === "DIVIDEND") && (

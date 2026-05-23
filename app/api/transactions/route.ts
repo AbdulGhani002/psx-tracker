@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { connectDb } from "@/lib/db";
 import { HoldingModel, TransactionModel, TRANSACTION_TYPES } from "@/lib/models";
-import { getSectorInfo } from "@/lib/sectors";
+import { getCompanyInfo } from "@/lib/prices";
 import { deriveFromTransactions } from "@/lib/calculations";
 
 export const dynamic = "force-dynamic";
@@ -52,16 +52,16 @@ export async function POST(req: NextRequest) {
 
     let holding = await HoldingModel.findOne({ symbol: parsed.symbol });
     if (!holding) {
-      const info = getSectorInfo(parsed.symbol);
+      // Brand new symbol — look it up on PSX so we don't store garbage metadata.
+      const info = await getCompanyInfo(parsed.symbol);
       holding = await HoldingModel.create({
         symbol: parsed.symbol,
-        name: info.name,
-        sector: info.sector,
-        shariaCompliant: info.shariaCompliant,
+        name: info?.name ?? parsed.symbol,
+        sector: info?.sector ?? "Unknown",
+        shariaCompliant: false,
       });
     }
 
-    // Sign shares: SELL stores negative shares to make queries simpler.
     let signedShares = parsed.shares;
     if (parsed.type === "SELL" && signedShares > 0) signedShares = -Math.abs(signedShares);
 
@@ -72,10 +72,8 @@ export async function POST(req: NextRequest) {
     } else if (parsed.type === "SELL") {
       netAmount = totalAmount - parsed.fees;
     } else if (parsed.type === "DIVIDEND") {
-      // pricePerShare = DPS, shares = held shares at record date
       netAmount = Math.abs(signedShares) * parsed.pricePerShare - parsed.fees;
     } else {
-      // BONUS / SPLIT — no cash impact
       netAmount = 0;
     }
 

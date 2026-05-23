@@ -7,8 +7,7 @@
     "build": "next build",
     "start": "next start -p 8010 -H 0.0.0.0",
     "lint": "next lint",
-    "typecheck": "tsc --noEmit",
-    "seed": "tsx scripts/seed.ts"
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.9.1",

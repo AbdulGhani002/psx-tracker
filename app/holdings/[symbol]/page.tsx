@@ -64,8 +64,14 @@ export default async function HoldingDetail({ params }: Props) {
       </div>
       <PageHeader
         eyebrow={holding.sector}
-        title={holding.name}
-        subtitle={`${symbol}${holding.shariaCompliant ? " — Sharia compliant" : ""}`}
+        title={holding.name && holding.name !== symbol ? holding.name : symbol}
+        subtitle={
+          holding.name && holding.name !== symbol
+            ? `${symbol}${holding.shariaCompliant ? " — Sharia compliant" : ""}`
+            : holding.shariaCompliant
+            ? "Sharia compliant"
+            : undefined
+        }
       >
         <div className="flex gap-3">
           <Link href={`/transactions/new?symbol=${symbol}`}>

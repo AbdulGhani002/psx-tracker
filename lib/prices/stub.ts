@@ -1,39 +1,17 @@
-import type { PriceFetcher, PriceQuote } from "./types";
+import type { CompanyInfo, PriceFetcher, PriceQuote } from "./types";
 
-const STUB_PRICES: Record<string, number> = {
-  MUREB: 1140,
-  MEBL: 295,
-  AHCL: 14.5,
-  HUBC: 152,
-  PTL: 23.8,
-  OGDC: 245,
-  PPL: 168,
-  ENGRO: 322,
-  FFC: 442,
-  LUCK: 1240,
-  POL: 685,
-  SYS: 690,
-  UBL: 358,
-  HBL: 138,
-  MCB: 305,
-  ABL: 152,
-  PSO: 318,
-  KEL: 5.4,
-  TRG: 51,
-  EFERT: 215,
-  DGKC: 134,
-  NESTLE: 7150,
-  UNILEVER: 22500,
-};
-
+// Dev-only fallback. Returns nothing real — the live app uses PSXScraperFetcher.
+// Kept for offline development; never used when PRICE_FETCHER_STRATEGY=psx-scraper.
 export class StubFetcher implements PriceFetcher {
   readonly name = "stub";
 
   async fetchPrice(symbol: string): Promise<PriceQuote | null> {
-    const upper = symbol.toUpperCase();
-    const price = STUB_PRICES[upper];
-    if (price == null) return null;
-    return { symbol: upper, price, timestamp: new Date(), source: this.name };
+    return {
+      symbol: symbol.toUpperCase(),
+      price: 100,
+      timestamp: new Date(),
+      source: this.name,
+    };
   }
 
   async fetchBatch(symbols: string[]): Promise<Map<string, PriceQuote>> {
@@ -43,5 +21,9 @@ export class StubFetcher implements PriceFetcher {
       if (q) out.set(q.symbol, q);
     }
     return out;
+  }
+
+  async fetchCompanyInfo(symbol: string): Promise<CompanyInfo | null> {
+    return { symbol: symbol.toUpperCase(), name: symbol.toUpperCase(), sector: "Unknown" };
   }
 }
