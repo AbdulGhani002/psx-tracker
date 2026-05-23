@@ -35,6 +35,12 @@ export default async function Dashboard() {
 
   const recent = allTx.slice(0, 5);
   const xirrLabel = summary.xirr != null ? fmtSignedPct(summary.xirr, 1) : "—";
+  const xirrHint =
+    summary.xirr != null
+      ? `Annualised over ${Math.round(summary.xirrSpanDays)} days`
+      : summary.xirrSpanDays < 90
+      ? `Needs 90+ days (you're at ${Math.round(summary.xirrSpanDays)})`
+      : "Out of range";
   const totalReturn = summary.unrealizedPL + summary.realizedPL + summary.dividendsTotal;
   const totalReturnPct =
     summary.totalCost > 0 ? totalReturn / summary.totalCost : null;
@@ -138,6 +144,7 @@ export default async function Dashboard() {
         <Stat
           label="XIRR"
           value={xirrLabel}
+          hint={xirrHint}
           tone={
             summary.xirr == null ? "muted" : summary.xirr >= 0 ? "positive" : "negative"
           }

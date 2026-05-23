@@ -32,6 +32,7 @@ export type PortfolioSummary = {
   dividendsTotal: number;
   dividendsYTD: number;
   xirr: number | null;
+  xirrSpanDays: number; // 0 when no flows; UI uses this to suppress XIRR for short windows
   sectorBreakdown: { sector: string; value: number; percent: number }[];
   shariaBreakdown: { compliant: number; nonCompliant: number; compliantPercent: number };
 };
@@ -124,7 +125,22 @@ export function summarisePortfolio({
     }
   }
   if (totalValue > 0) flows.push({ date: new Date(), amount: totalValue });
-  const portfolioXirr = xirr(flows);
+  let portfolioXirr = xirr(flows);
+  let xirrSpanDays = 0;
+  if (flows.length > 0) {
+    const earliest = flows.reduce(
+      (min, f) => (f.date < min ? f.date : min),
+      flows[0].date
+    );
+    xirrSpanDays = (Date.now() - earliest.getTime()) / (1000 * 60 * 60 * 24);
+  }
+  // Annualised return is meaningless on a < 90-day window — the math explodes
+  // (e.g. +0.4% over a week annualises to thousands of percent). Hide it.
+  // Also drop any absurd value (|XIRR| > 500%) that survived as a numerical
+  // artefact in Newton-Raphson.
+  if (xirrSpanDays < 90 || (portfolioXirr != null && Math.abs(portfolioXirr) > 5)) {
+    portfolioXirr = null;
+  }
 
   const sectorMap = new Map<string, number>();
   for (const p of positions) {
@@ -155,6 +171,7 @@ export function summarisePortfolio({
     dividendsTotal,
     dividendsYTD,
     xirr: portfolioXirr,
+    xirrSpanDays,
     sectorBreakdown,
     shariaBreakdown,
   };

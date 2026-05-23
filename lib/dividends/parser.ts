@@ -59,47 +59,79 @@ export function parseFromText(text: string): ParsedWarrant {
   const headerMatch = norm.match(/^(.+?)\s+DIVIDEND \/ ZAKAT/i);
   const companyName = headerMatch ? headerMatch[1].trim() : null;
 
-  // Date of Issue / Financial Year / Rate Per Security (Rs. X.XXXX) ...
-  const dateRow = norm.match(
-    /Date of Issue Financial Year Rate Per Security[^]*?(\d{2}-\d{2}-\d{4})\s+(\d{4}-\d{2,4})\s+Rs\.?\s*([\d.]+)/i
-  );
-  const issueDate = dateRow ? toIsoDate(dateRow[1]) : null;
-  const financialYear = dateRow ? dateRow[2] : null;
-  const ratePerSecurity = dateRow ? toNum(dateRow[3]) : null;
+  // Extract each field independently so one missing/reordered field doesn't
+  // cascade and null out the rest. Each regex looks within a window after its
+  // anchor label, not across the entire document.
 
-  // Warrant No. NoOfSecurities ZakatLiable — three integers after the header.
-  const warrantRow = norm.match(
-    /Warrant No\.\s+No\. of Securities\s+Securities Liable to Zakat\s+(\d+)\s+(\d+)\s+(\d+)/i
-  );
-  const warrantNo = warrantRow ? warrantRow[1] : null;
-  const shares = warrantRow ? toNum(warrantRow[2]) : null;
+  // Warrant No. (REQUIRED for dedup) — always followed by an integer.
+  // Tolerate two layouts:
+  //   "Warrant No. 55017726"
+  //   "Warrant No. No. of Securities Securities Liable to Zakat 55017726 1 0"
+  const warrantNoMatch =
+    norm.match(/Warrant No\.[^\d]*?(\d+)\s+\d+\s+\d+/i) ??
+    norm.match(/Warrant No\.[^\d]*?(\d+)/i);
+  const warrantNo = warrantNoMatch ? warrantNoMatch[1] : null;
 
-  // Securities not Liable to Zakat + Amount of Dividend (Rs.) — int, decimal
-  const amountRow = norm.match(
-    /Securities not Liable to Zakat\s+Amount of Dividend \(Rs\.\)\s+(\d+)\s+([\d,.]+)/i
-  );
-  const grossAmount = amountRow ? toNum(amountRow[2]) : null;
+  // No. of Securities (shares at record date).
+  const sharesMatch =
+    norm.match(/No\. of Securities[^\d]*?Securities Liable to Zakat[^\d]*?\d+\s+(\d+)/i) ??
+    norm.match(/No\. of Securities[^\d]*?(\d+)/i);
+  const shares = sharesMatch ? toNum(sharesMatch[1]) : null;
 
-  // Zakat Deducted (Rs.) Tax Deducted (Rs.) — two decimals
-  const dedRow = norm.match(
-    /Zakat Deducted \(Rs\.\)\s+Tax Deducted \(Rs\.\)\s+([\d,.]+)\s+([\d,.]+)/i
-  );
-  const zakatDeducted = dedRow ? toNum(dedRow[1]) : null;
-  const taxDeducted = dedRow ? toNum(dedRow[2]) : null;
+  // Date of Issue
+  const issueDateMatch = norm.match(/Date of Issue[^\d]{1,200}?(\d{1,2}[-/]\d{1,2}[-/]\d{2,4})/i);
+  const issueDate = issueDateMatch ? toIsoDate(issueDateMatch[1]) : null;
+
+  // Financial Year — accept "2024-25", "2024-2025", "2024/25", "FY 2024-25".
+  const fyMatch =
+    norm.match(/Financial Year[^\d]{1,200}?(\d{4}[-/]\d{2,4})/i) ??
+    norm.match(/FY\s+(\d{4}[-/]\d{2,4})/i);
+  const financialYear = fyMatch ? fyMatch[1] : null;
+
+  // Rate Per Security — currency-prefixed or bare decimal.
+  const rateMatch =
+    norm.match(/Rate Per Security[^]{1,200}?Rs\.?\s*([\d,]+\.?\d*)/i) ??
+    norm.match(/Rate Per Security[^]{1,200}?(?<!\d)([\d,]+\.\d+)/i);
+  const ratePerSecurityRaw = rateMatch ? toNum(rateMatch[1]) : null;
+
+  // Amount of Dividend (Rs.) — gross.
+  const grossMatch =
+    norm.match(/Amount of Dividend[^\d]{1,80}?\d+\s+([\d,]+\.?\d*)/i) ??
+    norm.match(/Amount of Dividend[^\d]{1,80}?([\d,]+\.\d+)/i);
+  const grossAmount = grossMatch ? toNum(grossMatch[1]) : null;
+
+  // Zakat Deducted and Tax Deducted. They share a header row but the values
+  // can come in either order depending on layout. Anchor on each individually.
+  const zakatMatch =
+    norm.match(/Zakat Deducted[^]{1,120}?Tax Deducted[^]{1,40}?([\d,]+\.?\d*)\s+[\d,]+\.?\d*/i) ??
+    norm.match(/Zakat Deducted[^]{1,40}?([\d,]+\.?\d*)/i);
+  const taxMatch =
+    norm.match(/Tax Deducted[^]{1,120}?([\d,]+\.?\d*)\s*Amount Paid/i) ??
+    norm.match(/Zakat Deducted[^]{1,120}?Tax Deducted[^\d]{1,40}?[\d,]+\.?\d*\s+([\d,]+\.?\d*)/i) ??
+    norm.match(/Tax Deducted[^]{1,80}?([\d,]+\.?\d*)/i);
+  const zakatDeducted = zakatMatch ? toNum(zakatMatch[1]) : null;
+  const taxDeducted = taxMatch ? toNum(taxMatch[1]) : null;
 
   // Amount Paid (Rs.) <num>
-  const amountPaid = toNum(tail(/Amount Paid \(Rs\.\)\s+([\d,.]+)/i, norm));
+  const amountPaid = toNum(tail(/Amount Paid \(Rs\.\)\s+([\d,]+\.?\d*)/i, norm));
 
-  // Payment Status Payment Date STATUS DD-MM-YYYY
-  const payRow = norm.match(
-    /Payment Status\s+Payment Date\s+([A-Za-z]+)\s+(\d{2}-\d{2}-\d{4})/i
-  );
-  const paymentStatus = payRow ? payRow[1] : null;
-  const paymentDate = payRow ? toIsoDate(payRow[2]) : null;
+  // Payment Status / Payment Date — also extract independently.
+  const paymentDateMatch = norm.match(/Payment Date[^]{0,60}?(\d{1,2}[-/]\d{1,2}[-/]\d{2,4})/i);
+  const paymentDate = paymentDateMatch ? toIsoDate(paymentDateMatch[1]) : null;
+  const paymentStatusMatch = norm.match(/Payment Status[^]{0,60}?\b(PAID|Paid|UNPAID|Unpaid|Pending|Held)\b/);
+  const paymentStatus = paymentStatusMatch ? paymentStatusMatch[1] : null;
 
   // Dividend type from the disclosure prose.
   const typeMatch = norm.match(/details of the (\w+) dividend disbursed/i);
   const dividendType = typeMatch ? typeMatch[1] : null;
+
+  // Fallback: derive rate from gross / shares if the rate field was missing
+  // or zero. Common for warrants where the rate has 4 decimals and the
+  // explicit Rs. prefix is replaced by a column alignment.
+  let ratePerSecurity = ratePerSecurityRaw;
+  if ((ratePerSecurity == null || ratePerSecurity === 0) && grossAmount && shares && shares > 0) {
+    ratePerSecurity = Math.round((grossAmount / shares) * 10000) / 10000;
+  }
 
   return {
     warrantNo,
