@@ -6,11 +6,17 @@ import {
   TargetAllocationModel,
   DecisionLogModel,
   ScenarioProjectionModel,
+  CashEntryModel,
   type Holding,
   type Transaction,
 } from "./models";
 import { getPrices } from "./prices";
-import { summarisePortfolio, type PortfolioSummary } from "./calculations";
+import {
+  summarisePortfolio,
+  computeCashBalance,
+  type PortfolioSummary,
+  type CashSummary,
+} from "./calculations";
 
 function plain<T>(v: unknown): T {
   return JSON.parse(JSON.stringify(v));
@@ -91,6 +97,30 @@ export async function getDecisionLog(symbol?: string) {
   const filter = symbol ? { symbol: symbol.toUpperCase() } : {};
   const docs = await DecisionLogModel.find(filter).sort({ date: -1 }).lean();
   return plain<Array<{ _id: string; symbol: string; date: string; trigger: string; interpretation: string; action: string; positionBefore: number; positionAfter: number }>>(docs);
+}
+
+export async function getCashSummary(): Promise<CashSummary> {
+  if (!(await tryConnect())) {
+    return {
+      balance: 0,
+      deposits: 0,
+      withdrawals: 0,
+      dividendsCollected: 0,
+      proceedsFromSells: 0,
+      spentOnBuys: 0,
+    };
+  }
+  const [entries, txs] = await Promise.all([
+    CashEntryModel.find().lean(),
+    TransactionModel.find().lean(),
+  ]);
+  return computeCashBalance(txs as any, entries as any);
+}
+
+export async function getCashEntries() {
+  if (!(await tryConnect())) return [];
+  const docs = await CashEntryModel.find().sort({ date: -1, createdAt: -1 }).lean();
+  return plain<Array<{ _id: string; date: string; type: "DEPOSIT" | "WITHDRAWAL"; amount: number; notes: string }>>(docs);
 }
 
 export async function getScenariosForSymbol(symbol: string | null) {

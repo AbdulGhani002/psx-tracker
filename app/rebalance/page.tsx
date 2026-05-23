@@ -3,15 +3,16 @@ import { Section } from "@/components/layout/Section";
 import { SetupBanner } from "@/components/layout/SetupBanner";
 import { RebalanceView } from "./RebalanceView";
 import { TargetsEditor } from "./TargetsEditor";
-import { getPortfolioSummary, getAllHoldings, checkDataAvailability } from "@/lib/data";
+import { getPortfolioSummary, getAllHoldings, getCashSummary, checkDataAvailability } from "@/lib/data";
 
 export const dynamic = "force-dynamic";
 
 export default async function RebalancePage() {
   const avail = await checkDataAvailability();
-  const [summary, holdings] = await Promise.all([
+  const [summary, holdings, cashSummary] = await Promise.all([
     getPortfolioSummary(),
     getAllHoldings(),
+    getCashSummary(),
   ]);
 
   const bandBySymbol = new Map<string, number>();
@@ -40,8 +41,17 @@ export default async function RebalancePage() {
         </Section>
       )}
 
-      <Section number={targetRows.length > 0 ? "02" : "01"} title="Rebalance">
-        <RebalanceView positions={summary.positions} totalValue={summary.totalValue} />
+      <Section
+        number={targetRows.length > 0 ? "02" : "01"}
+        title="Rebalance"
+        display="Deploy cash. Buy integers."
+        description={`Cash available in your brokerage balance: ${cashSummary.balance >= 0 ? "Rs " + cashSummary.balance.toLocaleString("en-PK", { maximumFractionDigits: 0 }) : "negative — you need to record a deposit"}. Share counts are integers, so the leftover rupees never get spent and stay as cash.`}
+      >
+        <RebalanceView
+          positions={summary.positions}
+          totalValue={summary.totalValue}
+          availableCashBalance={cashSummary.balance}
+        />
       </Section>
     </div>
   );

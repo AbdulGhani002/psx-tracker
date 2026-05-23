@@ -7,6 +7,7 @@ import { Badge } from "@/components/ui/Badge";
 import { Card } from "@/components/ui/Card";
 import { SetupBanner } from "@/components/layout/SetupBanner";
 import { SectorBar } from "@/components/charts/SectorBar";
+import { BenchmarkChartLoader } from "@/components/charts/BenchmarkChartLoader";
 import {
   getPortfolioSummary,
   getAllTransactions,
@@ -152,7 +153,12 @@ export default async function Dashboard() {
         />
       </StatRow>
 
-      <Section number="01" title="Allocation snapshot" description="Current allocation vs. target. Deviations outside the rebalance band are flagged.">
+      <Section
+        number="01"
+        title="Allocation snapshot"
+        display="Where the money sits today."
+        description="Current allocation vs. target. Deviations outside the rebalance band are flagged."
+      >
         <Table
           columns={positionColumns}
           rows={summary.positions}
@@ -161,7 +167,12 @@ export default async function Dashboard() {
         />
       </Section>
 
-      <Section number="02" title="Sector concentration" description="Exposure by PSX sector across all positions.">
+      <Section
+        number="02"
+        title="Sector concentration"
+        display="Exposure by industry."
+        description="Visible weights across PSX sectors."
+      >
         {summary.sectorBreakdown.length === 0 ? (
           <Card>
             <p className="text-sm text-muted">Add positions to see sector exposure.</p>
@@ -171,36 +182,21 @@ export default async function Dashboard() {
         )}
       </Section>
 
-      <Section number="03" title="Sharia compliance">
-        {summary.totalValue === 0 ? (
-          <Card>
-            <p className="text-sm text-muted">No data yet.</p>
-          </Card>
-        ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <Card>
-              <div className="label-cap">Sharia-compliant</div>
-              <div className="font-display mono-num text-[28px] mt-1" style={{ fontVariationSettings: "'opsz' 144" }}>
-                {fmtPct(summary.shariaBreakdown.compliantPercent / 100, 1)}
-              </div>
-              <div className="text-[12px] text-muted font-mono mt-1">
-                {fmtRs(summary.shariaBreakdown.compliant)}
-              </div>
-            </Card>
-            <Card>
-              <div className="label-cap">Non-compliant</div>
-              <div className="font-display mono-num text-[28px] mt-1" style={{ fontVariationSettings: "'opsz' 144" }}>
-                {fmtPct(1 - summary.shariaBreakdown.compliantPercent / 100, 1)}
-              </div>
-              <div className="text-[12px] text-muted font-mono mt-1">
-                {fmtRs(summary.shariaBreakdown.nonCompliant)}
-              </div>
-            </Card>
-          </div>
-        )}
+      <Section
+        number="03"
+        title="Benchmark"
+        display="Portfolio vs. KSE-100."
+        description="Indexed to 100 at the start of the trailing 90 days. Both lines reflect daily close-to-close moves."
+      >
+        <BenchmarkChartLoader />
       </Section>
 
-      <Section number="04" title="Recent activity" action={<Link href="/transactions" className="label-cap hover:text-[var(--accent-deep)]">All transactions →</Link>}>
+      <Section
+        number="04"
+        title="Recent activity"
+        display="The last five things you did."
+        action={<Link href="/transactions" className="label-cap hover:text-[var(--accent-deep)]">All transactions →</Link>}
+      >
         <Table
           columns={recentColumns}
           rows={recent}

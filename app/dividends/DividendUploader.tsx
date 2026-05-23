@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { Select } from "@/components/ui/Select";
+import { NumberInput } from "@/components/ui/NumberInput";
 import { fmtRs, fmtNum, fmtDate } from "@/lib/format";
 
 type ParsedWarrant = {
@@ -58,6 +59,20 @@ type Props = {
   existingWarrantNumbers: string[];
 };
 
+type ManualForm = {
+  symbol: string;
+  isCustom: boolean;
+  customSymbol: string;
+  warrantNo: string;
+  shares: number;
+  ratePerSecurity: number;
+  taxDeducted: number;
+  zakatDeducted: number;
+  paymentDate: string;
+  financialYear: string;
+  dividendType: string;
+};
+
 export function DividendUploader({ existingSymbols, existingWarrantNumbers }: Props) {
   const router = useRouter();
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -65,6 +80,23 @@ export function DividendUploader({ existingSymbols, existingWarrantNumbers }: Pr
   const [parsing, setParsing] = useState(false);
   const [importing, setImporting] = useState(false);
   const [dragOver, setDragOver] = useState(false);
+  const [showManual, setShowManual] = useState(false);
+  const [manualSaving, setManualSaving] = useState(false);
+  const [manualError, setManualError] = useState<string | null>(null);
+  const [manualSavedAt, setManualSavedAt] = useState<number | null>(null);
+  const [manual, setManual] = useState<ManualForm>({
+    symbol: existingSymbols[0]?.symbol ?? "__new__",
+    isCustom: existingSymbols.length === 0,
+    customSymbol: "",
+    warrantNo: "",
+    shares: 0,
+    ratePerSecurity: 0,
+    taxDeducted: 0,
+    zakatDeducted: 0,
+    paymentDate: new Date().toISOString().slice(0, 10),
+    financialYear: "",
+    dividendType: "Interim",
+  });
 
   const knownWarrantSet = new Set(existingWarrantNumbers);
 
@@ -174,8 +206,202 @@ export function DividendUploader({ existingSymbols, existingWarrantNumbers }: Pr
     (p) => p.parsed && !p.imported && !p.duplicate && !knownWarrantSet.has(p.parsed.warrantNo ?? "")
   ).length;
 
+  const manualSymbol = (manual.isCustom ? manual.customSymbol : manual.symbol).trim().toUpperCase();
+  const manualGross = manual.shares * manual.ratePerSecurity;
+  const manualNet = manualGross - manual.taxDeducted - manual.zakatDeducted;
+
+  async function submitManual(e: React.FormEvent) {
+    e.preventDefault();
+    setManualError(null);
+    if (!manualSymbol) { setManualError("Pick or type a symbol."); return; }
+    if (!manual.warrantNo.trim()) { setManualError("Warrant number is required (used for dedup)."); return; }
+    if (manual.shares <= 0 || manual.ratePerSecurity <= 0) {
+      setManualError("Shares and rate per share must be positive.");
+      return;
+    }
+    setManualSaving(true);
+    try {
+      const item = {
+        symbol: manualSymbol,
+        warrantNo: manual.warrantNo.trim(),
+        companyName: null,
+        shares: manual.shares,
+        ratePerSecurity: manual.ratePerSecurity,
+        grossAmount: manualGross,
+        taxDeducted: manual.taxDeducted,
+        zakatDeducted: manual.zakatDeducted,
+        amountPaid: manualNet,
+        paymentDate: manual.paymentDate,
+        financialYear: manual.financialYear || null,
+        dividendType: manual.dividendType || null,
+      };
+      const res = await fetch("/api/dividends/import", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ items: [item] }),
+      });
+      const json = await res.json();
+      if (!res.ok) {
+        setManualError(json?.detail ?? json?.error ?? "Save failed.");
+        return;
+      }
+      if (json.summary?.duplicateCount > 0) {
+        setManualError("That warrant number is already recorded.");
+        return;
+      }
+      if (json.summary?.errorCount > 0) {
+        setManualError(json.errors?.[0]?.error ?? "Save failed.");
+        return;
+      }
+      setManualSavedAt(Date.now());
+      setManual((m) => ({ ...m, warrantNo: "", shares: 0, ratePerSecurity: 0, taxDeducted: 0, zakatDeducted: 0 }));
+      router.refresh();
+    } finally {
+      setManualSaving(false);
+    }
+  }
+
   return (
     <div className="space-y-4">
+      <div className="flex items-center gap-3">
+        <Button variant={showManual ? "outline" : "solid"} onClick={() => setShowManual(false)}>
+          Upload PDF
+        </Button>
+        <Button variant={showManual ? "solid" : "outline"} onClick={() => setShowManual(true)}>
+          Add Manually
+        </Button>
+      </div>
+
+      {showManual ? (
+        <Card>
+          <form onSubmit={submitManual} className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-5">
+            <Select
+              label="Symbol"
+              value={manual.symbol}
+              onChange={(v) => setManual({ ...manual, symbol: v, isCustom: v === "__new__" })}
+              options={[
+                ...existingSymbols.map((s) => ({ value: s.symbol, label: `${s.symbol} — ${s.name}` })),
+                { value: "__new__", label: "+ Add new symbol" },
+              ]}
+            />
+            {manual.isCustom && (
+              <div className="space-y-1.5">
+                <label className="label-cap block">New symbol</label>
+                <div className="border-b border-ink">
+                  <input
+                    type="text"
+                    value={manual.customSymbol}
+                    onChange={(e) => setManual({ ...manual, customSymbol: e.target.value.toUpperCase() })}
+                    placeholder="e.g. HUBC"
+                    className="w-full bg-transparent py-1.5 text-[14px] focus:outline-none font-mono"
+                  />
+                </div>
+              </div>
+            )}
+            <div className="space-y-1.5">
+              <label className="label-cap block">Warrant # (any unique ID)</label>
+              <div className="border-b border-ink">
+                <input
+                  type="text"
+                  value={manual.warrantNo}
+                  onChange={(e) => setManual({ ...manual, warrantNo: e.target.value })}
+                  placeholder="e.g. MAN-2026-001 or 55017726"
+                  className="w-full bg-transparent py-1.5 text-[14px] focus:outline-none font-mono"
+                />
+              </div>
+              <p className="text-[11px] text-muted">Required. Used to dedup; use any string you won't repeat.</p>
+            </div>
+            <div className="space-y-1.5">
+              <label className="label-cap block">Payment date</label>
+              <div className="border-b border-ink">
+                <input
+                  type="date"
+                  value={manual.paymentDate}
+                  onChange={(e) => setManual({ ...manual, paymentDate: e.target.value })}
+                  className="w-full bg-transparent py-1.5 text-[14px] focus:outline-none font-mono mono-num"
+                />
+              </div>
+            </div>
+            <NumberInput
+              label="Shares at record date"
+              value={manual.shares}
+              onChange={(v) => setManual({ ...manual, shares: v })}
+              min={0}
+              step={1}
+            />
+            <NumberInput
+              label="Rate per share (Rs)"
+              value={manual.ratePerSecurity}
+              onChange={(v) => setManual({ ...manual, ratePerSecurity: v })}
+              min={0}
+              step={0.0001}
+            />
+            <NumberInput
+              label="Tax deducted (Rs)"
+              value={manual.taxDeducted}
+              onChange={(v) => setManual({ ...manual, taxDeducted: v })}
+              min={0}
+              step={0.01}
+            />
+            <NumberInput
+              label="Zakat deducted (Rs)"
+              value={manual.zakatDeducted}
+              onChange={(v) => setManual({ ...manual, zakatDeducted: v })}
+              min={0}
+              step={0.01}
+            />
+            <div className="space-y-1.5">
+              <label className="label-cap block">Financial year</label>
+              <div className="border-b border-ink">
+                <input
+                  type="text"
+                  value={manual.financialYear}
+                  onChange={(e) => setManual({ ...manual, financialYear: e.target.value })}
+                  placeholder="2024-25"
+                  className="w-full bg-transparent py-1.5 text-[14px] focus:outline-none font-mono"
+                />
+              </div>
+            </div>
+            <Select
+              label="Dividend type"
+              value={manual.dividendType}
+              onChange={(v) => setManual({ ...manual, dividendType: v })}
+              options={[
+                { value: "Interim", label: "Interim" },
+                { value: "Final", label: "Final" },
+                { value: "Special", label: "Special" },
+                { value: "Other", label: "Other" },
+              ]}
+            />
+
+            <div className="md:col-span-2 bg-[var(--paper)] -mx-6 -mb-6 px-6 py-4 border-t border-rule">
+              <div className="grid grid-cols-3 gap-4 font-mono mono-num text-[13px]">
+                <div>
+                  <div className="text-[10px] tracking-stat uppercase text-muted">Gross</div>
+                  <div>{fmtRs(manualGross)}</div>
+                </div>
+                <div>
+                  <div className="text-[10px] tracking-stat uppercase text-muted">Deductions</div>
+                  <div>{fmtRs(manual.taxDeducted + manual.zakatDeducted)}</div>
+                </div>
+                <div>
+                  <div className="text-[10px] tracking-stat uppercase text-muted">Net (will be recorded)</div>
+                  <div style={{ color: "var(--positive)" }}>{fmtRs(manualNet)}</div>
+                </div>
+              </div>
+              <div className="flex items-center gap-3 mt-4">
+                <Button type="submit" variant="solid" disabled={manualSaving}>
+                  {manualSaving ? "Saving…" : "Record Dividend"}
+                </Button>
+                {manualError && <span className="text-[13px]" style={{ color: "var(--negative)" }}>{manualError}</span>}
+                {manualSavedAt && Date.now() - manualSavedAt < 3500 && (
+                  <span className="text-[13px]" style={{ color: "var(--positive)" }}>Saved.</span>
+                )}
+              </div>
+            </div>
+          </form>
+        </Card>
+      ) : (
       <div
         onDragOver={(e) => {
           e.preventDefault();
@@ -208,8 +434,9 @@ export function DividendUploader({ existingSymbols, existingWarrantNumbers }: Pr
           onChange={(e) => handleFiles(e.target.files)}
         />
       </div>
+      )}
 
-      {parsing && (
+      {parsing && !showManual && (
         <p className="text-[12px] text-muted">Parsing PDFs…</p>
       )}
 

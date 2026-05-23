@@ -9,3 +9,4 @@ export { PriceSnapshotModel, type PriceSnapshot } from "./PriceSnapshot";
 export { ScenarioProjectionModel, type ScenarioProjection } from "./ScenarioProjection";
 export { TargetAllocationModel, type TargetAllocation } from "./TargetAllocation";
 export { DecisionLogModel, type DecisionLog } from "./DecisionLog";
+export { CashEntryModel, type CashEntry, type CashEntryType, CASH_ENTRY_TYPES } from "./CashEntry";
