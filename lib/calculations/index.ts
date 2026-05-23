@@ -19,3 +19,9 @@ export {
   type ProjectionResult,
   type ScenarioPreset,
 } from "./projection";
+export {
+  computePSXFees,
+  PSX_BROKERAGE_RATE,
+  PSX_PER_SHARE_MIN,
+  type FeeBreakdown,
+} from "./fees";

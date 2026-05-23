@@ -9,6 +9,7 @@ import { TextInput } from "@/components/ui/TextInput";
 import { Select } from "@/components/ui/Select";
 import { TRANSACTION_TYPES, type TransactionType } from "@/lib/types";
 import { fmtRs } from "@/lib/format";
+import { computePSXFees } from "@/lib/calculations";
 
 type Props = {
   existingSymbols: string[];
@@ -46,8 +47,18 @@ export function NewTransactionForm({ existingSymbols, defaultSymbol }: Props) {
   const [shares, setShares] = useState<number>(0);
   const [price, setPrice] = useState<number>(0);
   const [fees, setFees] = useState<number>(0);
+  const [feesManual, setFeesManual] = useState<boolean>(false);
   const [ratio, setRatio] = useState<string>("");
   const [notes, setNotes] = useState<string>("");
+
+  const feeBreakdown = computePSXFees({ shares, price, type });
+
+  // Auto-fill fees from PSX brokerage formula whenever shares/price/type changes,
+  // unless the user manually edited the fee field.
+  useEffect(() => {
+    if (!feesManual) setFees(feeBreakdown.fee);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [feeBreakdown.fee, feesManual]);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -196,7 +207,10 @@ export function NewTransactionForm({ existingSymbols, defaultSymbol }: Props) {
           <Select
             label="Type"
             value={type}
-            onChange={(v) => setType(v as TransactionType)}
+            onChange={(v) => {
+              setType(v as TransactionType);
+              setFeesManual(false); // Re-enable auto fees on type change
+            }}
             options={TRANSACTION_TYPES.map((t) => ({ value: t, label: t }))}
             hint={TYPE_HINTS[type]}
           />
@@ -236,13 +250,38 @@ export function NewTransactionForm({ existingSymbols, defaultSymbol }: Props) {
             />
           )}
           {(type === "BUY" || type === "SELL" || type === "RIGHT" || type === "DIVIDEND") && (
-            <NumberInput
-              label="Fees / charges (Rs)"
-              value={fees}
-              onChange={setFees}
-              step={0.01}
-              min={0}
-            />
+            <div className="space-y-1">
+              <NumberInput
+                label="Fees / charges (Rs)"
+                value={fees}
+                onChange={(v) => {
+                  setFees(v);
+                  setFeesManual(true);
+                }}
+                step={0.01}
+                min={0}
+                hint={
+                  feeBreakdown.rule !== "none"
+                    ? `Auto: ${feeBreakdown.explanation}`
+                    : type === "DIVIDEND"
+                    ? "No brokerage on dividends."
+                    : undefined
+                }
+              />
+              {feesManual && feeBreakdown.rule !== "none" && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setFeesManual(false);
+                    setFees(feeBreakdown.fee);
+                  }}
+                  className="font-mono text-[10px] uppercase tracking-button hover:underline"
+                  style={{ color: "var(--accent-deep)" }}
+                >
+                  ↻ Reset to auto (Rs {feeBreakdown.fee.toFixed(2)})
+                </button>
+              )}
+            </div>
           )}
           {type === "SPLIT" && (
             <TextInput
