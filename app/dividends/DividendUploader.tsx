@@ -36,22 +36,44 @@ type Pending = {
   importError?: string;
 };
 
+// Words too generic to be a useful match signal on their own. Almost every PSX
+// listing has "limited", "company", or "pakistan" in its full name.
+const SYMBOL_MATCH_STOPWORDS = new Set([
+  "limited", "ltd", "company", "co", "corporation", "corp", "pakistan",
+  "bank", "the", "of", "and", "for", "national", "international",
+]);
+
+function meaningfulWords(name: string): string[] {
+  return (name ?? "")
+    .toLowerCase()
+    .split(/[^a-z]+/)
+    .filter((w) => w.length > 3 && !SYMBOL_MATCH_STOPWORDS.has(w));
+}
+
 function suggestSymbolLocal(
   companyName: string | null,
   existing: Array<{ symbol: string; name: string }>
 ): string | null {
   if (!companyName) return null;
-  const lower = companyName.toLowerCase();
-  let best: { symbol: string; score: number } | null = null;
+  const docWords = new Set(meaningfulWords(companyName));
+  if (docWords.size === 0) return null;
+  let best: { symbol: string; score: number; matches: number } | null = null;
   for (const h of existing) {
-    const hn = (h.name ?? "").toLowerCase();
+    const holdingWords = meaningfulWords(h.name);
     let score = 0;
-    for (const word of hn.split(/[^a-z]+/).filter((w) => w.length > 3)) {
-      if (lower.includes(word)) score += word.length;
+    let matches = 0;
+    for (const word of holdingWords) {
+      if (docWords.has(word)) {
+        matches++;
+        score += word.length;
+      }
     }
-    if (!best || score > best.score) best = { symbol: h.symbol, score };
+    if (!best || score > best.score) best = { symbol: h.symbol, score, matches };
   }
-  return best && best.score >= 6 ? best.symbol : null;
+  // Require at least one strong meaningful-word overlap. Without that we'd
+  // wrongly snap NBP -> PPL because both names contain "Pakistan".
+  if (!best || best.matches === 0 || best.score < 5) return null;
+  return best.symbol;
 }
 
 type Props = {
@@ -133,6 +155,14 @@ export function DividendUploader({ existingSymbols, existingWarrantNumbers }: Pr
 
   function updateRow(i: number, patch: Partial<Pending>) {
     setPending((rs) => rs.map((r, idx) => (idx === i ? { ...r, ...patch } : r)));
+  }
+
+  function updateParsed(i: number, patch: Partial<ParsedWarrant>) {
+    setPending((rs) =>
+      rs.map((r, idx) =>
+        idx === i && r.parsed ? { ...r, parsed: { ...r.parsed, ...patch } } : r
+      )
+    );
   }
 
   async function importAll() {
@@ -489,18 +519,86 @@ export function DividendUploader({ existingSymbols, existingWarrantNumbers }: Pr
 
                 {p.parsed && (
                   <>
-                    <div className="grid grid-cols-2 md:grid-cols-4 gap-x-4 gap-y-2 text-[12px] font-mono mono-num">
-                      <Field label="Warrant #" value={p.parsed.warrantNo} />
-                      <Field label="Shares" value={p.parsed.shares != null ? fmtNum(p.parsed.shares) : null} />
-                      <Field label="Rate/Share" value={p.parsed.ratePerSecurity != null ? fmtRs(p.parsed.ratePerSecurity, true) : null} />
-                      <Field label="Gross" value={p.parsed.grossAmount != null ? fmtRs(p.parsed.grossAmount) : null} />
-                      <Field label="Tax" value={p.parsed.taxDeducted != null ? fmtRs(p.parsed.taxDeducted) : null} />
-                      <Field label="Zakat" value={p.parsed.zakatDeducted != null ? fmtRs(p.parsed.zakatDeducted) : null} />
-                      <Field label="Net Paid" value={p.parsed.amountPaid != null ? fmtRs(p.parsed.amountPaid) : null} highlight />
-                      <Field label="Paid On" value={p.parsed.paymentDate ? fmtDate(p.parsed.paymentDate) : null} />
-                      <Field label="FY" value={p.parsed.financialYear} />
-                      <Field label="Type" value={p.parsed.dividendType} />
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-x-4 gap-y-3 text-[12px]">
+                      <EditableField
+                        label="Warrant #"
+                        value={p.parsed.warrantNo ?? ""}
+                        onChange={(v) => updateParsed(i, { warrantNo: v.trim() || null })}
+                        disabled={!!p.imported}
+                      />
+                      <EditableNumber
+                        label="Shares"
+                        value={p.parsed.shares}
+                        onChange={(v) => updateParsed(i, { shares: v })}
+                        disabled={!!p.imported}
+                      />
+                      <EditableNumber
+                        label="Rate/Share"
+                        value={p.parsed.ratePerSecurity}
+                        step={0.0001}
+                        onChange={(v) => updateParsed(i, { ratePerSecurity: v })}
+                        disabled={!!p.imported}
+                      />
+                      <EditableNumber
+                        label="Gross"
+                        value={p.parsed.grossAmount}
+                        step={0.01}
+                        onChange={(v) => updateParsed(i, { grossAmount: v })}
+                        disabled={!!p.imported}
+                      />
+                      <EditableNumber
+                        label="Tax"
+                        value={p.parsed.taxDeducted}
+                        step={0.01}
+                        onChange={(v) => updateParsed(i, { taxDeducted: v })}
+                        disabled={!!p.imported}
+                      />
+                      <EditableNumber
+                        label="Zakat"
+                        value={p.parsed.zakatDeducted}
+                        step={0.01}
+                        onChange={(v) => updateParsed(i, { zakatDeducted: v })}
+                        disabled={!!p.imported}
+                      />
+                      <EditableNumber
+                        label="Net Paid"
+                        value={p.parsed.amountPaid}
+                        step={0.01}
+                        onChange={(v) => updateParsed(i, { amountPaid: v })}
+                        disabled={!!p.imported}
+                        highlight
+                      />
+                      <EditableField
+                        label="Paid On"
+                        type="date"
+                        value={p.parsed.paymentDate ?? ""}
+                        onChange={(v) => updateParsed(i, { paymentDate: v || null })}
+                        disabled={!!p.imported}
+                      />
+                      <EditableField
+                        label="FY"
+                        value={p.parsed.financialYear ?? ""}
+                        placeholder="2024-25"
+                        onChange={(v) => updateParsed(i, { financialYear: v || null })}
+                        disabled={!!p.imported}
+                      />
+                      <EditableField
+                        label="Type"
+                        value={p.parsed.dividendType ?? ""}
+                        placeholder="Interim / Final / Special"
+                        onChange={(v) => updateParsed(i, { dividendType: v || null })}
+                        disabled={!!p.imported}
+                      />
                     </div>
+                    <FieldHelpers
+                      shares={p.parsed.shares}
+                      rate={p.parsed.ratePerSecurity}
+                      gross={p.parsed.grossAmount}
+                      tax={p.parsed.taxDeducted}
+                      zakat={p.parsed.zakatDeducted}
+                      onFill={(patch) => updateParsed(i, patch)}
+                      disabled={!!p.imported}
+                    />
 
                     {!p.imported && !p.duplicate && !dupKnown && (
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mt-4 pt-3 border-t border-rule">
@@ -559,18 +657,138 @@ export function DividendUploader({ existingSymbols, existingWarrantNumbers }: Pr
   );
 }
 
-function Field({ label, value, highlight = false }: { label: string; value: string | number | null | undefined; highlight?: boolean }) {
+function EditableField({
+  label,
+  value,
+  onChange,
+  type = "text",
+  placeholder,
+  disabled,
+}: {
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+  type?: "text" | "date";
+  placeholder?: string;
+  disabled?: boolean;
+}) {
   return (
     <div>
       <div className="text-[10px] tracking-stat uppercase text-muted">{label}</div>
-      <div
-        style={{
-          color: highlight ? "var(--positive)" : "var(--ink)",
-          fontWeight: highlight ? 500 : 400,
-        }}
-      >
-        {value ?? "—"}
+      <div className="border-b border-ink mt-0.5">
+        <input
+          type={type}
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          placeholder={placeholder}
+          disabled={disabled}
+          className="w-full bg-transparent text-[13px] py-1 font-mono mono-num focus:outline-none disabled:opacity-60"
+        />
       </div>
+    </div>
+  );
+}
+
+function EditableNumber({
+  label,
+  value,
+  onChange,
+  step = 1,
+  disabled,
+  highlight,
+}: {
+  label: string;
+  value: number | null;
+  onChange: (v: number) => void;
+  step?: number;
+  disabled?: boolean;
+  highlight?: boolean;
+}) {
+  return (
+    <div>
+      <div className="text-[10px] tracking-stat uppercase text-muted">{label}</div>
+      <div className="border-b border-ink mt-0.5">
+        <input
+          type="number"
+          value={value ?? ""}
+          onChange={(e) => onChange(e.target.value === "" ? 0 : Number(e.target.value))}
+          step={step}
+          disabled={disabled}
+          className="w-full bg-transparent text-[13px] py-1 font-mono mono-num focus:outline-none disabled:opacity-60"
+          style={{
+            color: highlight ? "var(--positive)" : "var(--ink)",
+            fontWeight: highlight ? 500 : 400,
+          }}
+        />
+      </div>
+    </div>
+  );
+}
+
+function FieldHelpers({
+  shares,
+  rate,
+  gross,
+  tax,
+  zakat,
+  onFill,
+  disabled,
+}: {
+  shares: number | null;
+  rate: number | null;
+  gross: number | null;
+  tax: number | null;
+  zakat: number | null;
+  onFill: (patch: { grossAmount?: number; ratePerSecurity?: number; amountPaid?: number; shares?: number }) => void;
+  disabled?: boolean;
+}) {
+  if (disabled) return null;
+
+  const helpers: Array<{ label: string; onClick: () => void }> = [];
+
+  if (shares && rate && (!gross || Math.abs(gross - shares * rate) > 0.01)) {
+    const v = Math.round(shares * rate * 100) / 100;
+    helpers.push({
+      label: `Fill Gross = ${shares} × ${rate} = ${v.toLocaleString("en-PK", { maximumFractionDigits: 2 })}`,
+      onClick: () => onFill({ grossAmount: v }),
+    });
+  }
+  if (shares && gross && shares > 0 && (!rate || rate === 0)) {
+    const v = Math.round((gross / shares) * 10000) / 10000;
+    helpers.push({
+      label: `Fill Rate = Gross ÷ Shares = ${v}`,
+      onClick: () => onFill({ ratePerSecurity: v }),
+    });
+  }
+  if (gross && rate && rate > 0 && (!shares || shares === 0)) {
+    const v = Math.round(gross / rate);
+    helpers.push({
+      label: `Fill Shares = Gross ÷ Rate ≈ ${v}`,
+      onClick: () => onFill({ shares: v }),
+    });
+  }
+  if (gross != null && tax != null && zakat != null) {
+    const v = Math.round((gross - tax - zakat) * 100) / 100;
+    helpers.push({
+      label: `Fill Net = Gross − Tax − Zakat = ${v.toLocaleString("en-PK", { maximumFractionDigits: 2 })}`,
+      onClick: () => onFill({ amountPaid: v }),
+    });
+  }
+
+  if (helpers.length === 0) return null;
+  return (
+    <div className="mt-3 flex flex-wrap gap-2">
+      {helpers.map((h, i) => (
+        <button
+          key={i}
+          type="button"
+          onClick={h.onClick}
+          className="font-mono text-[10px] uppercase tracking-button border border-[var(--rule)] hover:border-ink px-2 py-1 transition-colors"
+          style={{ color: "var(--accent-deep)" }}
+        >
+          ↳ {h.label}
+        </button>
+      ))}
     </div>
   );
 }
