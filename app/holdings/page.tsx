@@ -95,7 +95,7 @@ export default async function HoldingsPage() {
           columns={columns}
           rows={rows}
           rowKey={(r) => r.symbol}
-          empty="No holdings yet. Run npm run seed or add a transaction to begin."
+          empty="No holdings yet. Record your first transaction to begin."
         />
       </Section>
     </div>
