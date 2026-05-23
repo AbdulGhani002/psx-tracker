@@ -50,6 +50,11 @@ export default async function EditTransactionPage({ params }: { params: { id: st
             fees: plain.fees,
             notes: plain.notes,
             ratio: plain.ratio,
+            warrantNo: plain.warrantNo ?? "",
+            taxDeducted: plain.taxDeducted ?? 0,
+            zakatDeducted: plain.zakatDeducted ?? 0,
+            financialYear: plain.financialYear ?? "",
+            dividendType: plain.dividendType ?? "",
           }}
         />
       </Section>

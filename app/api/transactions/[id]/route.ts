@@ -16,6 +16,12 @@ const patchSchema = z.object({
   fees: z.number().optional(),
   notes: z.string().optional(),
   ratio: z.string().optional(),
+  // Dividend-specific
+  warrantNo: z.string().optional().nullable(),
+  taxDeducted: z.number().optional(),
+  zakatDeducted: z.number().optional(),
+  financialYear: z.string().optional(),
+  dividendType: z.string().optional(),
 });
 
 async function recomputeHolding(symbol: string) {
@@ -53,7 +59,16 @@ export async function PATCH(req: NextRequest, { params }: Params) {
     const type = parsed.type ?? existing.type;
     const shares = parsed.shares != null ? parsed.shares : existing.shares;
     const price = parsed.pricePerShare != null ? parsed.pricePerShare : existing.pricePerShare;
-    const fees = parsed.fees != null ? parsed.fees : existing.fees;
+    const taxDeducted = parsed.taxDeducted != null ? parsed.taxDeducted : existing.taxDeducted ?? 0;
+    const zakatDeducted = parsed.zakatDeducted != null ? parsed.zakatDeducted : existing.zakatDeducted ?? 0;
+
+    // For DIVIDEND, fees field is the sum of tax+zakat; auto-keep them in sync.
+    let fees: number;
+    if (type === "DIVIDEND") {
+      fees = taxDeducted + zakatDeducted;
+    } else {
+      fees = parsed.fees != null ? parsed.fees : existing.fees;
+    }
 
     let signedShares = shares;
     if (type === "SELL" && signedShares > 0) signedShares = -Math.abs(signedShares);
@@ -75,6 +90,11 @@ export async function PATCH(req: NextRequest, { params }: Params) {
     existing.netAmount = netAmount;
     if (parsed.notes !== undefined) existing.notes = parsed.notes;
     if (parsed.ratio !== undefined) existing.ratio = parsed.ratio;
+    if (parsed.warrantNo !== undefined) existing.warrantNo = parsed.warrantNo || null;
+    if (parsed.taxDeducted !== undefined) existing.taxDeducted = parsed.taxDeducted;
+    if (parsed.zakatDeducted !== undefined) existing.zakatDeducted = parsed.zakatDeducted;
+    if (parsed.financialYear !== undefined) existing.financialYear = parsed.financialYear;
+    if (parsed.dividendType !== undefined) existing.dividendType = parsed.dividendType;
 
     await existing.save();
     await recomputeHolding(existing.symbol);

@@ -22,6 +22,11 @@ type Props = {
     fees: number;
     notes: string;
     ratio: string;
+    warrantNo: string;
+    taxDeducted: number;
+    zakatDeducted: number;
+    financialYear: string;
+    dividendType: string;
   };
 };
 
@@ -34,19 +39,25 @@ export function EditTransactionForm({ id, symbol, initial }: Props) {
   const [fees, setFees] = useState(initial.fees);
   const [notes, setNotes] = useState(initial.notes);
   const [ratio, setRatio] = useState(initial.ratio);
+  const [warrantNo, setWarrantNo] = useState(initial.warrantNo);
+  const [taxDeducted, setTaxDeducted] = useState(initial.taxDeducted);
+  const [zakatDeducted, setZakatDeducted] = useState(initial.zakatDeducted);
+  const [financialYear, setFinancialYear] = useState(initial.financialYear);
+  const [dividendType, setDividendType] = useState(initial.dividendType || "Interim");
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const isDividend = type === "DIVIDEND";
   const feeBreakdown = computePSXFees({ shares, price, type });
+
   const totalAmount = shares * price;
+  const effectiveFees = isDividend ? taxDeducted + zakatDeducted : fees;
   const netAmount =
     type === "BUY" || type === "RIGHT"
-      ? totalAmount + fees
-      : type === "SELL"
-      ? totalAmount - fees
-      : type === "DIVIDEND"
-      ? totalAmount - fees
+      ? totalAmount + effectiveFees
+      : type === "SELL" || type === "DIVIDEND"
+      ? totalAmount - effectiveFees
       : 0;
 
   async function onSubmit(e: React.FormEvent) {
@@ -54,12 +65,26 @@ export function EditTransactionForm({ id, symbol, initial }: Props) {
     setSaving(true);
     setError(null);
     try {
+      const payload: Record<string, unknown> = {
+        type,
+        date,
+        shares,
+        pricePerShare: price,
+        fees: isDividend ? taxDeducted + zakatDeducted : fees,
+        notes,
+        ratio,
+      };
+      if (isDividend) {
+        payload.warrantNo = warrantNo.trim() || null;
+        payload.taxDeducted = taxDeducted;
+        payload.zakatDeducted = zakatDeducted;
+        payload.financialYear = financialYear.trim();
+        payload.dividendType = dividendType.trim();
+      }
       const res = await fetch(`/api/transactions/${id}`, {
         method: "PATCH",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          type, date, shares, pricePerShare: price, fees, notes, ratio,
-        }),
+        body: JSON.stringify(payload),
       });
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
@@ -90,8 +115,24 @@ export function EditTransactionForm({ id, symbol, initial }: Props) {
     }
   }
 
+  function fixSharesFromGross() {
+    const grossStr = prompt("Actual gross dividend amount (Rs):");
+    if (!grossStr) return;
+    const g = Number(grossStr);
+    if (!Number.isFinite(g) || g <= 0 || price <= 0) return;
+    setShares(Math.round(g / price));
+  }
+
+  function fixRateFromGross() {
+    const grossStr = prompt("Actual gross dividend amount (Rs):");
+    if (!grossStr) return;
+    const g = Number(grossStr);
+    if (!Number.isFinite(g) || g <= 0 || shares <= 0) return;
+    setPrice(Math.round((g / shares) * 10000) / 10000);
+  }
+
   return (
-    <form onSubmit={onSubmit} className="space-y-6 max-w-[640px]">
+    <form onSubmit={onSubmit} className="space-y-6 max-w-[680px]">
       <Card>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-5">
           <Select
@@ -111,19 +152,75 @@ export function EditTransactionForm({ id, symbol, initial }: Props) {
               />
             </div>
           </div>
+
           {type !== "SPLIT" && (
             <NumberInput label="Shares" value={shares} onChange={setShares} step={1} min={0} />
           )}
           {type !== "BONUS" && type !== "SPLIT" && (
             <NumberInput
-              label={type === "DIVIDEND" ? "Dividend per share (Rs)" : "Price per share (Rs)"}
+              label={isDividend ? "Rate per share (Rs)" : "Price per share (Rs)"}
               value={price}
               onChange={setPrice}
-              step={0.01}
+              step={isDividend ? 0.0001 : 0.01}
               min={0}
             />
           )}
-          {(type === "BUY" || type === "SELL" || type === "RIGHT" || type === "DIVIDEND") && (
+
+          {isDividend && (
+            <>
+              <div className="space-y-1.5">
+                <label className="label-cap block">Warrant # (dedup key)</label>
+                <div className="border-b border-ink">
+                  <input
+                    type="text"
+                    value={warrantNo}
+                    onChange={(e) => setWarrantNo(e.target.value)}
+                    placeholder="From CDC warrant"
+                    className="w-full bg-transparent py-1.5 text-[14px] focus:outline-none font-mono"
+                  />
+                </div>
+              </div>
+              <Select
+                label="Dividend type"
+                value={dividendType}
+                onChange={setDividendType}
+                options={[
+                  { value: "Interim", label: "Interim" },
+                  { value: "Final", label: "Final" },
+                  { value: "Special", label: "Special" },
+                  { value: "Other", label: "Other" },
+                ]}
+              />
+              <NumberInput
+                label="Tax deducted (Rs)"
+                value={taxDeducted}
+                onChange={setTaxDeducted}
+                step={0.01}
+                min={0}
+              />
+              <NumberInput
+                label="Zakat deducted (Rs)"
+                value={zakatDeducted}
+                onChange={setZakatDeducted}
+                step={0.01}
+                min={0}
+              />
+              <div className="space-y-1.5">
+                <label className="label-cap block">Financial year</label>
+                <div className="border-b border-ink">
+                  <input
+                    type="text"
+                    value={financialYear}
+                    onChange={(e) => setFinancialYear(e.target.value)}
+                    placeholder="2024-25"
+                    className="w-full bg-transparent py-1.5 text-[14px] focus:outline-none font-mono mono-num"
+                  />
+                </div>
+              </div>
+            </>
+          )}
+
+          {!isDividend && (type === "BUY" || type === "SELL" || type === "RIGHT") && (
             <NumberInput
               label="Fees / charges (Rs)"
               value={fees}
@@ -133,6 +230,7 @@ export function EditTransactionForm({ id, symbol, initial }: Props) {
               hint={feeBreakdown.rule !== "none" ? `Auto would be: ${feeBreakdown.explanation}` : undefined}
             />
           )}
+
           {type === "SPLIT" && (
             <TextInput
               label="Ratio (old:new)"
@@ -141,21 +239,49 @@ export function EditTransactionForm({ id, symbol, initial }: Props) {
               placeholder="1:2"
             />
           )}
+
           <div className="md:col-span-2">
             <TextInput label="Notes" value={notes} onChange={(e) => setNotes(e.target.value)} />
           </div>
         </div>
+
+        {isDividend && (price > 0 || shares > 0) && (
+          <div className="mt-4 pt-4 border-t border-rule flex flex-wrap gap-2">
+            {price > 0 && (
+              <button
+                type="button"
+                onClick={fixSharesFromGross}
+                className="font-mono text-[10px] uppercase tracking-button border border-[var(--rule)] hover:border-ink px-2 py-1"
+                style={{ color: "var(--accent-deep)" }}
+              >
+                ↳ Fix shares from gross
+              </button>
+            )}
+            {shares > 0 && (
+              <button
+                type="button"
+                onClick={fixRateFromGross}
+                className="font-mono text-[10px] uppercase tracking-button border border-[var(--rule)] hover:border-ink px-2 py-1"
+                style={{ color: "var(--accent-deep)" }}
+              >
+                ↳ Fix rate from gross
+              </button>
+            )}
+          </div>
+        )}
       </Card>
 
       <Card inverted>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4 font-mono mono-num">
           <div>
-            <div className="text-[10px] tracking-stat uppercase" style={{ color: "rgba(245,241,232,0.65)" }}>Total</div>
+            <div className="text-[10px] tracking-stat uppercase" style={{ color: "rgba(245,241,232,0.65)" }}>Gross</div>
             <div className="text-[20px]">{fmtRs(totalAmount)}</div>
           </div>
           <div>
-            <div className="text-[10px] tracking-stat uppercase" style={{ color: "rgba(245,241,232,0.65)" }}>Fees</div>
-            <div className="text-[20px]">{fmtRs(fees)}</div>
+            <div className="text-[10px] tracking-stat uppercase" style={{ color: "rgba(245,241,232,0.65)" }}>
+              {isDividend ? "Tax + Zakat" : "Fees"}
+            </div>
+            <div className="text-[20px]">{fmtRs(effectiveFees)}</div>
           </div>
           <div>
             <div className="text-[10px] tracking-stat uppercase" style={{ color: "rgba(245,241,232,0.65)" }}>Net</div>
