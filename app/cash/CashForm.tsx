@@ -72,8 +72,9 @@ export function CashForm() {
           value={amount}
           onChange={setAmount}
           min={0}
-          step={1000}
+          step={1}
           large
+          hint="Any rupee amount — Rs 3 to Rs 3,000,000. Type or use ↑↓."
         />
         <TextInput
           label="Notes"

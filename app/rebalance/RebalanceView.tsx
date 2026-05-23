@@ -205,10 +205,10 @@ export function RebalanceView({ positions, totalValue, availableCashBalance }: P
             label="Fresh cash to add (Rs)"
             value={freshCash}
             onChange={setFreshCash}
-            step={10000}
+            step={1}
             min={0}
             large
-            hint="New money you're depositing for this rebalance."
+            hint="Any rupee amount. Type for precision; ↑↓ steps by Rs 1."
           />
           <div className="space-y-3">
             <Toggle
@@ -228,7 +228,7 @@ export function RebalanceView({ positions, totalValue, availableCashBalance }: P
                 onChange={setBalanceToUse}
                 min={0}
                 max={Math.max(0, availableCashBalance)}
-                step={1000}
+                step={1}
                 hint={`Max ${fmtRs(availableCashBalance)}`}
               />
             )}
