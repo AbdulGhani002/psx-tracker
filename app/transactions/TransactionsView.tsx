@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { Table, type Column } from "@/components/ui/Table";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
@@ -113,13 +114,21 @@ export function TransactionsView({ transactions, symbols }: Props) {
       header: "",
       align: "right",
       render: (t) => (
-        <button
-          onClick={() => onDelete(String(t._id))}
-          disabled={deleting === String(t._id)}
-          className="font-mono text-[10px] uppercase tracking-stat text-muted hover:text-[var(--negative)]"
-        >
-          {deleting === String(t._id) ? "…" : "Delete"}
-        </button>
+        <div className="flex items-center justify-end gap-3">
+          <Link
+            href={`/transactions/${String(t._id)}/edit`}
+            className="font-mono text-[10px] uppercase tracking-stat text-muted hover:text-[var(--accent-deep)]"
+          >
+            Edit
+          </Link>
+          <button
+            onClick={() => onDelete(String(t._id))}
+            disabled={deleting === String(t._id)}
+            className="font-mono text-[10px] uppercase tracking-stat text-muted hover:text-[var(--negative)]"
+          >
+            {deleting === String(t._id) ? "…" : "Delete"}
+          </button>
+        </div>
       ),
     },
   ];

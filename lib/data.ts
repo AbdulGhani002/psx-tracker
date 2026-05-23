@@ -7,6 +7,7 @@ import {
   DecisionLogModel,
   ScenarioProjectionModel,
   CashEntryModel,
+  WatchlistEntryModel,
   type Holding,
   type Transaction,
 } from "./models";
@@ -121,6 +122,12 @@ export async function getCashEntries() {
   if (!(await tryConnect())) return [];
   const docs = await CashEntryModel.find().sort({ date: -1, createdAt: -1 }).lean();
   return plain<Array<{ _id: string; date: string; type: "DEPOSIT" | "WITHDRAWAL"; amount: number; notes: string }>>(docs);
+}
+
+export async function getWatchlist() {
+  if (!(await tryConnect())) return [];
+  const docs = await WatchlistEntryModel.find().sort({ createdAt: -1 }).lean();
+  return plain<Array<{ _id: string; symbol: string; name: string; sector: string; notes: string; targetBuyPrice: number | null; targetSellPrice: number | null; createdAt: string }>>(docs);
 }
 
 export async function getScenariosForSymbol(symbol: string | null) {
