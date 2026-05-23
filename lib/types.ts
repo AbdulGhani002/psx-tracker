@@ -13,6 +13,8 @@ export type Holding = {
   realizedPL: number;
   totalDividendsReceived: number;
   targetAllocationPercent: number;
+  rebalanceBand: number;
+  targetRationale: string;
   notes: string;
   createdAt: Date | string;
   updatedAt: Date | string;

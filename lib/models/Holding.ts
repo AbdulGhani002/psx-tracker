@@ -12,6 +12,8 @@ const HoldingSchema = new Schema(
     realizedPL: { type: Number, default: 0 },
     totalDividendsReceived: { type: Number, default: 0 },
     targetAllocationPercent: { type: Number, default: 0, min: 0, max: 100 },
+    rebalanceBand: { type: Number, default: 3, min: 0, max: 50 },
+    targetRationale: { type: String, default: "" },
     notes: { type: String, default: "" },
   },
   { timestamps: true }

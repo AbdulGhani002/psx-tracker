@@ -7,6 +7,7 @@ import { Table, type Column } from "@/components/ui/Table";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { CompoundingModel } from "@/components/model/CompoundingModel";
+import { HoldingSettings } from "./HoldingSettings";
 import {
   getHoldingBySymbol,
   getTransactionsBySymbol,
@@ -104,6 +105,26 @@ export default async function HoldingDetail({ params }: Props) {
 
       <Section
         number="02"
+        title="Settings"
+        description="Edit target allocation, rebalance band, Sharia status, name/sector overrides, and notes. Refresh from PSX to re-scrape company info."
+      >
+        <HoldingSettings
+          symbol={symbol}
+          transactionCount={transactions.length}
+          initial={{
+            name: holding.name,
+            sector: holding.sector,
+            shariaCompliant: holding.shariaCompliant,
+            targetAllocationPercent: holding.targetAllocationPercent ?? 0,
+            rebalanceBand: (holding as any).rebalanceBand ?? 3,
+            targetRationale: (holding as any).targetRationale ?? "",
+            notes: holding.notes ?? "",
+          }}
+        />
+      </Section>
+
+      <Section
+        number="03"
         title="Forward projection"
         description="A multi-scenario compounding model specific to this stock. Pick a preset or tune the sliders."
       >
