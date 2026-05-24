@@ -11,10 +11,17 @@ import type { PositionRow } from "@/lib/calculations";
 
 export const dynamic = "force-dynamic";
 
-export default async function HoldingsPage() {
+export default async function HoldingsPage({
+  searchParams,
+}: {
+  searchParams: { all?: string };
+}) {
   const avail = await checkDataAvailability();
   const summary = await getPortfolioSummary();
-  const rows = summary.positions;
+  const showAll = searchParams?.all === "1";
+  const active = summary.positions.filter((p) => p.shares > 0);
+  const historical = summary.positions.filter((p) => p.shares <= 0);
+  const rows = showAll ? summary.positions : active;
 
   const columns: Column<PositionRow>[] = [
     {
@@ -90,7 +97,27 @@ export default async function HoldingsPage() {
 
       {!avail.available && <SetupBanner reason={avail.reason} />}
 
-      <Section number="01" title={`${rows.length} positions`}>
+      <Section
+        number="01"
+        title={`${rows.length} ${showAll ? "total" : "active"} positions`}
+        action={
+          historical.length > 0 ? (
+            <Link
+              href={showAll ? "/holdings" : "/holdings?all=1"}
+              className="label-cap hover:text-[var(--accent-deep)]"
+            >
+              {showAll
+                ? "Hide historical →"
+                : `Show ${historical.length} historical →`}
+            </Link>
+          ) : undefined
+        }
+        description={
+          historical.length > 0 && !showAll
+            ? `${historical.length} symbol${historical.length > 1 ? "s" : ""} with no current shares (dividend-only history) hidden.`
+            : undefined
+        }
+      >
         <Table
           columns={columns}
           rows={rows}

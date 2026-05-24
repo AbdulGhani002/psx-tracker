@@ -164,13 +164,13 @@ export default async function Dashboard() {
         number="01"
         title="Allocation snapshot"
         display="Where the money sits today."
-        description="Current allocation vs. target. Deviations outside the rebalance band are flagged."
+        description="Current allocation vs. target. Deviations outside the rebalance band are flagged. Historical positions (0 shares) are hidden — see them on /holdings."
       >
         <Table
           columns={positionColumns}
-          rows={summary.positions}
+          rows={summary.positions.filter((r) => r.shares > 0)}
           rowKey={(r) => r.symbol}
-          empty="No holdings."
+          empty="No active holdings."
         />
       </Section>
 

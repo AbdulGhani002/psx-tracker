@@ -144,6 +144,7 @@ export function summarisePortfolio({
 
   const sectorMap = new Map<string, number>();
   for (const p of positions) {
+    if (p.marketValue <= 0) continue; // ignore historical 0-share holdings
     sectorMap.set(p.sector, (sectorMap.get(p.sector) ?? 0) + p.marketValue);
   }
   const sectorBreakdown = [...sectorMap.entries()]

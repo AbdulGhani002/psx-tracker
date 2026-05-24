@@ -18,7 +18,13 @@ export default async function RebalancePage() {
   const bandBySymbol = new Map<string, number>();
   for (const h of holdings) bandBySymbol.set(h.symbol, (h as any).rebalanceBand ?? 3);
 
-  const targetRows = summary.positions.map((p) => ({
+  // Show positions you actually own OR have a target % set for. Hide ghosts
+  // (0 shares + 0 target) — typically dividend-only history.
+  const relevant = summary.positions.filter(
+    (p) => p.shares > 0 || (p.targetPercent ?? 0) > 0
+  );
+
+  const targetRows = relevant.map((p) => ({
     symbol: p.symbol,
     sector: p.sector,
     currentPercent: p.currentPercent,
@@ -48,7 +54,7 @@ export default async function RebalancePage() {
         description={`Cash available in your brokerage balance: ${cashSummary.balance >= 0 ? "Rs " + cashSummary.balance.toLocaleString("en-PK", { maximumFractionDigits: 0 }) : "negative — you need to record a deposit"}. Share counts are integers, so the leftover rupees never get spent and stay as cash.`}
       >
         <RebalanceView
-          positions={summary.positions}
+          positions={relevant}
           totalValue={summary.totalValue}
           availableCashBalance={cashSummary.balance}
         />
