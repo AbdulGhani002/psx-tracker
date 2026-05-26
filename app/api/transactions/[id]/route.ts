@@ -90,7 +90,11 @@ export async function PATCH(req: NextRequest, { params }: Params) {
     existing.netAmount = netAmount;
     if (parsed.notes !== undefined) existing.notes = parsed.notes;
     if (parsed.ratio !== undefined) existing.ratio = parsed.ratio;
-    if (parsed.warrantNo !== undefined) existing.warrantNo = parsed.warrantNo || null;
+    if (parsed.warrantNo !== undefined) {
+      const v = (parsed.warrantNo ?? "").trim();
+      if (v) existing.warrantNo = v;
+      else existing.set("warrantNo", undefined); // unset so partial index ignores it
+    }
     if (parsed.taxDeducted !== undefined) existing.taxDeducted = parsed.taxDeducted;
     if (parsed.zakatDeducted !== undefined) existing.zakatDeducted = parsed.zakatDeducted;
     if (parsed.financialYear !== undefined) existing.financialYear = parsed.financialYear;

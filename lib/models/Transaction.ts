@@ -15,7 +15,7 @@ const TransactionSchema = new Schema(
     netAmount: { type: Number, required: true, default: 0 },
     notes: { type: String, default: "" },
     ratio: { type: String, default: "" },
-    warrantNo: { type: String, default: null },
+    warrantNo: { type: String }, // unset for non-dividend txs; partial unique index below
     taxDeducted: { type: Number, default: 0 },
     zakatDeducted: { type: Number, default: 0 },
     financialYear: { type: String, default: "" },
@@ -25,7 +25,13 @@ const TransactionSchema = new Schema(
 );
 
 TransactionSchema.index({ symbol: 1, date: 1 });
-TransactionSchema.index({ warrantNo: 1 }, { unique: true, sparse: true });
+// Partial unique index: only enforces uniqueness on docs that have a real
+// string warrantNo. Sparse alone wouldn't work because Mongoose's `default:
+// null` was storing explicit nulls — and null collides with null.
+TransactionSchema.index(
+  { warrantNo: 1 },
+  { unique: true, partialFilterExpression: { warrantNo: { $type: "string" } } }
+);
 
 export type Transaction = InferSchemaType<typeof TransactionSchema> & { _id: string };
 
