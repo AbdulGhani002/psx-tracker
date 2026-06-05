@@ -21,6 +21,7 @@ import { SBP_POLICY_RATE_DEFAULTS, policyRateOn, type RateStep } from "./timeser
 import { fetchAllNavs, findNav } from "./funds/mufap";
 import { valueSavings, valueFund, type SavingsValuation, type FundValuation } from "./calculations/assets";
 import { buildTaxReport, type TaxReport } from "./calculations/tax";
+import { buildLots, summariseCgt, type Disposal, type CgtSummary, type Lot } from "./calculations/lots";
 import { computeRisk, type RiskMetrics } from "./calculations/risk";
 import { valueTrade, type TradeValuation } from "./calculations/pmex";
 import { buildBenchmarkSeries } from "./timeseries/portfolio-history";
@@ -285,7 +286,10 @@ export async function getAppSettings(): Promise<AppSettings> {
     pmexCommissionPerLot: doc?.pmexCommissionPerLot ?? DEFAULT_SETTINGS.pmexCommissionPerLot,
     pmexCgtPercent: doc?.pmexCgtPercent ?? DEFAULT_SETTINGS.pmexCgtPercent,
     concentrationCap: doc?.concentrationCap ?? DEFAULT_SETTINGS.concentrationCap,
-  };
+    telegramBotToken: (doc as any)?.telegramBotToken ?? "",
+    telegramChatId: (doc as any)?.telegramChatId ?? "",
+    alertsEnabled: (doc as any)?.alertsEnabled ?? false,
+  } as AppSettings;
 }
 
 export async function getTaxReport(): Promise<TaxReport> {
@@ -295,6 +299,101 @@ export async function getTaxReport(): Promise<TaxReport> {
     getAppSettings(),
   ]);
   return buildTaxReport(txs, summary.realizedPL, settings);
+}
+
+export type CgtReport = {
+  summary: CgtSummary;
+  recentDisposals: Disposal[];
+  rate: number;
+};
+
+export async function getCgtReport(): Promise<CgtReport> {
+  const [txs, settings] = await Promise.all([getAllTransactions(), getAppSettings()]);
+  const bySymbol = new Map<string, Transaction[]>();
+  for (const t of txs) {
+    if (!bySymbol.has(t.symbol)) bySymbol.set(t.symbol, []);
+    bySymbol.get(t.symbol)!.push(t);
+  }
+  const allDisposals: Disposal[] = [];
+  for (const [sym, list] of bySymbol) {
+    const { disposals } = buildLots(sym, list);
+    allDisposals.push(...disposals);
+  }
+  allDisposals.sort((a, b) => b.soldDate.localeCompare(a.soldDate));
+  const rate = settings.filerStatus === "filer" ? settings.cgtRateFiler : settings.cgtRateNonFiler;
+  const summary = summariseCgt(allDisposals, rate);
+  return { summary, recentDisposals: allDisposals.slice(0, 25), rate };
+}
+
+export type HarvestCandidate = {
+  symbol: string;
+  shares: number;
+  avgCost: number;
+  currentPrice: number;
+  marketValue: number;
+  cost: number;
+  unrealizedLoss: number; // negative
+};
+
+export type HarvestReport = {
+  candidates: HarvestCandidate[];
+  totalHarvestableLoss: number;
+  realizedGainThisYear: number;
+  offsetPotential: number; // min(harvestable loss, realized gain)
+  cgtSaved: number;
+  rate: number;
+};
+
+export async function getHarvestReport(): Promise<HarvestReport> {
+  const [txs, settings] = await Promise.all([getAllTransactions(), getAppSettings()]);
+  const bySymbol = new Map<string, Transaction[]>();
+  for (const t of txs) {
+    if (!bySymbol.has(t.symbol)) bySymbol.set(t.symbol, []);
+    bySymbol.get(t.symbol)!.push(t);
+  }
+  const symbols = [...bySymbol.keys()];
+  const prices = await getCurrentPrices(symbols);
+
+  const rate = settings.filerStatus === "filer" ? settings.cgtRateFiler : settings.cgtRateNonFiler;
+  const thisTaxYear = (await import("./dates")).taxYearOf(new Date()).endYear;
+
+  const candidates: HarvestCandidate[] = [];
+  let realizedGainThisYear = 0;
+  for (const [sym, list] of bySymbol) {
+    const { openLots, disposals } = buildLots(sym, list);
+    for (const d of disposals) {
+      const ty = (await import("./dates")).taxYearOf(d.soldDate).endYear;
+      if (ty === thisTaxYear) realizedGainThisYear += d.gain;
+    }
+    const shares = openLots.reduce((s, l) => s + l.shares, 0);
+    if (shares <= 0) continue;
+    const cost = openLots.reduce((s, l) => s + l.shares * l.costPerShare, 0);
+    const price = prices.get(sym) ?? 0;
+    const marketValue = shares * price;
+    const unrealized = marketValue - cost;
+    if (unrealized < 0 && price > 0) {
+      candidates.push({
+        symbol: sym,
+        shares,
+        avgCost: shares > 0 ? cost / shares : 0,
+        currentPrice: price,
+        marketValue,
+        cost,
+        unrealizedLoss: unrealized,
+      });
+    }
+  }
+  candidates.sort((a, b) => a.unrealizedLoss - b.unrealizedLoss);
+  const totalHarvestableLoss = candidates.reduce((s, c) => s + c.unrealizedLoss, 0);
+  const offsetPotential = Math.min(Math.abs(totalHarvestableLoss), Math.max(0, realizedGainThisYear));
+  return {
+    candidates,
+    totalHarvestableLoss,
+    realizedGainThisYear,
+    offsetPotential,
+    cgtSaved: (offsetPotential * rate) / 100,
+    rate,
+  };
 }
 
 export async function getRiskMetrics(): Promise<RiskMetrics | null> {

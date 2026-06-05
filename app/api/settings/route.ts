@@ -14,6 +14,9 @@ const patchSchema = z.object({
   pmexCommissionPerLot: z.number().min(0).optional(),
   pmexCgtPercent: z.number().min(0).max(100).optional(),
   concentrationCap: z.number().min(0).max(100).optional(),
+  telegramBotToken: z.string().optional(),
+  telegramChatId: z.string().optional(),
+  alertsEnabled: z.boolean().optional(),
 });
 
 export async function GET() {

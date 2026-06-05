@@ -70,6 +70,22 @@ export function NewTransactionForm({ existingSymbols, defaultSymbol }: Props) {
   const isCustom = symbolMode === "__new__";
   const finalSymbol = (isCustom ? customSymbol : symbolMode).trim().toUpperCase();
 
+  // Pre-trade CGT preview for SELLs (FIFO against open lots).
+  const [cgtPreview, setCgtPreview] = useState<{ totalGain: number; estCgt: number; rate: number; insufficient: boolean; sharesHeld: number } | null>(null);
+  useEffect(() => {
+    if (type !== "SELL" || !finalSymbol || shares <= 0 || price <= 0) {
+      setCgtPreview(null);
+      return;
+    }
+    const t = setTimeout(() => {
+      fetch(`/api/holdings/${finalSymbol}/sell-preview?shares=${shares}&price=${price}`)
+        .then((r) => (r.ok ? r.json() : null))
+        .then((d) => setCgtPreview(d))
+        .catch(() => setCgtPreview(null));
+    }, 350);
+    return () => clearTimeout(t);
+  }, [type, finalSymbol, shares, price]);
+
   // Look up symbol whenever it stabilises.
   useEffect(() => {
     if (!finalSymbol || finalSymbol.length < 2) {
@@ -335,6 +351,30 @@ export function NewTransactionForm({ existingSymbols, defaultSymbol }: Props) {
           </div>
         </div>
       </Card>
+
+      {type === "SELL" && cgtPreview && (
+        <div className="border-l-[3px] border-l-[var(--accent)] bg-[var(--paper-2)] p-4">
+          <div className="label-cap mb-1">CGT preview (FIFO)</div>
+          {cgtPreview.insufficient ? (
+            <p className="text-[13px]" style={{ color: "var(--negative)" }}>
+              You only hold {fmtRs(cgtPreview.sharesHeld).replace("Rs ", "")} shares — selling more than you own.
+            </p>
+          ) : (
+            <p className="text-[13px] leading-relaxed">
+              This sell realises a{" "}
+              <span className="font-mono mono-num font-medium" style={{ color: cgtPreview.totalGain >= 0 ? "var(--positive)" : "var(--negative)" }}>
+                {fmtRs(cgtPreview.totalGain)}
+              </span>{" "}
+              {cgtPreview.totalGain >= 0 ? "gain" : "loss"} against your oldest lots ·{" "}
+              estimated CGT{" "}
+              <span className="font-mono mono-num font-medium" style={{ color: "var(--accent-deep)" }}>
+                {fmtRs(cgtPreview.estCgt)}
+              </span>{" "}
+              <span className="text-muted">@ {cgtPreview.rate}%</span>
+            </p>
+          )}
+        </div>
+      )}
 
       {error && (
         <div className="text-[13px]" style={{ color: "var(--negative)" }}>

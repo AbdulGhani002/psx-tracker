@@ -17,6 +17,7 @@ const NAV_ITEMS = [
   { href: "/model", label: "Model" },
   { href: "/rebalance", label: "Rebalance" },
   { href: "/tax", label: "Tax" },
+  { href: "/wealth", label: "Wealth" },
   { href: "/log", label: "Log" },
   { href: "/settings", label: "Settings" },
 ];

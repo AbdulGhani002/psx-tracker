@@ -26,6 +26,9 @@ export default async function TransactionsPage() {
           <Link href="/transactions/new">
             <Button variant="solid">Add Transaction</Button>
           </Link>
+          <Link href="/transactions/import">
+            <Button variant="outline">Import CSV</Button>
+          </Link>
         </div>
       </PageHeader>
 

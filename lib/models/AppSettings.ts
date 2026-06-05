@@ -12,6 +12,10 @@ const AppSettingsSchema = new Schema(
     pmexCommissionPerLot: { type: Number, default: 200 }, // Rs per lot, round-turn
     pmexCgtPercent: { type: Number, default: 15 }, // % CGT on commodity futures gains
     concentrationCap: { type: Number, default: 25 }, // % single-stock cap
+    // Telegram alerts
+    telegramBotToken: { type: String, default: "" },
+    telegramChatId: { type: String, default: "" },
+    alertsEnabled: { type: Boolean, default: false },
   },
   { timestamps: true }
 );
@@ -23,7 +27,7 @@ export const AppSettingsModel: Model<AppSettings> =
   model<AppSettings>("AppSettings", AppSettingsSchema);
 
 export const DEFAULT_SETTINGS = {
-  filerStatus: "filer" as const,
+  filerStatus: "filer" as string,
   dividendWhtFiler: 15,
   dividendWhtNonFiler: 30,
   cgtRateFiler: 15,
@@ -31,4 +35,7 @@ export const DEFAULT_SETTINGS = {
   pmexCommissionPerLot: 200,
   pmexCgtPercent: 15,
   concentrationCap: 25,
+  telegramBotToken: "",
+  telegramChatId: "",
+  alertsEnabled: false,
 };

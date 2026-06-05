@@ -6,22 +6,36 @@ import { Card } from "@/components/ui/Card";
 import { Table, type Column } from "@/components/ui/Table";
 import { Badge } from "@/components/ui/Badge";
 import Link from "next/link";
-import { getTaxReport, getAllTransactions, getAppSettings, checkDataAvailability } from "@/lib/data";
+import { getTaxReport, getCgtReport, getHarvestReport, getAllTransactions, getAppSettings, checkDataAvailability } from "@/lib/data";
 import { dividendWhtFlags } from "@/lib/calculations/tax";
-import { fmtRs, fmtPct, fmtDate } from "@/lib/format";
+import { fmtRs, fmtPct, fmtDate, fmtSignedRs, fmtNum } from "@/lib/format";
 import type { DividendTaxRow } from "@/lib/calculations";
+import type { Disposal } from "@/lib/calculations/lots";
 
 export const dynamic = "force-dynamic";
 
 export default async function TaxPage() {
   const avail = await checkDataAvailability();
-  const [report, txs, settings] = await Promise.all([
+  const [report, cgt, harvest, txs, settings] = await Promise.all([
     getTaxReport(),
+    getCgtReport(),
+    getHarvestReport(),
     getAllTransactions(),
     getAppSettings(),
   ]);
   const flags = dividendWhtFlags(txs, settings.dividendWhtFiler);
   const isFiler = settings.filerStatus === "filer";
+
+  const disposalCols: Column<Disposal>[] = [
+    { key: "sold", header: "Sold", render: (d) => <span className="font-mono text-[12px]">{fmtDate(d.soldDate)}</span> },
+    { key: "sym", header: "Symbol", render: (d) => <span className="font-mono font-medium">{d.symbol}</span> },
+    { key: "sh", header: "Shares", align: "right", mono: true, render: (d) => fmtNum(d.shares) },
+    { key: "acq", header: "Acquired", render: (d) => <span className="font-mono text-[12px] text-muted">{fmtDate(d.acquired)}</span> },
+    { key: "hold", header: "Held", align: "right", mono: true, render: (d) => <span>{fmtNum(d.holdingDays)}d{d.longTerm ? " " : ""}{d.longTerm && <Badge tone="default">LT</Badge>}</span> },
+    { key: "cost", header: "Cost", align: "right", mono: true, render: (d) => fmtRs(d.cost) },
+    { key: "proceeds", header: "Proceeds", align: "right", mono: true, render: (d) => fmtRs(d.proceeds) },
+    { key: "gain", header: "Gain", align: "right", mono: true, render: (d) => <span style={{ color: d.gain >= 0 ? "var(--positive)" : "var(--negative)" }}>{fmtSignedRs(d.gain)}</span> },
+  ];
 
   const columns: Column<DividendTaxRow>[] = [
     { key: "label", header: "Tax year", render: (r) => <span className="font-mono text-[12px]">{r.label}</span> },
@@ -103,12 +117,67 @@ export default async function TaxPage() {
         </div>
       </Section>
 
-      <Section number="02" title="Dividends by tax year" display="Filing-ready totals.">
-        <Table columns={columns} rows={report.byYear} rowKey={(r) => String(r.taxYear)} empty="No dividends recorded." />
+      <Section
+        number="02"
+        title="Capital gains (FIFO lots)"
+        display="Exact gains, lot by lot."
+        description="Each sell matched against your oldest buy lots (FIFO), with the real holding period and per-disposal gain — not an average-cost estimate. CGT applies the rate from Settings; losses offset gains within a tax year."
+      >
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
+          <Stat label="Net realised gain" value={fmtSignedRs(cgt.summary.netGain)} tone={cgt.summary.netGain >= 0 ? "positive" : "negative"} />
+          <Stat label="Long-term gain" value={fmtSignedRs(cgt.summary.longTermGain)} tone="muted" hint="held > 365d" />
+          <Stat label="Short-term gain" value={fmtSignedRs(cgt.summary.shortTermGain)} tone="muted" />
+          <Stat label={`CGT @ ${cgt.rate}%`} value={fmtRs(cgt.summary.cgt)} tone="accent" />
+        </div>
+        {cgt.summary.byYear.length > 0 && (
+          <div className="mb-4 flex flex-wrap gap-3">
+            {cgt.summary.byYear.map((y) => (
+              <div key={y.taxYear} className="border border-rule px-3 py-2">
+                <div className="label-cap">{y.label}</div>
+                <div className="font-mono mono-num text-[13px]">
+                  net {fmtSignedRs(y.netGain)} · CGT {fmtRs(y.cgt)}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+        <Table columns={disposalCols} rows={cgt.recentDisposals} rowKey={(d) => `${d.symbol}-${d.soldDate}-${d.acquired}-${d.shares}`} empty="No sells yet — CGT appears when you realise a gain." />
+      </Section>
+
+      <Section
+        number="03"
+        title="Tax-loss harvesting"
+        display="Losses you could bank to cut CGT."
+        description="Open positions trading below cost. Selling them realises a loss that offsets your realised gains this tax year, lowering CGT. (You can re-buy later — Pakistan has no wash-sale rule, but mind your thesis.)"
+      >
+        {harvest.candidates.length === 0 ? (
+          <Card><p className="text-sm text-muted">No positions are currently at an unrealised loss.</p></Card>
+        ) : (
+          <>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
+              <Stat label="Harvestable loss" value={fmtRs(Math.abs(harvest.totalHarvestableLoss))} tone="negative" />
+              <Stat label="Realised gain (this yr)" value={fmtRs(Math.max(0, harvest.realizedGainThisYear))} tone="positive" />
+              <Stat label="Offsettable" value={fmtRs(harvest.offsetPotential)} tone="accent" />
+              <Stat label="CGT you'd save" value={fmtRs(harvest.cgtSaved)} tone="positive" />
+            </div>
+            <Table
+              columns={[
+                { key: "sym", header: "Symbol", render: (c: any) => <span className="font-mono font-medium">{c.symbol}</span> },
+                { key: "sh", header: "Shares", align: "right", mono: true, render: (c: any) => fmtNum(c.shares) },
+                { key: "avg", header: "Avg cost", align: "right", mono: true, render: (c: any) => fmtRs(c.avgCost, true) },
+                { key: "px", header: "Price", align: "right", mono: true, render: (c: any) => fmtRs(c.currentPrice, true) },
+                { key: "loss", header: "Unrealised loss", align: "right", mono: true, render: (c: any) => <span style={{ color: "var(--negative)" }}>{fmtSignedRs(c.unrealizedLoss)}</span> },
+              ]}
+              rows={harvest.candidates}
+              rowKey={(c: any) => c.symbol}
+              empty=""
+            />
+          </>
+        )}
       </Section>
 
       {flags.length > 0 && (
-        <Section number="03" title="WHT band check" display="Rates that look off.">
+        <Section number="04" title="WHT band check" display="Rates that look off.">
           <Card>
             <ul className="space-y-1.5 text-[13px]">
               {flags.map((f, i) => (
