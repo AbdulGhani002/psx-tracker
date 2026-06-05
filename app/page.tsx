@@ -150,12 +150,12 @@ export default async function Dashboard() {
           }
         />
         <Stat
-          label="Dividends YTD"
+          label={`Dividends ${summary.taxYearLabel}`}
           value={fmtRs(summary.dividendsYTD)}
           hint={
             totalReturnPct != null
               ? `Total return ${fmtSignedPct(totalReturnPct, 1)}`
-              : undefined
+              : "PK tax year (Jul–Jun)"
           }
         />
       </StatRow>

@@ -1,6 +1,7 @@
 import type { Holding, Transaction } from "@/lib/types";
 import { deriveFromTransactions } from "./holding";
 import { xirr, type CashFlow } from "./xirr";
+import { inSameTaxYear, currentTaxYear } from "@/lib/dates";
 
 export type PositionRow = {
   symbol: string;
@@ -30,7 +31,8 @@ export type PortfolioSummary = {
   unrealizedPL: number;
   realizedPL: number;
   dividendsTotal: number;
-  dividendsYTD: number;
+  dividendsYTD: number; // dividends received in the current PK tax year (Jul–Jun)
+  taxYearLabel: string; // e.g. "FY25-26"
   xirr: number | null;
   xirrSpanDays: number; // 0 when no flows; UI uses this to suppress XIRR for short windows
   sectorBreakdown: { sector: string; value: number; percent: number }[];
@@ -107,9 +109,12 @@ export function summarisePortfolio({
   const realizedPL = positions.reduce((s, p) => s + p.realizedPL, 0);
   const dividendsTotal = positions.reduce((s, p) => s + p.dividendsReceived, 0);
 
-  const thisYear = new Date().getFullYear();
+  // Pakistan tax year is July–June, not the calendar year. Sum dividends
+  // received within the current FBR tax year so the figure is filing-relevant.
+  const now = new Date();
+  const taxYear = currentTaxYear();
   const dividendsYTD = transactions
-    .filter((t) => t.type === "DIVIDEND" && new Date(t.date).getFullYear() === thisYear)
+    .filter((t) => t.type === "DIVIDEND" && inSameTaxYear(new Date(t.date), now))
     .reduce((s, t) => s + t.netAmount, 0);
 
   // XIRR construction — buys = outflows, sells/divs = inflows, market value today = final inflow
@@ -171,6 +176,7 @@ export function summarisePortfolio({
     realizedPL,
     dividendsTotal,
     dividendsYTD,
+    taxYearLabel: taxYear.label,
     xirr: portfolioXirr,
     xirrSpanDays,
     sectorBreakdown,
