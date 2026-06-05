@@ -13,6 +13,7 @@ const NAV_ITEMS = [
   { href: "/model", label: "Model" },
   { href: "/rebalance", label: "Rebalance" },
   { href: "/log", label: "Log" },
+  { href: "/settings", label: "Settings" },
 ];
 
 export function SiteNav() {

@@ -1,7 +1,7 @@
 import type { Transaction } from "@/lib/types";
 import { fetchEodSeries, fetchManyEod, type EodPoint } from "./psx-eod";
 import { fetchYahooDaily, type YahooRange } from "./yahoo";
-import { riskFreeIndex } from "./sbp-rate";
+import { riskFreeIndex, type RateStep } from "./sbp-rate";
 
 function isoToday(): string {
   return new Date().toISOString().slice(0, 10);
@@ -102,9 +102,11 @@ const RANGE_TO_YAHOO: Record<string, YahooRange> = {
 export async function buildBenchmarkSeries({
   transactions,
   rangeKey = "90D",
+  rateSteps,
 }: {
   transactions: Transaction[];
   rangeKey?: string;
+  rateSteps?: RateStep[];
 }): Promise<BenchmarkSeries | null> {
   const days = RANGE_TO_DAYS[rangeKey] ?? 90;
   const yahooRange = RANGE_TO_YAHOO[rangeKey] ?? "3mo";
@@ -237,7 +239,7 @@ export async function buildBenchmarkSeries({
     twrUsd.push(tUsdIdx);
   }
 
-  const riskFree = riskFreeIndex(trimmed.map((r) => r.date), 100);
+  const riskFree = riskFreeIndex(trimmed.map((r) => r.date), rateSteps, 100);
 
   const idx100 = (v: number | null, b: number): number | null =>
     v != null && b > 0 ? (v / b) * 100 : null;

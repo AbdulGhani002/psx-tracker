@@ -8,9 +8,11 @@ import {
   ScenarioProjectionModel,
   CashEntryModel,
   WatchlistEntryModel,
+  SbpRateModel,
   type Holding,
   type Transaction,
 } from "./models";
+import { SBP_POLICY_RATE_DEFAULTS, type RateStep } from "./timeseries/sbp-rate";
 import { getPrices } from "./prices";
 import {
   summarisePortfolio,
@@ -122,6 +124,24 @@ export async function getCashEntries() {
   if (!(await tryConnect())) return [];
   const docs = await CashEntryModel.find().sort({ date: -1, createdAt: -1 }).lean();
   return plain<Array<{ _id: string; date: string; type: "DEPOSIT" | "WITHDRAWAL"; amount: number; notes: string }>>(docs);
+}
+
+// SBP policy-rate steps: the user's DB entries if any exist, else the curated
+// built-in defaults. `isCustom` tells the UI which set is active.
+export async function getSbpRateSteps(): Promise<{ steps: RateStep[]; isCustom: boolean }> {
+  if (!(await tryConnect())) return { steps: SBP_POLICY_RATE_DEFAULTS, isCustom: false };
+  const docs = await SbpRateModel.find().sort({ effectiveDate: -1 }).lean();
+  if (docs.length === 0) return { steps: SBP_POLICY_RATE_DEFAULTS, isCustom: false };
+  return {
+    steps: docs.map((d) => ({ from: d.effectiveDate, rate: d.rate })),
+    isCustom: true,
+  };
+}
+
+export async function getSbpRates() {
+  if (!(await tryConnect())) return [];
+  const docs = await SbpRateModel.find().sort({ effectiveDate: -1 }).lean();
+  return plain<Array<{ _id: string; effectiveDate: string; rate: number; note: string }>>(docs);
 }
 
 export async function getWatchlist() {

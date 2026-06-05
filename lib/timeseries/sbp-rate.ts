@@ -1,20 +1,17 @@
 // SBP (State Bank of Pakistan) policy-rate history as a step function.
 //
-// There is no clean free API for the policy rate, so this is a curated table.
-// The rate changes only at MPC meetings (roughly every 6 weeks), so this is
-// low-maintenance: when SBP announces a change, prepend a new entry.
+// The rate changes only at MPC meetings (~every 6 weeks), so it is curated,
+// not fetched. These are the BUILT-IN DEFAULTS — the user can override/extend
+// them from the Settings page (stored in the SbpRate collection). When the DB
+// has any entries, those are used instead of this table.
 //
-// Source to update from: https://www.sbp.org.pk/m_policy/index.asp (Monetary
-// Policy Decisions). Entries are { from: ISO date the rate became effective,
-// rate: annualised policy rate in percent }.
-//
-// NOTE: values from mid-2025 onward in a forward-dated environment are
-// illustrative placeholders — update them against real SBP announcements.
+// Source to update from: https://www.sbp.org.pk/m_policy/index.asp
+// NOTE: values dated into the future are illustrative placeholders.
 
 export type RateStep = { from: string; rate: number };
 
-export const SBP_POLICY_RATE: RateStep[] = [
-  { from: "2026-03-09", rate: 10.5 }, // illustrative
+export const SBP_POLICY_RATE_DEFAULTS: RateStep[] = [
+  { from: "2026-03-09", rate: 10.5 }, // illustrative — update from SBP
   { from: "2025-12-15", rate: 11.0 }, // illustrative
   { from: "2025-05-05", rate: 11.0 },
   { from: "2025-01-27", rate: 12.0 },
@@ -27,25 +24,30 @@ export const SBP_POLICY_RATE: RateStep[] = [
 ];
 
 // Most recent rate effective on or before the given ISO date.
-export function policyRateOn(isoDate: string): number {
-  for (const step of SBP_POLICY_RATE) {
+// `steps` may be in any order; we copy + sort descending so callers don't have to.
+export function policyRateOn(isoDate: string, steps: RateStep[] = SBP_POLICY_RATE_DEFAULTS): number {
+  const sorted = [...steps].sort((a, b) => b.from.localeCompare(a.from));
+  for (const step of sorted) {
     if (step.from <= isoDate) return step.rate;
   }
-  // Older than our table — use the earliest known rate.
-  return SBP_POLICY_RATE[SBP_POLICY_RATE.length - 1].rate;
+  return sorted.length > 0 ? sorted[sorted.length - 1].rate : 0;
 }
 
-// Build a "risk-free" index over a list of ascending ISO dates, starting at
-// `base` (default 100) and compounding daily at the policy rate in force.
+// Build a "risk-free" index over ascending ISO dates, starting at `base`
+// (default 100) and compounding daily at the policy rate in force.
 // Daily growth factor for an annual rate r% = (1 + r/100)^(1/365).
-export function riskFreeIndex(dates: string[], base = 100): number[] {
+export function riskFreeIndex(
+  dates: string[],
+  steps: RateStep[] = SBP_POLICY_RATE_DEFAULTS,
+  base = 100
+): number[] {
   const out: number[] = [];
   let value = base;
   let prev: string | null = null;
   for (const d of dates) {
     if (prev) {
       const days = daysBetween(prev, d);
-      const annual = policyRateOn(prev) / 100;
+      const annual = policyRateOn(prev, steps) / 100;
       const dailyFactor = Math.pow(1 + annual, 1 / 365);
       value *= Math.pow(dailyFactor, Math.max(0, days));
     }
