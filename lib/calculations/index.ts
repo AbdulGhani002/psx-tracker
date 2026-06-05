@@ -26,3 +26,9 @@ export {
   type FeeBreakdown,
 } from "./fees";
 export { computeCashBalance, type CashSummary } from "./cash";
+export {
+  computeRebalance,
+  type RebalanceSuggestion,
+  type RebalanceResult,
+  type RebalanceInput,
+} from "./rebalance";

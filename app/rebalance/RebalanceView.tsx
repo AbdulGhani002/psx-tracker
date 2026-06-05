@@ -4,123 +4,11 @@ import { useMemo, useState } from "react";
 import { Card } from "@/components/ui/Card";
 import { NumberInput } from "@/components/ui/NumberInput";
 import { Toggle } from "@/components/ui/Toggle";
-import { Table, type Column } from "@/components/ui/Table";
+import { Button } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/Badge";
 import { fmtRs, fmtNum, fmtPct, fmtSignedRs } from "@/lib/format";
+import { computeRebalance, type RebalanceSuggestion } from "@/lib/calculations";
 import type { PositionRow } from "@/lib/calculations";
-
-type Suggestion = {
-  symbol: string;
-  sector: string;
-  currentValue: number;
-  targetValue: number;
-  currentPct: number;
-  targetPct: number;
-  actionRupees: number; // signed: + = buy, − = sell, exactly shares × price
-  deltaShares: number;
-  action: "BUY" | "SELL" | "HOLD";
-  currentPrice: number;
-  unusedRupees: number; // per-row leftover from share rounding
-};
-
-function computeSuggestions(
-  positions: PositionRow[],
-  freshCash: number,
-  cashFromBalance: number,
-  totalValue: number,
-  allowSelling: boolean
-): {
-  rows: Suggestion[];
-  cashIn: number;
-  deployed: number;
-  cashAfter: number;
-  warnings: string[];
-} {
-  const cashIn = Math.max(0, freshCash) + Math.max(0, cashFromBalance);
-  const targetTotal = totalValue + cashIn;
-
-  const rows: Suggestion[] = positions.map((p) => {
-    const targetValue = (p.targetPercent / 100) * targetTotal;
-    let deltaRs = targetValue - p.marketValue;
-    if (!allowSelling && deltaRs < 0) deltaRs = 0;
-
-    // Convert delta to integer share count (you can't buy half a share).
-    let deltaShares = 0;
-    let actionRupees = 0;
-    if (p.currentPrice > 0 && deltaRs !== 0) {
-      if (deltaRs > 0) {
-        // BUY: round DOWN so we never exceed budget.
-        deltaShares = Math.floor(deltaRs / p.currentPrice);
-        actionRupees = deltaShares * p.currentPrice;
-      } else {
-        // SELL: round UP toward zero (sell at most |deltaRs|/price shares).
-        deltaShares = -Math.floor(Math.abs(deltaRs) / p.currentPrice);
-        actionRupees = deltaShares * p.currentPrice;
-      }
-    }
-
-    const action: Suggestion["action"] =
-      actionRupees > 0 ? "BUY" : actionRupees < 0 ? "SELL" : "HOLD";
-
-    return {
-      symbol: p.symbol,
-      sector: p.sector,
-      currentValue: p.marketValue,
-      targetValue,
-      currentPct: p.currentPercent,
-      targetPct: p.targetPercent,
-      actionRupees,
-      deltaShares,
-      action,
-      currentPrice: p.currentPrice,
-      unusedRupees: Math.max(0, deltaRs - Math.max(0, actionRupees)),
-    };
-  });
-
-  // Cap buy spend so total <= cash + sells. Round each buy DOWN as we scale.
-  const totalBuyTarget = rows
-    .filter((r) => r.action === "BUY")
-    .reduce((s, r) => s + r.actionRupees, 0);
-  const totalSell = rows
-    .filter((r) => r.action === "SELL")
-    .reduce((s, r) => s + Math.abs(r.actionRupees), 0);
-  const availableForBuy = cashIn + (allowSelling ? totalSell : 0);
-
-  if (totalBuyTarget > availableForBuy && totalBuyTarget > 0) {
-    const scale = availableForBuy / totalBuyTarget;
-    for (const r of rows) {
-      if (r.action === "BUY" && r.currentPrice > 0) {
-        const scaled = r.actionRupees * scale;
-        const newShares = Math.floor(scaled / r.currentPrice);
-        r.deltaShares = newShares;
-        r.actionRupees = newShares * r.currentPrice;
-        r.action = newShares > 0 ? "BUY" : "HOLD";
-      }
-    }
-  }
-
-  const deployed = rows.reduce(
-    (s, r) => s + (r.action === "BUY" ? r.actionRupees : 0),
-    0
-  );
-  const released = rows.reduce(
-    (s, r) => s + (r.action === "SELL" ? Math.abs(r.actionRupees) : 0),
-    0
-  );
-  const cashAfter = cashIn + released - deployed;
-
-  const warnings: string[] = [];
-  for (const r of rows) {
-    const newValue = r.currentValue + r.actionRupees;
-    const newTotal = totalValue + cashIn + released - deployed;
-    const newPct = newTotal > 0 ? (newValue / (totalValue + cashIn)) * 100 : 0;
-    if (newPct > 25) {
-      warnings.push(`${r.symbol} would exceed 25% concentration (${newPct.toFixed(1)}%).`);
-    }
-  }
-
-  return { rows, cashIn, deployed, cashAfter, warnings };
-}
 
 type Props = {
   positions: PositionRow[];
@@ -133,69 +21,36 @@ export function RebalanceView({ positions, totalValue, availableCashBalance }: P
   const [useBalance, setUseBalance] = useState<boolean>(availableCashBalance > 0);
   const [balanceToUse, setBalanceToUse] = useState<number>(Math.max(0, availableCashBalance));
   const [allowSelling, setAllowSelling] = useState(false);
+  const [redistribute, setRedistribute] = useState(true);
+  const [orderPrices, setOrderPrices] = useState<Record<string, number | "">>({});
+  const concentrationCap = 25;
 
   const cashFromBalance = useBalance ? Math.min(balanceToUse, availableCashBalance) : 0;
 
-  const { rows, cashIn, deployed, cashAfter, warnings } = useMemo(
+  const result = useMemo(
     () =>
-      computeSuggestions(
+      computeRebalance({
         positions,
         freshCash,
         cashFromBalance,
         totalValue,
-        allowSelling
-      ),
-    [positions, freshCash, cashFromBalance, totalValue, allowSelling]
+        allowSelling,
+        orderPrices,
+        redistribute,
+        concentrationCap,
+      }),
+    [positions, freshCash, cashFromBalance, totalValue, allowSelling, orderPrices, redistribute]
   );
 
-  const columns: Column<Suggestion>[] = [
-    { key: "symbol", header: "Symbol", render: (r) => <span className="font-mono font-medium">{r.symbol}</span> },
-    {
-      key: "alloc",
-      header: "Allocation",
-      align: "right",
-      render: (r) => (
-        <div className="flex items-center justify-end gap-2 font-mono mono-num text-[12px]">
-          <span>{fmtPct(r.currentPct / 100, 1)}</span>
-          <span className="text-muted">→</span>
-          <span>{fmtPct(r.targetPct / 100, 0)}</span>
-        </div>
-      ),
-    },
-    { key: "currentValue", header: "Current", align: "right", mono: true, render: (r) => fmtRs(r.currentValue) },
-    { key: "targetValue", header: "Target", align: "right", mono: true, render: (r) => fmtRs(r.targetValue) },
-    {
-      key: "action",
-      header: "Action",
-      render: (r) => (
-        <Badge tone={r.action === "BUY" ? "accent" : r.action === "SELL" ? "negative" : "default"}>
-          {r.action}
-        </Badge>
-      ),
-    },
-    {
-      key: "delta",
-      header: "Change",
-      align: "right",
-      mono: true,
-      render: (r) =>
-        r.action === "HOLD" ? (
-          "—"
-        ) : (
-          <span style={{ color: r.action === "BUY" ? "var(--positive)" : "var(--negative)" }}>
-            {fmtSignedRs(r.actionRupees)}
-          </span>
-        ),
-    },
-    {
-      key: "shares",
-      header: "Shares",
-      align: "right",
-      mono: true,
-      render: (r) =>
-        r.deltaShares === 0 ? "—" : `${r.deltaShares > 0 ? "+" : ""}${fmtNum(r.deltaShares)}`,
-    },
-  ];
+  const { rows, cashIn, deployed, cashAfter, leftoverDeployed, warnings } = result;
+
+  function setOrder(symbol: string, v: number | "") {
+    setOrderPrices((prev) => ({ ...prev, [symbol]: v }));
+  }
+  function resetOrders() {
+    setOrderPrices({});
+  }
+  const hasCustomPrices = Object.values(orderPrices).some((v) => typeof v === "number" && v > 0);
 
   return (
     <div className="space-y-6">
@@ -208,7 +63,7 @@ export function RebalanceView({ positions, totalValue, availableCashBalance }: P
             step={1}
             min={0}
             large
-            hint="Any rupee amount. Type for precision; ↑↓ steps by Rs 1."
+            hint="New money you're depositing for this rebalance."
           />
           <div className="space-y-3">
             <Toggle
@@ -216,8 +71,7 @@ export function RebalanceView({ positions, totalValue, availableCashBalance }: P
               value={useBalance}
               onChange={(v) => {
                 setUseBalance(v);
-                if (v) setBalanceToUse(Math.max(0, availableCashBalance));
-                else setBalanceToUse(0);
+                setBalanceToUse(v ? Math.max(0, availableCashBalance) : 0);
               }}
               hint={`Brokerage balance: ${fmtRs(availableCashBalance)}`}
             />
@@ -239,21 +93,12 @@ export function RebalanceView({ positions, totalValue, availableCashBalance }: P
             onChange={setAllowSelling}
             hint="Off = only deploy cash; never sells."
           />
-          <div>
-            <div className="label-cap">After rebalancing</div>
-            <div
-              className="font-display mono-num text-[26px] mt-0.5"
-              style={{
-                fontVariationSettings: "'opsz' 144",
-                color: cashAfter > 0 ? "var(--positive)" : "var(--ink)",
-              }}
-            >
-              {fmtRs(cashAfter)}
-            </div>
-            <div className="text-[11px] text-muted font-mono mt-1">
-              cash remaining (rounding leftover)
-            </div>
-          </div>
+          <Toggle
+            label="Deploy leftover cash (greedy)"
+            value={redistribute}
+            onChange={setRedistribute}
+            hint="Spend rounding leftover on the most-underweight positions until it can't buy another share."
+          />
         </div>
       </Card>
 
@@ -271,35 +116,129 @@ export function RebalanceView({ positions, totalValue, availableCashBalance }: P
       )}
 
       <Card inverted>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-          <div>
-            <div className="text-[10px] tracking-stat uppercase font-mono" style={{ color: "rgba(245,241,232,0.65)" }}>
-              Cash in
-            </div>
-            <div className="font-display mono-num text-[24px]" style={{ fontVariationSettings: "'opsz' 144" }}>
-              {fmtRs(cashIn)}
-            </div>
-          </div>
-          <div>
-            <div className="text-[10px] tracking-stat uppercase font-mono" style={{ color: "rgba(245,241,232,0.65)" }}>
-              Deployed (integer shares)
-            </div>
-            <div className="font-display mono-num text-[24px]" style={{ fontVariationSettings: "'opsz' 144" }}>
-              {fmtRs(deployed)}
-            </div>
-          </div>
-          <div>
-            <div className="text-[10px] tracking-stat uppercase font-mono" style={{ color: "rgba(245,241,232,0.65)" }}>
-              Leftover (back to cash)
-            </div>
-            <div className="font-display mono-num text-[24px]" style={{ fontVariationSettings: "'opsz' 144" }}>
-              {fmtRs(cashAfter)}
-            </div>
-          </div>
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
+          <SummaryStat label="Cash in" value={fmtRs(cashIn)} />
+          <SummaryStat label="Deployed" value={fmtRs(deployed)} />
+          <SummaryStat label="Greedy leftover used" value={fmtRs(leftoverDeployed)} />
+          <SummaryStat label="Cash remaining" value={fmtRs(cashAfter)} />
         </div>
       </Card>
 
-      <Table columns={columns} rows={rows} rowKey={(r) => r.symbol} empty="No positions yet." />
+      <div className="flex items-center justify-between">
+        <div className="label-cap">Per-holding plan</div>
+        {hasCustomPrices && (
+          <Button variant="outline" onClick={resetOrders}>
+            Reset order prices
+          </Button>
+        )}
+      </div>
+
+      <div className="overflow-x-auto">
+        <table className="w-full border-collapse text-[13px]">
+          <thead>
+            <tr className="border-t border-ink border-b border-ink">
+              {["Symbol", "Now → Target → Final", "Mkt", "Order Price", "Action", "Change", "Shares"].map(
+                (h, i) => (
+                  <th
+                    key={h}
+                    className="px-3 py-2 font-mono text-[10px] uppercase tracking-stat text-muted font-medium"
+                    style={{ textAlign: i <= 1 ? "left" : "right" }}
+                  >
+                    {h}
+                  </th>
+                )
+              )}
+            </tr>
+          </thead>
+          <tbody>
+            {rows.length === 0 ? (
+              <tr>
+                <td colSpan={7} className="px-3 py-8 text-center text-muted text-sm">
+                  No positions yet.
+                </td>
+              </tr>
+            ) : (
+              rows.map((r) => {
+                const customized =
+                  typeof orderPrices[r.symbol] === "number" && (orderPrices[r.symbol] as number) > 0;
+                return (
+                  <tr key={r.symbol} className="border-b border-rule">
+                    <td className="px-3 py-2.5 font-mono font-medium">{r.symbol}</td>
+                    <td className="px-3 py-2.5">
+                      <div className="flex items-center gap-1.5 font-mono mono-num text-[12px]">
+                        <span>{fmtPct(r.currentPct / 100, 1)}</span>
+                        <span className="text-muted">→</span>
+                        <span className="text-muted">{fmtPct(r.targetPct / 100, 0)}</span>
+                        <span className="text-muted">→</span>
+                        <span style={{ color: "var(--accent-deep)" }}>{fmtPct(r.finalPct / 100, 1)}</span>
+                      </div>
+                    </td>
+                    <td className="px-3 py-2.5 text-right font-mono mono-num text-muted">
+                      {fmtRs(r.livePrice, true)}
+                    </td>
+                    <td className="px-3 py-2.5 text-right">
+                      <div className="inline-flex items-center border-b border-ink">
+                        <input
+                          type="number"
+                          value={orderPrices[r.symbol] ?? ""}
+                          placeholder={r.livePrice ? r.livePrice.toFixed(2) : "0"}
+                          onChange={(e) =>
+                            setOrder(r.symbol, e.target.value === "" ? "" : Number(e.target.value))
+                          }
+                          step={0.01}
+                          min={0}
+                          className="w-20 bg-transparent text-right font-mono mono-num text-[13px] py-1 focus:outline-none"
+                          style={{ color: customized ? "var(--accent-deep)" : "var(--ink)" }}
+                        />
+                      </div>
+                    </td>
+                    <td className="px-3 py-2.5 text-right">
+                      <Badge
+                        tone={r.action === "BUY" ? "accent" : r.action === "SELL" ? "negative" : "default"}
+                      >
+                        {r.action}
+                      </Badge>
+                    </td>
+                    <td className="px-3 py-2.5 text-right font-mono mono-num">
+                      {r.action === "HOLD" ? (
+                        "—"
+                      ) : (
+                        <span style={{ color: r.action === "BUY" ? "var(--positive)" : "var(--negative)" }}>
+                          {fmtSignedRs(r.actionRupees)}
+                        </span>
+                      )}
+                    </td>
+                    <td className="px-3 py-2.5 text-right font-mono mono-num">
+                      {r.deltaShares === 0
+                        ? "—"
+                        : `${r.deltaShares > 0 ? "+" : ""}${fmtNum(r.deltaShares)}`}
+                    </td>
+                  </tr>
+                );
+              })
+            )}
+          </tbody>
+        </table>
+      </div>
+
+      <p className="text-[11px] text-muted font-mono">
+        Order price defaults to the live quote. Override it (e.g. a lower limit price) and shares are
+        computed at your price. With greedy deployment on, leftover cash buys whole shares of the
+        most-underweight holdings until under the cheapest share price.
+      </p>
+    </div>
+  );
+}
+
+function SummaryStat({ label, value }: { label: string; value: string }) {
+  return (
+    <div>
+      <div className="text-[10px] tracking-stat uppercase font-mono" style={{ color: "rgba(245,241,232,0.65)" }}>
+        {label}
+      </div>
+      <div className="font-display mono-num text-[22px]" style={{ fontVariationSettings: "'opsz' 144" }}>
+        {value}
+      </div>
     </div>
   );
 }

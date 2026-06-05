@@ -11,34 +11,42 @@ import {
   ReferenceLine,
 } from "recharts";
 import { AXIS_PROPS, CHART_THEME, GRID_PROPS, TOOLTIP_STYLE, TOOLTIP_LABEL_STYLE } from "./theme";
+import type { SeriesKey } from "./series-meta";
+import { SERIES_META } from "./series-meta";
 
 export type BenchmarkPoint = {
   date: string;
-  portfolioIndex: number;
-  kse100Index: number;
+  portfolio: number | null;
+  kse100: number | null;
+  kmi30: number | null;
+  portfolioUsd: number | null;
+  sp500: number | null;
+  usdpkr: number | null;
+  riskFree: number | null;
 };
 
 type Props = {
   points: BenchmarkPoint[];
+  visible: SeriesKey[];
   height?: number;
 };
 
-export function BenchmarkChart({ points, height = 320 }: Props) {
+export function BenchmarkChart({ points, visible, height = 340 }: Props) {
   return (
     <div style={{ background: CHART_THEME.background, padding: 20 }}>
       <ResponsiveContainer width="100%" height={height}>
-        <LineChart data={points} margin={{ top: 14, right: 24, bottom: 8, left: 50 }}>
+        <LineChart data={points} margin={{ top: 14, right: 24, bottom: 8, left: 44 }}>
           <CartesianGrid {...GRID_PROPS} />
           <XAxis
             {...AXIS_PROPS}
             dataKey="date"
             tickFormatter={(v: string) => v.slice(5)}
-            minTickGap={40}
+            minTickGap={44}
           />
           <YAxis
             {...AXIS_PROPS}
             tickFormatter={(v: number) => v.toFixed(0)}
-            width={42}
+            width={40}
             domain={["auto", "auto"]}
           />
           <Tooltip
@@ -47,8 +55,8 @@ export function BenchmarkChart({ points, height = 320 }: Props) {
             itemStyle={{ color: CHART_THEME.textBright, fontFamily: "IBM Plex Mono, monospace", fontSize: 12 }}
             labelFormatter={(label) => label}
             formatter={(value: number, name: string) => [
-              `${value.toFixed(2)}`,
-              name === "portfolioIndex" ? "Portfolio" : "KSE-100",
+              value == null ? "—" : value.toFixed(2),
+              SERIES_META[name as SeriesKey]?.label ?? name,
             ]}
             separator=" "
           />
@@ -57,30 +65,29 @@ export function BenchmarkChart({ points, height = 320 }: Props) {
             stroke={CHART_THEME.amber}
             strokeDasharray="4 4"
             label={{
-              value: "Start",
+              value: "Start = 100",
               fill: CHART_THEME.amber,
               fontSize: 10,
               fontFamily: "IBM Plex Mono, monospace",
               position: "right",
             }}
           />
-          <Line
-            type="monotone"
-            dataKey="portfolioIndex"
-            name="portfolioIndex"
-            stroke={CHART_THEME.accent}
-            strokeWidth={2}
-            dot={false}
-          />
-          <Line
-            type="monotone"
-            dataKey="kse100Index"
-            name="kse100Index"
-            stroke={CHART_THEME.cream}
-            strokeWidth={1.5}
-            strokeDasharray="2 3"
-            dot={false}
-          />
+          {visible.map((key) => {
+            const m = SERIES_META[key];
+            return (
+              <Line
+                key={key}
+                type="monotone"
+                dataKey={key}
+                name={key}
+                stroke={m.stroke}
+                strokeWidth={m.width}
+                strokeDasharray={m.dash}
+                dot={false}
+                connectNulls
+              />
+            );
+          })}
         </LineChart>
       </ResponsiveContainer>
     </div>
