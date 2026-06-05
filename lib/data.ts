@@ -9,10 +9,14 @@ import {
   CashEntryModel,
   WatchlistEntryModel,
   SbpRateModel,
+  MutualFundModel,
+  SavingsAccountModel,
   type Holding,
   type Transaction,
 } from "./models";
 import { SBP_POLICY_RATE_DEFAULTS, type RateStep } from "./timeseries/sbp-rate";
+import { fetchAllNavs, findNav } from "./funds/mufap";
+import { valueSavings, valueFund, type SavingsValuation, type FundValuation } from "./calculations/assets";
 import { getPrices } from "./prices";
 import {
   summarisePortfolio,
@@ -142,6 +146,117 @@ export async function getSbpRates() {
   if (!(await tryConnect())) return [];
   const docs = await SbpRateModel.find().sort({ effectiveDate: -1 }).lean();
   return plain<Array<{ _id: string; effectiveDate: string; rate: number; note: string }>>(docs);
+}
+
+export type ValuedFund = {
+  _id: string;
+  name: string;
+  mufapName: string;
+  amc: string;
+  units: number;
+  avgCost: number;
+  notes: string;
+  nav: number; // 0 if NAV unavailable
+  navFound: boolean;
+} & FundValuation;
+
+export async function getMutualFundsValued(): Promise<ValuedFund[]> {
+  if (!(await tryConnect())) return [];
+  const docs = await MutualFundModel.find().sort({ name: 1 }).lean();
+  if (docs.length === 0) return [];
+  const navs = await fetchAllNavs();
+  const byName = new Map(navs.map((n) => [n.name.toLowerCase(), n.nav]));
+  const out: ValuedFund[] = [];
+  for (const f of docs) {
+    let nav = byName.get(f.mufapName.toLowerCase()) ?? 0;
+    if (!nav) {
+      const m = await findNav(f.mufapName);
+      nav = m?.nav ?? 0;
+    }
+    const v = valueFund({ units: f.units, avgCost: f.avgCost }, nav);
+    out.push({
+      ...v, // units, nav, value, cost, unrealizedPL, unrealizedPct
+      _id: String(f._id),
+      name: f.name,
+      mufapName: f.mufapName,
+      amc: f.amc,
+      avgCost: f.avgCost,
+      notes: f.notes,
+      navFound: nav > 0,
+    });
+  }
+  return out;
+}
+
+export type ValuedSavings = {
+  _id: string;
+  name: string;
+  bank: string;
+  ratePercent: number;
+  anchorDate: string;
+  anchorBalance: number;
+  notes: string;
+  movements: Array<{ _id?: string; date: string; type: "DEPOSIT" | "WITHDRAWAL"; amount: number; note: string }>;
+} & SavingsValuation;
+
+export async function getSavingsValued(): Promise<ValuedSavings[]> {
+  if (!(await tryConnect())) return [];
+  const docs = await SavingsAccountModel.find().sort({ name: 1 }).lean();
+  return docs.map((a) => {
+    const v = valueSavings({
+      ratePercent: a.ratePercent,
+      anchorDate: a.anchorDate,
+      anchorBalance: a.anchorBalance,
+      movements: (a.movements ?? []) as any,
+    });
+    return {
+      _id: String(a._id),
+      name: a.name,
+      bank: a.bank,
+      ratePercent: a.ratePercent,
+      anchorDate: a.anchorDate,
+      anchorBalance: a.anchorBalance,
+      notes: a.notes,
+      movements: plain(a.movements ?? []),
+      ...v,
+    };
+  });
+}
+
+export type NetWorth = {
+  equity: number; // PSX holdings market value
+  funds: number; // mutual funds value
+  savings: number; // savings accounts accrued value
+  cash: number; // brokerage cash balance
+  total: number;
+  breakdown: { label: string; value: number }[];
+};
+
+export async function getNetWorth(): Promise<NetWorth> {
+  const [summary, funds, savings, cash] = await Promise.all([
+    getPortfolioSummary(),
+    getMutualFundsValued(),
+    getSavingsValued(),
+    getCashSummary(),
+  ]);
+  const equity = summary.totalValue;
+  const fundsTotal = funds.reduce((s, f) => s + f.value, 0);
+  const savingsTotal = savings.reduce((s, a) => s + a.balance, 0);
+  const cashTotal = Math.max(0, cash.balance);
+  const total = equity + fundsTotal + savingsTotal + cashTotal;
+  return {
+    equity,
+    funds: fundsTotal,
+    savings: savingsTotal,
+    cash: cashTotal,
+    total,
+    breakdown: [
+      { label: "PSX equities", value: equity },
+      { label: "Mutual funds", value: fundsTotal },
+      { label: "Savings", value: savingsTotal },
+      { label: "Cash", value: cashTotal },
+    ].filter((b) => b.value > 0),
+  };
 }
 
 export async function getWatchlist() {

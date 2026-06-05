@@ -11,6 +11,7 @@ import { BenchmarkChartLoader } from "@/components/charts/BenchmarkChartLoader";
 import {
   getPortfolioSummary,
   getAllTransactions,
+  getNetWorth,
   checkDataAvailability,
 } from "@/lib/data";
 import {
@@ -28,11 +29,13 @@ export const dynamic = "force-dynamic";
 
 export default async function Dashboard() {
   const avail = await checkDataAvailability();
-  const [summary, allTx] = await Promise.all([
+  const [summary, allTx, netWorth] = await Promise.all([
     getPortfolioSummary(),
     getAllTransactions(),
+    getNetWorth(),
   ]);
 
+  const hasOtherAssets = netWorth.funds + netWorth.savings + netWorth.cash > 0;
   const recent = allTx.slice(0, 5);
   const xirrLabel = summary.xirr != null ? fmtSignedPct(summary.xirr, 1) : "—";
   const xirrHint =
@@ -127,6 +130,39 @@ export default async function Dashboard() {
       />
 
       {!avail.available && <SetupBanner reason={avail.reason} />}
+
+      {hasOtherAssets && (
+        <Link href="/assets" className="block mb-6">
+          <Card>
+            <div className="flex items-center justify-between gap-4 flex-wrap">
+              <div>
+                <div className="label-cap">Net worth (all assets)</div>
+                <div className="font-display mono-num text-[28px] mt-1" style={{ fontVariationSettings: "'opsz' 144" }}>
+                  {fmtRs(netWorth.total)}
+                </div>
+              </div>
+              <div className="flex gap-5 font-mono mono-num text-[12px]">
+                <div>
+                  <div className="text-[10px] tracking-stat uppercase text-muted">Equities</div>
+                  <div>{fmtRs(netWorth.equity)}</div>
+                </div>
+                <div>
+                  <div className="text-[10px] tracking-stat uppercase text-muted">Funds</div>
+                  <div>{fmtRs(netWorth.funds)}</div>
+                </div>
+                <div>
+                  <div className="text-[10px] tracking-stat uppercase text-muted">Savings</div>
+                  <div>{fmtRs(netWorth.savings)}</div>
+                </div>
+                <div>
+                  <div className="text-[10px] tracking-stat uppercase text-muted">Cash</div>
+                  <div>{fmtRs(netWorth.cash)}</div>
+                </div>
+              </div>
+            </div>
+          </Card>
+        </Link>
+      )}
 
       <StatRow>
         <Stat label="Total Value" value={fmtRs(summary.totalValue)} />
