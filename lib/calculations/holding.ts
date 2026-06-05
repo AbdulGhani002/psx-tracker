@@ -73,9 +73,11 @@ export function deriveFromTransactions(txs: Transaction[]): HoldingDerived {
   return s;
 }
 
-export function dividendsYTD(txs: Transaction[], year = new Date().getFullYear()): number {
+// Dividends received within the Pakistan tax year (Jul–Jun) containing `ref`.
+import { inSameTaxYear } from "@/lib/dates";
+export function dividendsYTD(txs: Transaction[], ref: Date = new Date()): number {
   return txs
-    .filter((t) => t.type === "DIVIDEND" && new Date(t.date).getFullYear() === year)
+    .filter((t) => t.type === "DIVIDEND" && inSameTaxYear(new Date(t.date), ref))
     .reduce((sum, t) => sum + t.netAmount, 0);
 }
 

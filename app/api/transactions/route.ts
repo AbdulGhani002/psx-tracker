@@ -16,7 +16,10 @@ const txSchema = z.object({
   fees: z.number().default(0),
   notes: z.string().default(""),
   ratio: z.string().default(""),
-});
+}).refine(
+  (v) => v.type !== "SPLIT" || /^\d+\s*:\s*\d+$/.test(v.ratio.trim()),
+  { message: "SPLIT requires a ratio like '1:2' (old:new).", path: ["ratio"] }
+);
 
 async function recomputeHolding(symbol: string) {
   const txs = await TransactionModel.find({ symbol }).sort({ date: 1, createdAt: 1 }).lean();

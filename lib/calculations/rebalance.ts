@@ -52,7 +52,8 @@ export function computeRebalance({
 
   const priceOf = (p: PositionRow): number => {
     const o = orderPrices[p.symbol];
-    return typeof o === "number" && o > 0 ? o : p.currentPrice;
+    // Guard against NaN/Infinity from a malformed input — fall back to live.
+    return typeof o === "number" && Number.isFinite(o) && o > 0 ? o : p.currentPrice;
   };
 
   const rows: RebalanceSuggestion[] = positions.map((p) => {

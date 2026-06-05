@@ -39,7 +39,7 @@ export function RebalanceView({ positions, totalValue, availableCashBalance }: P
         redistribute,
         concentrationCap,
       }),
-    [positions, freshCash, cashFromBalance, totalValue, allowSelling, orderPrices, redistribute]
+    [positions, freshCash, cashFromBalance, totalValue, allowSelling, orderPrices, redistribute, concentrationCap]
   );
 
   const { rows, cashIn, deployed, cashAfter, leftoverDeployed, warnings } = result;
