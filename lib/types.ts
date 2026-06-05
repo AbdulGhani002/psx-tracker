@@ -16,9 +16,34 @@ export type Holding = {
   rebalanceBand: number;
   targetRationale: string;
   notes: string;
+  tier?: string;
+  convictionScore?: number;
+  goalTag?: string;
+  thesis?: string;
+  trackedMetrics?: Array<{ name: string; source: string; green: string; red: string; current: string }>;
+  modelAssumptions?: {
+    mode: string;
+    annualGrowth: number;
+    peStart: number;
+    peEnd: number;
+    payoutRatio: number;
+    navDiscount: number;
+    horizonYears: number;
+    useDRIP: boolean;
+    saved: boolean;
+  };
   createdAt: Date | string;
   updatedAt: Date | string;
 };
+
+export const HOLDING_TIERS = ["Anchor", "Core", "Satellite", "Starter"] as const;
+export const TIER_BANDS: Record<string, { min: number; max: number; cap: number }> = {
+  Anchor: { min: 12, max: 18, cap: 25 },
+  Core: { min: 7, max: 12, cap: 25 },
+  Satellite: { min: 3, max: 7, cap: 10 },
+  Starter: { min: 1, max: 3, cap: 5 },
+};
+export const GOAL_TAGS = ["Growth", "Income", "Inflation hedge", "Stability", "Diversification"] as const;
 
 export type Transaction = {
   _id: string;

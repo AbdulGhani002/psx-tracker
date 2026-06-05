@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { Slider } from "@/components/ui/Slider";
@@ -18,22 +19,72 @@ import {
   fmtMultiple,
 } from "@/lib/format";
 
+type SavedAssumptions = {
+  annualGrowth: number;
+  peStart: number;
+  peEnd: number;
+  payoutRatio: number;
+  horizonYears: number;
+  useDRIP: boolean;
+};
+
 type Props = {
   initialShares: number;
   currentPrice: number;
   symbol?: string;
   totalCost?: number;
+  savedAssumptions?: SavedAssumptions;
+  allowSave?: boolean;
 };
 
-export function CompoundingModel({ initialShares, currentPrice, symbol, totalCost }: Props) {
-  const [preset, setPreset] = useState<string>("status-quo");
-  const [annualGrowth, setAnnualGrowth] = useState(0.10);
-  const [peStart, setPeStart] = useState(8);
-  const [peEnd, setPeEnd] = useState(8);
-  const [payoutRatio, setPayoutRatio] = useState(0.40);
-  const [horizonYears, setHorizonYears] = useState(20);
-  const [useDRIP, setUseDRIP] = useState(true);
+export function CompoundingModel({
+  initialShares,
+  currentPrice,
+  symbol,
+  totalCost,
+  savedAssumptions,
+  allowSave,
+}: Props) {
+  const router = useRouter();
+  const [preset, setPreset] = useState<string>(savedAssumptions ? "custom" : "status-quo");
+  const [annualGrowth, setAnnualGrowth] = useState(savedAssumptions?.annualGrowth ?? 0.1);
+  const [peStart, setPeStart] = useState(savedAssumptions?.peStart ?? 8);
+  const [peEnd, setPeEnd] = useState(savedAssumptions?.peEnd ?? 8);
+  const [payoutRatio, setPayoutRatio] = useState(savedAssumptions?.payoutRatio ?? 0.4);
+  const [horizonYears, setHorizonYears] = useState(savedAssumptions?.horizonYears ?? 20);
+  const [useDRIP, setUseDRIP] = useState(savedAssumptions?.useDRIP ?? true);
   const [showTable, setShowTable] = useState(false);
+  const [savingModel, setSavingModel] = useState(false);
+  const [savedModelAt, setSavedModelAt] = useState<number | null>(null);
+
+  async function saveForStock() {
+    if (!symbol) return;
+    setSavingModel(true);
+    try {
+      const res = await fetch(`/api/holdings/${symbol}`, {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          modelAssumptions: {
+            mode: "eps",
+            annualGrowth,
+            peStart,
+            peEnd,
+            payoutRatio,
+            horizonYears,
+            useDRIP,
+            saved: true,
+          },
+        }),
+      });
+      if (res.ok) {
+        setSavedModelAt(Date.now());
+        router.refresh();
+      }
+    } finally {
+      setSavingModel(false);
+    }
+  }
 
   function applyPreset(id: string) {
     const p = SCENARIO_PRESETS.find((x) => x.id === id);
@@ -220,6 +271,22 @@ export function CompoundingModel({ initialShares, currentPrice, symbol, totalCos
             hint="Reinvest at the year-end price."
           />
         </div>
+
+        {allowSave && symbol && (
+          <div className="flex items-center gap-3 mt-5 pt-4 border-t border-rule">
+            <Button variant="outline" onClick={saveForStock} disabled={savingModel}>
+              {savingModel ? "Saving…" : `Save as ${symbol}'s model defaults`}
+            </Button>
+            {savedModelAt && Date.now() - savedModelAt < 3500 && (
+              <span className="text-[12px]" style={{ color: "var(--positive)" }}>
+                Saved — these load next time you open {symbol}.
+              </span>
+            )}
+            {savedAssumptions && (
+              <span className="text-[11px] text-muted font-mono">Loaded your saved assumptions.</span>
+            )}
+          </div>
+        )}
       </Card>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-3">

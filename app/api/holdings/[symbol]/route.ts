@@ -6,6 +6,14 @@ import { getCompanyInfo } from "@/lib/prices";
 
 export const dynamic = "force-dynamic";
 
+const metricSchema = z.object({
+  name: z.string().default(""),
+  source: z.string().default(""),
+  green: z.string().default(""),
+  red: z.string().default(""),
+  current: z.string().default(""),
+});
+
 const patchSchema = z.object({
   name: z.string().optional(),
   sector: z.string().optional(),
@@ -15,6 +23,25 @@ const patchSchema = z.object({
   targetRationale: z.string().optional(),
   notes: z.string().optional(),
   refreshFromPSX: z.boolean().optional(),
+  // Playbook
+  tier: z.string().optional(),
+  convictionScore: z.number().min(0).max(25).optional(),
+  goalTag: z.string().optional(),
+  thesis: z.string().optional(),
+  trackedMetrics: z.array(metricSchema).optional(),
+  modelAssumptions: z
+    .object({
+      mode: z.enum(["eps", "nav"]).optional(),
+      annualGrowth: z.number().optional(),
+      peStart: z.number().optional(),
+      peEnd: z.number().optional(),
+      payoutRatio: z.number().optional(),
+      navDiscount: z.number().optional(),
+      horizonYears: z.number().optional(),
+      useDRIP: z.boolean().optional(),
+      saved: z.boolean().optional(),
+    })
+    .optional(),
 });
 
 type Params = { params: { symbol: string } };

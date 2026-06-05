@@ -8,10 +8,12 @@ import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { CompoundingModel } from "@/components/model/CompoundingModel";
 import { HoldingSettings } from "./HoldingSettings";
+import { HoldingPlaybook } from "./HoldingPlaybook";
 import {
   getHoldingBySymbol,
   getTransactionsBySymbol,
   getCurrentPrices,
+  getPortfolioSummary,
 } from "@/lib/data";
 import { deriveFromTransactions } from "@/lib/calculations";
 import {
@@ -37,11 +39,14 @@ export default async function HoldingDetail({ params }: Props) {
   const prices = await getCurrentPrices([symbol]);
   const currentPrice = prices.get(symbol) ?? 0;
   const derived = deriveFromTransactions(transactions);
+  const summary = await getPortfolioSummary();
+  const currentPercent = summary.positions.find((p) => p.symbol === symbol)?.currentPercent ?? 0;
 
   const marketValue = derived.shares * currentPrice;
   const unrealizedPL = marketValue - derived.totalCost;
   const unrealizedPct = derived.totalCost > 0 ? unrealizedPL / derived.totalCost : 0;
   const yieldOnCost = derived.totalCost > 0 ? derived.dividendsReceived / derived.totalCost : 0;
+  const h = holding as any;
 
   const txColumns: Column<Transaction>[] = [
     { key: "date", header: "Date", render: (t) => <span className="font-mono text-[12px]">{fmtDate(t.date)}</span> },
@@ -74,12 +79,23 @@ export default async function HoldingDetail({ params }: Props) {
             : undefined
         }
       >
-        <div className="flex gap-3">
+        <div className="flex items-center gap-3 flex-wrap">
           <Link href={`/transactions/new?symbol=${symbol}`}>
             <Button variant="solid">Add Transaction</Button>
           </Link>
+          {h.tier && <Badge tone="accent">{h.tier}</Badge>}
+          {h.goalTag && <Badge tone="default">{h.goalTag}</Badge>}
+          {h.convictionScore > 0 && (
+            <span className="label-cap">Conviction {h.convictionScore}/25</span>
+          )}
         </div>
       </PageHeader>
+
+      {h.thesis && (
+        <p className="text-[15px] leading-relaxed max-w-[68ch] mb-2 -mt-4 text-muted">
+          {h.thesis}
+        </p>
+      )}
 
       <StatRow>
         <Stat label="Shares Held" value={fmtNum(derived.shares)} />
@@ -105,6 +121,25 @@ export default async function HoldingDetail({ params }: Props) {
 
       <Section
         number="02"
+        title="Playbook"
+        display="Your thesis, tier, and the numbers to watch."
+        description="Encode your sizing framework: which tier this belongs to, your conviction score, the job it does, and the quarterly numbers that tell you the thesis is healing or breaking."
+      >
+        <HoldingPlaybook
+          symbol={symbol}
+          currentPercent={currentPercent}
+          initial={{
+            tier: h.tier ?? "",
+            convictionScore: h.convictionScore ?? 0,
+            goalTag: h.goalTag ?? "",
+            thesis: h.thesis ?? "",
+            trackedMetrics: h.trackedMetrics ?? [],
+          }}
+        />
+      </Section>
+
+      <Section
+        number="03"
         title="Settings"
         description="Edit target allocation, rebalance band, Sharia status, name/sector overrides, and notes. Refresh from PSX to re-scrape company info."
       >
@@ -124,15 +159,17 @@ export default async function HoldingDetail({ params }: Props) {
       </Section>
 
       <Section
-        number="03"
+        number="04"
         title="Forward projection"
-        description="A multi-scenario compounding model specific to this stock. Pick a preset or tune the sliders."
+        description="A multi-scenario compounding model specific to this stock. Pick a preset, tune the sliders, then save them as this stock's defaults."
       >
         <CompoundingModel
           initialShares={derived.shares}
           currentPrice={currentPrice}
           symbol={symbol}
           totalCost={derived.totalCost}
+          savedAssumptions={h.modelAssumptions?.saved ? h.modelAssumptions : undefined}
+          allowSave
         />
       </Section>
     </div>
