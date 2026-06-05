@@ -2,6 +2,7 @@ import "./globals.css";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { SiteNav } from "@/components/layout/SiteNav";
+import { ThemeScript } from "@/components/layout/ThemeToggle";
 import { APP_VERSION } from "@/lib/version";
 
 export const metadata: Metadata = {
@@ -12,6 +13,9 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en">
+      <head>
+        <ThemeScript />
+      </head>
       <body>
         <div className="min-h-screen flex flex-col">
           <SiteNav />

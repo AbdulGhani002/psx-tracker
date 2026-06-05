@@ -19,6 +19,22 @@
   --inverted-fg: #f5f1e8;
 }
 
+:root[data-theme="dark"] {
+  --ink: #ece6d8;          /* primary text becomes light */
+  --paper: #17161300;      /* placeholder, overridden below */
+  --paper: #171613;        /* warm near-black */
+  --paper-2: #211f1b;      /* raised surfaces */
+  --muted: #9a9385;
+  --rule: #34322c;
+  --accent: #d49a5e;       /* a touch brighter for dark bg */
+  --accent-deep: #e0a86a;
+  --positive: #8fa07f;
+  --negative: #c87b68;
+  --amber: #d4a574;
+  --inverted-bg: #2a2823;  /* inverted cards: lighter than paper so they still read as panels */
+  --inverted-fg: #ece6d8;
+}
+
 html, body {
   background: var(--paper);
   color: var(--ink);

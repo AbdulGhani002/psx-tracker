@@ -32,3 +32,13 @@ export {
   type RebalanceResult,
   type RebalanceInput,
 } from "./rebalance";
+export { valueSavings, valueFund, type SavingsValuation, type FundValuation } from "./assets";
+export {
+  buildTaxReport,
+  dividendWhtFlags,
+  type TaxReport,
+  type TaxSettings,
+  type DividendTaxRow,
+} from "./tax";
+export { computeRisk, maxDrawdown, type RiskMetrics } from "./risk";
+export { valueTrade, type TradeValuation, type CommodityTradeInput } from "./pmex";

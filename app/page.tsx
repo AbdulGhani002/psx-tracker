@@ -8,10 +8,13 @@ import { Card } from "@/components/ui/Card";
 import { SetupBanner } from "@/components/layout/SetupBanner";
 import { SectorBar } from "@/components/charts/SectorBar";
 import { BenchmarkChartLoader } from "@/components/charts/BenchmarkChartLoader";
+import { RefreshPrices } from "@/components/layout/RefreshPrices";
 import {
   getPortfolioSummary,
   getAllTransactions,
   getNetWorth,
+  getTodaysMovers,
+  getRiskMetrics,
   checkDataAvailability,
 } from "@/lib/data";
 import {
@@ -29,13 +32,16 @@ export const dynamic = "force-dynamic";
 
 export default async function Dashboard() {
   const avail = await checkDataAvailability();
-  const [summary, allTx, netWorth] = await Promise.all([
+  const [summary, allTx, netWorth, movers, risk] = await Promise.all([
     getPortfolioSummary(),
     getAllTransactions(),
     getNetWorth(),
+    getTodaysMovers(),
+    getRiskMetrics(),
   ]);
 
   const hasOtherAssets = netWorth.funds + netWorth.savings + netWorth.cash > 0;
+  const hasMovers = movers.gainers.length + movers.losers.length > 0;
   const recent = allTx.slice(0, 5);
   const xirrLabel = summary.xirr != null ? fmtSignedPct(summary.xirr, 1) : "—";
   const xirrHint =
@@ -127,9 +133,46 @@ export default async function Dashboard() {
         title="Your portfolio."
         subtitle={`As of ${fmtDateTime(new Date())}`}
         italic={false}
-      />
+      >
+        <RefreshPrices />
+      </PageHeader>
 
       {!avail.available && <SetupBanner reason={avail.reason} />}
+
+      {hasMovers && (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+          <Card>
+            <div className="label-cap mb-2" style={{ color: "var(--positive)" }}>Today's gainers</div>
+            <div className="space-y-1.5">
+              {movers.gainers.length === 0 ? (
+                <span className="text-[12px] text-muted">None up today.</span>
+              ) : (
+                movers.gainers.map((m) => (
+                  <div key={m.symbol} className="flex justify-between font-mono mono-num text-[13px]">
+                    <Link href={`/holdings/${m.symbol}`} className="font-medium hover:text-[var(--accent-deep)]">{m.symbol}</Link>
+                    <span style={{ color: "var(--positive)" }}>{fmtSignedPct(m.changePct, 2)}</span>
+                  </div>
+                ))
+              )}
+            </div>
+          </Card>
+          <Card>
+            <div className="label-cap mb-2" style={{ color: "var(--negative)" }}>Today's losers</div>
+            <div className="space-y-1.5">
+              {movers.losers.length === 0 ? (
+                <span className="text-[12px] text-muted">None down today.</span>
+              ) : (
+                movers.losers.map((m) => (
+                  <div key={m.symbol} className="flex justify-between font-mono mono-num text-[13px]">
+                    <Link href={`/holdings/${m.symbol}`} className="font-medium hover:text-[var(--accent-deep)]">{m.symbol}</Link>
+                    <span style={{ color: "var(--negative)" }}>{fmtSignedPct(m.changePct, 2)}</span>
+                  </div>
+                ))
+              )}
+            </div>
+          </Card>
+        </div>
+      )}
 
       {hasOtherAssets && (
         <Link href="/assets" className="block mb-6">
@@ -234,8 +277,26 @@ export default async function Dashboard() {
         <BenchmarkChartLoader />
       </Section>
 
+      {risk && risk.annualVol != null && (
+        <Section
+          number="04"
+          title="Risk"
+          display="How bumpy the ride is."
+          description="From your portfolio's daily returns over the last year vs KSE-100. Annualised."
+        >
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
+            <Stat label="Volatility" value={fmtPct(risk.annualVol ?? 0, 1)} tone="muted" hint="annualised σ" />
+            <Stat label="Sharpe" value={risk.sharpe != null ? risk.sharpe.toFixed(2) : "—"} tone={(risk.sharpe ?? 0) >= 1 ? "positive" : "default"} hint="return per unit risk" />
+            <Stat label="Sortino" value={risk.sortino != null ? risk.sortino.toFixed(2) : "—"} tone={(risk.sortino ?? 0) >= 1 ? "positive" : "default"} hint="downside-adjusted" />
+            <Stat label="Max drawdown" value={fmtPct(risk.maxDrawdown ?? 0, 1)} tone="negative" hint="peak-to-trough" />
+            <Stat label="Beta vs KSE" value={risk.beta != null ? risk.beta.toFixed(2) : "—"} tone="muted" hint="market sensitivity" />
+            <Stat label="Alpha" value={risk.alpha != null ? fmtSignedPct(risk.alpha, 1) : "—"} tone={(risk.alpha ?? 0) >= 0 ? "positive" : "negative"} hint="vs CAPM expectation" />
+          </div>
+        </Section>
+      )}
+
       <Section
-        number="04"
+        number="05"
         title="Recent activity"
         display="The last five things you did."
         action={<Link href="/transactions" className="label-cap hover:text-[var(--accent-deep)]">All transactions →</Link>}

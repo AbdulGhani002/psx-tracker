@@ -14,3 +14,5 @@ export { WatchlistEntryModel, type WatchlistEntry } from "./WatchlistEntry";
 export { SbpRateModel, type SbpRate } from "./SbpRate";
 export { MutualFundModel, type MutualFund } from "./MutualFund";
 export { SavingsAccountModel, type SavingsAccount } from "./SavingsAccount";
+export { AppSettingsModel, type AppSettings, DEFAULT_SETTINGS } from "./AppSettings";
+export { CommodityTradeModel, type CommodityTrade, COMMODITY_SIDES } from "./CommodityTrade";

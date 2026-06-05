@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useState } from "react";
+import { ThemeToggle } from "./ThemeToggle";
 
 const NAV_ITEMS = [
   { href: "/", label: "Overview" },
@@ -10,10 +11,12 @@ const NAV_ITEMS = [
   { href: "/assets", label: "Assets" },
   { href: "/transactions", label: "Transactions" },
   { href: "/dividends", label: "Dividends" },
+  { href: "/commodities", label: "Commodities" },
   { href: "/cash", label: "Cash" },
   { href: "/watchlist", label: "Watchlist" },
   { href: "/model", label: "Model" },
   { href: "/rebalance", label: "Rebalance" },
+  { href: "/tax", label: "Tax" },
   { href: "/log", label: "Log" },
   { href: "/settings", label: "Settings" },
 ];
@@ -56,6 +59,7 @@ export function SiteNav() {
               </Link>
             );
           })}
+          <ThemeToggle compact />
         </nav>
 
         {/* Mobile hamburger */}
