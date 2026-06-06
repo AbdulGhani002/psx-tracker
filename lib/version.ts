@@ -1,7 +1,7 @@
 // Single source of truth for the app version + changelog.
 // Bump APP_VERSION and prepend a CHANGELOG entry on every release.
 
-export const APP_VERSION = "2.0.0";
+export const APP_VERSION = "2.0.1";
 
 export const BUILD_DATE =
   process.env.NEXT_PUBLIC_BUILD_DATE ?? "";
@@ -17,6 +17,20 @@ export type ChangelogEntry = {
 
 // Reverse-chronological. Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: "2.0.1",
+    date: "2026-06-06",
+    title: "Security & integrity audit fixes",
+    changes: [
+      "Price refresh no longer wipes the snapshot cache before refetching — closes a window where quotes briefly read as missing.",
+      "Telegram bot token is never sent back to the browser; the Settings form keeps the saved secret unless you paste a new one.",
+      "Selling more shares than you hold is now rejected (both new sales and edits that would push a holding negative).",
+      "Login is throttled: too many failed password attempts from one IP are locked out for 15 minutes.",
+      "Upload limits on dividend PDFs and CSV imports to prevent oversized payloads.",
+      "Dark-mode dropdown arrow and native controls now follow the theme.",
+      "Price auto-fills again when you switch transaction type after a manual edit.",
+    ],
+  },
   {
     version: "2.0.0",
     date: "2026-06-05",

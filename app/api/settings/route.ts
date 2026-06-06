@@ -19,6 +19,13 @@ const patchSchema = z.object({
   alertsEnabled: z.boolean().optional(),
 });
 
+// Never return the raw bot token to the client. Replace it with a flag.
+function sanitize(doc: any) {
+  if (!doc) return doc;
+  const { telegramBotToken, ...rest } = doc;
+  return { ...rest, telegramBotToken: "", telegramConfigured: !!telegramBotToken };
+}
+
 export async function GET() {
   await connectDb();
   const doc = await AppSettingsModel.findOneAndUpdate(
@@ -26,19 +33,24 @@ export async function GET() {
     {},
     { new: true, upsert: true, setDefaultsOnInsert: true }
   ).lean();
-  return NextResponse.json(doc);
+  return NextResponse.json(sanitize(doc));
 }
 
 export async function PATCH(req: NextRequest) {
   try {
     const parsed = patchSchema.parse(await req.json());
+    // Empty token/chat means "leave unchanged" — so saving other settings
+    // doesn't wipe the secret the client never received back.
+    const update: Record<string, unknown> = { ...parsed };
+    if (!update.telegramBotToken) delete update.telegramBotToken;
+    if (!update.telegramChatId) delete update.telegramChatId;
     await connectDb();
-    const doc = await AppSettingsModel.findOneAndUpdate({ key: "global" }, parsed, {
+    const doc = await AppSettingsModel.findOneAndUpdate({ key: "global" }, update, {
       new: true,
       upsert: true,
       setDefaultsOnInsert: true,
     }).lean();
-    return NextResponse.json(doc);
+    return NextResponse.json(sanitize(doc));
   } catch (err) {
     if (err instanceof z.ZodError) {
       return NextResponse.json({ error: "invalid", issues: err.issues }, { status: 400 });

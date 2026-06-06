@@ -238,6 +238,7 @@ export function NewTransactionForm({ existingSymbols, defaultSymbol }: Props) {
             onChange={(v) => {
               setType(v as TransactionType);
               setFeesManual(false); // Re-enable auto fees on type change
+              priceManualRef.current = false; // and re-enable price auto-fill
             }}
             options={TRANSACTION_TYPES.map((t) => ({ value: t, label: t }))}
             hint={TYPE_HINTS[type]}

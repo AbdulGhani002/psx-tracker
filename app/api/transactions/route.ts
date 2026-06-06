@@ -54,6 +54,19 @@ export async function POST(req: NextRequest) {
     await connectDb();
 
     let holding = await HoldingModel.findOne({ symbol: parsed.symbol });
+
+    // Guard: can't sell more than you hold (would create negative shares).
+    if (parsed.type === "SELL") {
+      const existing = await TransactionModel.find({ symbol: parsed.symbol }).lean();
+      const held = deriveFromTransactions(existing as any).shares;
+      if (Math.abs(parsed.shares) > held + 1e-6) {
+        return NextResponse.json(
+          { error: "oversell", detail: `You hold ${held} ${parsed.symbol} shares; cannot sell ${Math.abs(parsed.shares)}.` },
+          { status: 400 }
+        );
+      }
+    }
+
     if (!holding) {
       // Brand new symbol — look it up on PSX so we don't store garbage metadata.
       const info = await getCompanyInfo(parsed.symbol);

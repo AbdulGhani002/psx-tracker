@@ -15,6 +15,10 @@ export async function POST(req: NextRequest) {
   }
 
   const results: Array<{ filename: string; parsed?: unknown; error?: string }> = [];
+  const MAX_PDF_BYTES = 10 * 1024 * 1024; // 10 MB
+  if (files.length > 50) {
+    return NextResponse.json({ error: "too_many_files", detail: "Max 50 PDFs per upload." }, { status: 400 });
+  }
   for (const f of files) {
     if (!(f instanceof File)) {
       results.push({ filename: "(unknown)", error: "not_a_file" });
@@ -22,6 +26,10 @@ export async function POST(req: NextRequest) {
     }
     if (!f.name.toLowerCase().endsWith(".pdf")) {
       results.push({ filename: f.name, error: "not_pdf" });
+      continue;
+    }
+    if (f.size > MAX_PDF_BYTES) {
+      results.push({ filename: f.name, error: "file_too_large" });
       continue;
     }
     try {

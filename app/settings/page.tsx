@@ -44,7 +44,10 @@ export default async function SettingsPage() {
         display="Your filer status, tax rates, PMEX costs."
         description="These feed the tax report, the rebalance concentration cap, and PMEX P/L. Verify rates against the current FBR / your broker schedule."
       >
-        <AppSettingsManager initial={appSettings} />
+        <AppSettingsManager
+          initial={{ ...appSettings, telegramBotToken: "" }}
+          telegramConfigured={!!appSettings.telegramBotToken}
+        />
       </Section>
 
       <Section

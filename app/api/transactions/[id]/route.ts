@@ -81,6 +81,27 @@ export async function PATCH(req: NextRequest, { params }: Params) {
     else if (type === "DIVIDEND") netAmount = totalAmount - fees;
     else netAmount = 0;
 
+    // Guard: replay the whole symbol with this edit applied and reject if it
+    // ever drives the holding negative (e.g. enlarging a SELL past what's held).
+    {
+      const candidateDate = parsed.date ? new Date(parsed.date as any) : existing.date;
+      const siblings = await TransactionModel.find({ symbol: existing.symbol }).lean();
+      const replayed = siblings
+        .map((t: any) =>
+          String(t._id) === String(existing._id)
+            ? { ...t, type, shares: signedShares, date: candidateDate, ratio: parsed.ratio ?? t.ratio }
+            : t
+        )
+        .sort((a: any, b: any) => new Date(a.date).getTime() - new Date(b.date).getTime());
+      const after = deriveFromTransactions(replayed as any);
+      if (after.shares < -1e-6) {
+        return NextResponse.json(
+          { error: "oversell", detail: `This edit would leave ${existing.symbol} at ${after.shares} shares (negative).` },
+          { status: 400 }
+        );
+      }
+    }
+
     existing.type = type;
     if (parsed.date) existing.date = new Date(parsed.date as any);
     existing.shares = signedShares;

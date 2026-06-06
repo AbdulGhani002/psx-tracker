@@ -23,7 +23,7 @@ type Settings = {
   alertsEnabled: boolean;
 };
 
-export function AppSettingsManager({ initial }: { initial: Settings }) {
+export function AppSettingsManager({ initial, telegramConfigured }: { initial: Settings; telegramConfigured?: boolean }) {
   const router = useRouter();
   const [s, setS] = useState<Settings>(initial);
   const [saving, setSaving] = useState(false);
@@ -101,7 +101,13 @@ export function AppSettingsManager({ initial }: { initial: Settings }) {
           When enabled, watchlist target-hits and rebalance drift are pushed once a day.
         </p>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-4">
-          <TextInput label="Bot token" value={s.telegramBotToken} onChange={(e) => set("telegramBotToken", e.target.value)} placeholder="123456:ABC-..." />
+          <TextInput
+            label="Bot token"
+            value={s.telegramBotToken}
+            onChange={(e) => set("telegramBotToken", e.target.value)}
+            placeholder={telegramConfigured ? "•••• configured — paste to change" : "123456:ABC-..."}
+            hint={telegramConfigured ? "Saved. Leave blank to keep it." : undefined}
+          />
           <TextInput label="Chat id" value={s.telegramChatId} onChange={(e) => set("telegramChatId", e.target.value)} placeholder="123456789" />
           <Toggle label="Enable alerts" value={s.alertsEnabled} onChange={(v) => set("alertsEnabled", v)} hint="Pushes during scheduled checks." />
           <div className="flex items-end">

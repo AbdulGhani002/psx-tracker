@@ -88,9 +88,15 @@ export async function POST(req: NextRequest) {
     const csv: string = body?.csv ?? "";
     const dryRun: boolean = body?.dryRun ?? false;
     if (!csv.trim()) return NextResponse.json({ error: "empty_csv" }, { status: 400 });
+    if (csv.length > 5_000_000) {
+      return NextResponse.json({ error: "csv_too_large", detail: "CSV exceeds 5 MB." }, { status: 400 });
+    }
 
     const grid = parseCsv(csv);
     if (grid.length < 2) return NextResponse.json({ error: "no_rows" }, { status: 400 });
+    if (grid.length > 10_001) {
+      return NextResponse.json({ error: "too_many_rows", detail: "Max 10,000 rows per import." }, { status: 400 });
+    }
 
     const header = grid[0].map(normHeader);
     const colMap: Record<string, number> = {};

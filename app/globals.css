@@ -5,6 +5,7 @@
 @tailwind utilities;
 
 :root {
+  color-scheme: light;
   --ink: #1d1c1a;
   --paper: #f5f1e8;
   --paper-2: #ede7d8;
@@ -20,6 +21,7 @@
 }
 
 :root[data-theme="dark"] {
+  color-scheme: dark;
   --ink: #ece6d8;          /* primary text becomes light */
   --paper: #17161300;      /* placeholder, overridden below */
   --paper: #171613;        /* warm near-black */
