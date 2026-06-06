@@ -1,9 +1,10 @@
-// PSX retail brokerage formula: max(0.15% of trade value, Rs 0.20 per share).
+// PSX retail brokerage: per share, the HIGHER of 3 paisa (Rs 0.03) or 0.20% of
+// the share price. Across the trade that is max(0.20% of value, Rs 0.03/share).
 // Applies to BUY, SELL, and RIGHT. Dividends, bonuses, and splits incur no fee.
 // User can always override the computed value.
 
-export const PSX_BROKERAGE_RATE = 0.0015; // 0.15%
-export const PSX_PER_SHARE_MIN = 0.20;    // Rs 0.20 per share
+export const PSX_BROKERAGE_RATE = 0.002; // 0.20%
+export const PSX_PER_SHARE_MIN = 0.03;   // Rs 0.03 (3 paisa) per share
 
 export type FeeBreakdown = {
   fee: number;
@@ -45,8 +46,8 @@ export function computePSXFees({
 
   const explanation =
     rule === "percent"
-      ? `0.15% × Rs ${value.toFixed(2)} = Rs ${percentComponent.toFixed(2)}`
-      : `Rs 0.20 × ${s.toLocaleString()} shares = Rs ${perShareComponent.toFixed(2)}`;
+      ? `0.20% × Rs ${value.toFixed(2)} = Rs ${percentComponent.toFixed(2)}`
+      : `Rs 0.03 × ${s.toLocaleString()} shares = Rs ${perShareComponent.toFixed(2)}`;
 
   return {
     fee: rounded,

@@ -15,6 +15,7 @@ import {
   getNetWorth,
   getTodaysMovers,
   getRiskMetrics,
+  getAppSettings,
   checkDataAvailability,
 } from "@/lib/data";
 import {
@@ -32,15 +33,46 @@ export const dynamic = "force-dynamic";
 
 export default async function Dashboard() {
   const avail = await checkDataAvailability();
-  const [summary, allTx, netWorth, movers, risk] = await Promise.all([
+  const [summary, allTx, netWorth, movers, risk, settings] = await Promise.all([
     getPortfolioSummary(),
     getAllTransactions(),
     getNetWorth(),
     getTodaysMovers(),
     getRiskMetrics(),
+    getAppSettings(),
   ]);
 
   const hasOtherAssets = netWorth.funds + netWorth.savings + netWorth.cash > 0;
+
+  // Portfolio-level signals (from the sizing playbook).
+  const cap = settings.concentrationCap ?? 25;
+  const active = summary.positions.filter((p) => p.shares > 0);
+  const topPos = [...active].sort((a, b) => b.currentPercent - a.currentPercent)[0];
+  const topSector = summary.sectorBreakdown[0];
+  const cashBufferPct = netWorth.total > 0 ? ((netWorth.cash + netWorth.savings) / netWorth.total) * 100 : 0;
+  const signals: Array<{ ok: boolean; text: string }> = [];
+  if (topPos) {
+    signals.push({
+      ok: topPos.currentPercent <= cap,
+      text: topPos.currentPercent <= cap
+        ? `Largest position ${topPos.symbol} ${topPos.currentPercent.toFixed(1)}% — within the ${cap}% cap`
+        : `${topPos.symbol} is ${topPos.currentPercent.toFixed(1)}% — over your ${cap}% single-stock cap, consider trimming`,
+    });
+  }
+  if (topSector) {
+    signals.push({
+      ok: topSector.percent <= 40,
+      text: topSector.percent <= 40
+        ? `Top sector ${topSector.sector} ${topSector.percent.toFixed(1)}% — under 40%`
+        : `${topSector.sector} is ${topSector.percent.toFixed(1)}% of equities — over the 40% sector cap`,
+    });
+  }
+  signals.push({
+    ok: cashBufferPct >= 5,
+    text: cashBufferPct >= 5
+      ? `Cash + savings buffer ${cashBufferPct.toFixed(1)}% — dry powder available`
+      : `Only ${cashBufferPct.toFixed(1)}% in cash/savings — under the 5% buffer for opportunities`,
+  });
   const hasMovers = movers.gainers.length + movers.losers.length > 0;
   const recent = allTx.slice(0, 5);
   const xirrLabel = summary.xirr != null ? fmtSignedPct(summary.xirr, 1) : "—";
@@ -238,6 +270,23 @@ export default async function Dashboard() {
           }
         />
       </StatRow>
+
+      {active.length > 0 && (
+        <Section title="Portfolio signals" display="Sizing discipline at a glance.">
+          <Card>
+            <ul className="space-y-2.5">
+              {signals.map((s, i) => (
+                <li key={i} className="flex items-start gap-2.5 text-[14px]">
+                  <span aria-hidden style={{ color: s.ok ? "var(--positive)" : "var(--negative)" }}>
+                    {s.ok ? "✓" : "!"}
+                  </span>
+                  <span style={{ color: s.ok ? "var(--ink)" : "var(--negative)" }}>{s.text}</span>
+                </li>
+              ))}
+            </ul>
+          </Card>
+        </Section>
+      )}
 
       <Section
         number="01"
