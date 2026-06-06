@@ -22,7 +22,7 @@ const txSchema = z.object({
 );
 
 async function recomputeHolding(symbol: string) {
-  const txs = await TransactionModel.find({ symbol }).sort({ date: 1, createdAt: 1 }).lean();
+  const txs = await TransactionModel.find({ symbol, deletedAt: null }).sort({ date: 1, createdAt: 1 }).lean();
   const derived = deriveFromTransactions(txs as any);
   await HoldingModel.findOneAndUpdate(
     { symbol },
@@ -40,7 +40,7 @@ export async function GET(req: NextRequest) {
   await connectDb();
   const symbol = req.nextUrl.searchParams.get("symbol");
   const type = req.nextUrl.searchParams.get("type");
-  const filter: Record<string, unknown> = {};
+  const filter: Record<string, unknown> = { deletedAt: null };
   if (symbol) filter.symbol = symbol.toUpperCase();
   if (type) filter.type = type;
   const docs = await TransactionModel.find(filter).sort({ date: -1, createdAt: -1 }).lean();
@@ -57,7 +57,7 @@ export async function POST(req: NextRequest) {
 
     // Guard: can't sell more than you hold (would create negative shares).
     if (parsed.type === "SELL") {
-      const existing = await TransactionModel.find({ symbol: parsed.symbol }).lean();
+      const existing = await TransactionModel.find({ symbol: parsed.symbol, deletedAt: null }).lean();
       const held = deriveFromTransactions(existing as any).shares;
       if (Math.abs(parsed.shares) > held + 1e-6) {
         return NextResponse.json(

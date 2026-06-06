@@ -85,7 +85,7 @@ export async function PATCH(req: NextRequest, { params }: Params) {
 export async function DELETE(_req: NextRequest, { params }: Params) {
   await connectDb();
   const symbol = params.symbol.toUpperCase();
-  const txCount = await TransactionModel.countDocuments({ symbol });
+  const txCount = await TransactionModel.countDocuments({ symbol, deletedAt: null });
   if (txCount > 0) {
     return NextResponse.json(
       { error: "has_transactions", count: txCount, message: "Delete this holding's transactions first." },

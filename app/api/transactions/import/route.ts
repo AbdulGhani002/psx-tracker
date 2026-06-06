@@ -74,7 +74,7 @@ function num(s: string): number {
 }
 
 async function recompute(symbol: string) {
-  const txs = await TransactionModel.find({ symbol }).sort({ date: 1, createdAt: 1 }).lean();
+  const txs = await TransactionModel.find({ symbol, deletedAt: null }).sort({ date: 1, createdAt: 1 }).lean();
   const d = deriveFromTransactions(txs as any);
   await HoldingModel.findOneAndUpdate({ symbol }, {
     currentShares: d.shares, avgCostBasis: d.avgCost, totalCost: d.totalCost,

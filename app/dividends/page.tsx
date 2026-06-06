@@ -90,7 +90,11 @@ export default async function DividendsPage() {
         eyebrow="Dividends"
         title="What the businesses paid you."
         subtitle="Drop a CDC dividend warrant PDF below. We'll extract the warrant number, shares, rate, deductions, and net paid, and add it to the symbol's transaction history."
-      />
+      >
+        <Link href="/forecast" className="font-mono text-[11px] uppercase tracking-stat text-muted hover:text-[var(--accent-deep)]">
+          12-month forecast
+        </Link>
+      </PageHeader>
 
       {!avail.available && <SetupBanner reason={avail.reason} />}
 

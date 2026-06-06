@@ -17,7 +17,7 @@ export async function GET() {
   await connectDb();
   const [entries, txs] = await Promise.all([
     CashEntryModel.find().sort({ date: -1, createdAt: -1 }).lean(),
-    TransactionModel.find().lean(),
+    TransactionModel.find({ deletedAt: null }).lean(),
   ]);
   const summary = computeCashBalance(txs as any, entries as any);
   return NextResponse.json({ entries, summary });

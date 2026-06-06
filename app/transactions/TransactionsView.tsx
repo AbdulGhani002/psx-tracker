@@ -50,6 +50,8 @@ export function TransactionsView({ transactions, symbols }: Props) {
   const [symbolFilter, setSymbolFilter] = useState<string>("");
   const [typeFilter, setTypeFilter] = useState<string>("");
   const [deleting, setDeleting] = useState<string | null>(null);
+  const [undo, setUndo] = useState<{ id: string; label: string } | null>(null);
+  const [restoring, setRestoring] = useState(false);
 
   const filtered = useMemo(() => {
     return transactions.filter((t) => {
@@ -59,14 +61,35 @@ export function TransactionsView({ transactions, symbols }: Props) {
     });
   }, [transactions, symbolFilter, typeFilter]);
 
-  async function onDelete(id: string) {
-    if (!confirm("Delete this transaction? Derived holding values will be recomputed.")) return;
+  async function onDelete(t: Transaction) {
+    const id = String(t._id);
+    if (!confirm("Move this transaction to Trash? Holding values recompute now; you can restore it later.")) return;
     setDeleting(id);
     try {
       const res = await fetch(`/api/transactions/${id}`, { method: "DELETE" });
-      if (res.ok) router.refresh();
+      if (res.ok) {
+        setUndo({ id, label: `${t.type} ${t.symbol} (${fmtDate(t.date)})` });
+        router.refresh();
+      }
     } finally {
       setDeleting(null);
+    }
+  }
+
+  async function onUndo() {
+    if (!undo) return;
+    setRestoring(true);
+    try {
+      const res = await fetch(`/api/transactions/${undo.id}/restore`, { method: "POST" });
+      if (res.ok) {
+        setUndo(null);
+        router.refresh();
+      } else {
+        const d = await res.json().catch(() => ({}));
+        alert(d?.detail ?? "Could not restore.");
+      }
+    } finally {
+      setRestoring(false);
     }
   }
 
@@ -122,7 +145,7 @@ export function TransactionsView({ transactions, symbols }: Props) {
             Edit
           </Link>
           <button
-            onClick={() => onDelete(String(t._id))}
+            onClick={() => onDelete(t)}
             disabled={deleting === String(t._id)}
             className="font-mono text-[10px] uppercase tracking-stat text-muted hover:text-[var(--negative)]"
           >
@@ -135,6 +158,42 @@ export function TransactionsView({ transactions, symbols }: Props) {
 
   return (
     <div className="space-y-5">
+      {undo && (
+        <div
+          className="flex items-center justify-between px-4 py-3 border"
+          style={{ borderColor: "var(--rule)", background: "var(--paper-2)" }}
+        >
+          <span className="text-[13px]">
+            Moved <span className="font-mono">{undo.label}</span> to Trash.
+          </span>
+          <div className="flex items-center gap-4">
+            <button
+              onClick={onUndo}
+              disabled={restoring}
+              className="font-mono text-[11px] uppercase tracking-stat hover:text-[var(--accent-deep)]"
+              style={{ color: "var(--accent)" }}
+            >
+              {restoring ? "Restoring…" : "Undo"}
+            </button>
+            <button
+              onClick={() => setUndo(null)}
+              className="font-mono text-[11px] uppercase tracking-stat text-muted hover:text-[var(--ink)]"
+            >
+              Dismiss
+            </button>
+          </div>
+        </div>
+      )}
+
+      <div className="flex justify-end">
+        <Link
+          href="/transactions/trash"
+          className="font-mono text-[11px] uppercase tracking-stat text-muted hover:text-[var(--accent-deep)]"
+        >
+          View Trash
+        </Link>
+      </div>
+
       <div className="grid grid-cols-1 md:grid-cols-3 gap-5 items-end">
         <Select
           label="Filter by symbol"

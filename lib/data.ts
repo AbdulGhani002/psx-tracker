@@ -33,6 +33,7 @@ import {
   type PortfolioSummary,
   type CashSummary,
 } from "./calculations";
+import { forecastDividends, type DividendForecast } from "./calculations/dividend-forecast";
 
 function plain<T>(v: unknown): T {
   return JSON.parse(JSON.stringify(v));
@@ -72,14 +73,24 @@ export async function getHoldingBySymbol(symbol: string): Promise<Holding | null
 
 export async function getAllTransactions(): Promise<Transaction[]> {
   if (!(await tryConnect())) return [];
-  const docs = await TransactionModel.find().sort({ date: -1, createdAt: -1 }).lean();
+  // { deletedAt: null } also matches legacy docs that predate the field.
+  const docs = await TransactionModel.find({ deletedAt: null }).sort({ date: -1, createdAt: -1 }).lean();
   return plain<Transaction[]>(docs);
 }
 
 export async function getTransactionsBySymbol(symbol: string): Promise<Transaction[]> {
   if (!(await tryConnect())) return [];
-  const docs = await TransactionModel.find({ symbol: symbol.toUpperCase() })
+  const docs = await TransactionModel.find({ symbol: symbol.toUpperCase(), deletedAt: null })
     .sort({ date: 1, createdAt: 1 })
+    .lean();
+  return plain<Transaction[]>(docs);
+}
+
+// Soft-deleted transactions only — powers the Trash view.
+export async function getDeletedTransactions(): Promise<Transaction[]> {
+  if (!(await tryConnect())) return [];
+  const docs = await TransactionModel.find({ deletedAt: { $ne: null } })
+    .sort({ deletedAt: -1 })
     .lean();
   return plain<Transaction[]>(docs);
 }
@@ -100,6 +111,14 @@ export async function getPortfolioSummary(): Promise<PortfolioSummary> {
   ]);
   const prices = await getCurrentPrices(holdings.map((h) => h.symbol));
   return summarisePortfolio({ holdings, transactions, prices });
+}
+
+export async function getDividendForecast(): Promise<DividendForecast> {
+  const [holdings, transactions] = await Promise.all([
+    getAllHoldings(),
+    getAllTransactions(),
+  ]);
+  return forecastDividends(transactions, holdings);
 }
 
 export async function getTargetAllocations() {
@@ -128,7 +147,7 @@ export async function getCashSummary(): Promise<CashSummary> {
   }
   const [entries, txs] = await Promise.all([
     CashEntryModel.find().lean(),
-    TransactionModel.find().lean(),
+    TransactionModel.find({ deletedAt: null }).lean(),
   ]);
   return computeCashBalance(txs as any, entries as any);
 }

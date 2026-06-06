@@ -26,7 +26,7 @@ const itemSchema = z.object({
 const bodySchema = z.object({ items: z.array(itemSchema) });
 
 async function recompute(symbol: string) {
-  const txs = await TransactionModel.find({ symbol }).sort({ date: 1, createdAt: 1 }).lean();
+  const txs = await TransactionModel.find({ symbol, deletedAt: null }).sort({ date: 1, createdAt: 1 }).lean();
   const derived = deriveFromTransactions(txs as any);
   await HoldingModel.findOneAndUpdate(
     { symbol },

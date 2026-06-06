@@ -25,7 +25,7 @@ const patchSchema = z.object({
 });
 
 async function recomputeHolding(symbol: string) {
-  const txs = await TransactionModel.find({ symbol }).sort({ date: 1, createdAt: 1 }).lean();
+  const txs = await TransactionModel.find({ symbol, deletedAt: null }).sort({ date: 1, createdAt: 1 }).lean();
   const derived = deriveFromTransactions(txs as any);
   await HoldingModel.findOneAndUpdate(
     { symbol },
@@ -85,7 +85,7 @@ export async function PATCH(req: NextRequest, { params }: Params) {
     // ever drives the holding negative (e.g. enlarging a SELL past what's held).
     {
       const candidateDate = parsed.date ? new Date(parsed.date as any) : existing.date;
-      const siblings = await TransactionModel.find({ symbol: existing.symbol }).lean();
+      const siblings = await TransactionModel.find({ symbol: existing.symbol, deletedAt: null }).lean();
       const replayed = siblings
         .map((t: any) =>
           String(t._id) === String(existing._id)
@@ -132,10 +132,23 @@ export async function PATCH(req: NextRequest, { params }: Params) {
   }
 }
 
-export async function DELETE(_req: NextRequest, { params }: Params) {
+export async function DELETE(req: NextRequest, { params }: Params) {
   await connectDb();
-  const doc = await TransactionModel.findByIdAndDelete(params.id).lean();
+  const hard = req.nextUrl.searchParams.get("hard") === "1" || req.nextUrl.searchParams.get("hard") === "true";
+
+  if (hard) {
+    // Permanent removal (used by the Trash "delete forever" action).
+    const doc = await TransactionModel.findByIdAndDelete(params.id).lean();
+    if (!doc) return NextResponse.json({ error: "not_found" }, { status: 404 });
+    await recomputeHolding(doc.symbol);
+    return NextResponse.json({ deleted: true, hard: true, id: params.id });
+  }
+
+  // Soft delete: mark and recompute so the holding ignores it immediately.
+  const doc = await TransactionModel.findById(params.id);
   if (!doc) return NextResponse.json({ error: "not_found" }, { status: 404 });
+  doc.set("deletedAt", new Date());
+  await doc.save();
   await recomputeHolding(doc.symbol);
-  return NextResponse.json({ deleted: true, id: params.id });
+  return NextResponse.json({ deleted: true, soft: true, id: params.id });
 }

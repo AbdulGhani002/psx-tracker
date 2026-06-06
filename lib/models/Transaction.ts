@@ -20,11 +20,15 @@ const TransactionSchema = new Schema(
     zakatDeducted: { type: Number, default: 0 },
     financialYear: { type: String, default: "" },
     dividendType: { type: String, default: "" },
+    // Soft-delete marker. null (or absent on legacy docs) = active. A Date means
+    // the row is in the Trash and must be excluded from every calculation.
+    deletedAt: { type: Date, default: null },
   },
   { timestamps: true }
 );
 
 TransactionSchema.index({ symbol: 1, date: 1 });
+TransactionSchema.index({ deletedAt: 1 });
 // Partial unique index: only enforces uniqueness on docs that have a real
 // string warrantNo. Sparse alone wouldn't work because Mongoose's `default:
 // null` was storing explicit nulls — and null collides with null.

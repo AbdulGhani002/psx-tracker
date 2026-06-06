@@ -17,6 +17,7 @@ const PRIMARY = [
 
 const MORE = [
   { href: "/dividends", label: "Dividends" },
+  { href: "/forecast", label: "Dividend forecast" },
   { href: "/cash", label: "Cash" },
   { href: "/commodities", label: "Commodities" },
   { href: "/watchlist", label: "Watchlist" },

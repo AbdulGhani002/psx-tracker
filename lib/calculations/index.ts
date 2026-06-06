@@ -42,3 +42,12 @@ export {
 } from "./tax";
 export { computeRisk, maxDrawdown, type RiskMetrics } from "./risk";
 export { valueTrade, type TradeValuation, type CommodityTradeInput } from "./pmex";
+export {
+  buildDividendProfiles,
+  forecastDividends,
+  type DividendForecast,
+  type ForecastEvent,
+  type ForecastMonth,
+  type SymbolDividendProfile,
+  type DividendPayment,
+} from "./dividend-forecast";

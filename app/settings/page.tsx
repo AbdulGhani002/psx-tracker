@@ -3,6 +3,7 @@ import { Section } from "@/components/layout/Section";
 import { SetupBanner } from "@/components/layout/SetupBanner";
 import { SbpRatesManager } from "./SbpRatesManager";
 import { AppSettingsManager } from "./AppSettingsManager";
+import { BackupManager } from "./BackupManager";
 import { ThemeToggle } from "@/components/layout/ThemeToggle";
 import { Card } from "@/components/ui/Card";
 import { getSbpRates, getAppSettings, checkDataAvailability } from "@/lib/data";
@@ -63,7 +64,16 @@ export default async function SettingsPage() {
         />
       </Section>
 
-      <Section number="04" title="Build" display="What you're running.">
+      <Section
+        number="04"
+        title="Data & backup"
+        display="Export everything, restore anytime."
+        description="Download a full JSON snapshot of your data, or restore from one. Your only safety net against data loss — do this regularly."
+      >
+        <BackupManager />
+      </Section>
+
+      <Section number="05" title="Build" display="What you're running.">
         <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
           <div>
             <div className="label-cap">Version</div>
