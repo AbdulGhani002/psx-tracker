@@ -66,6 +66,9 @@ export function NewTransactionForm({ existingSymbols, defaultSymbol }: Props) {
   const [lookupLoading, setLookupLoading] = useState(false);
   const [lookupError, setLookupError] = useState<string | null>(null);
   const lookupAbort = useRef<AbortController | null>(null);
+  // Tracks whether the user manually typed a price for the CURRENT symbol.
+  // Reset to false when the symbol changes so the new symbol's price auto-fills.
+  const priceManualRef = useRef(false);
 
   const isCustom = symbolMode === "__new__";
   const finalSymbol = (isCustom ? customSymbol : symbolMode).trim().toUpperCase();
@@ -86,13 +89,15 @@ export function NewTransactionForm({ existingSymbols, defaultSymbol }: Props) {
     return () => clearTimeout(t);
   }, [type, finalSymbol, shares, price]);
 
-  // Look up symbol whenever it stabilises.
+  // Look up symbol whenever it stabilises. A new symbol re-enables auto-fill.
   useEffect(() => {
     if (!finalSymbol || finalSymbol.length < 2) {
       setLookup(null);
       setLookupError(null);
       return;
     }
+    // Symbol changed → the price field is no longer "the user's" until they type.
+    priceManualRef.current = false;
     const t = setTimeout(() => {
       lookupAbort.current?.abort();
       const ac = new AbortController();
@@ -108,7 +113,13 @@ export function NewTransactionForm({ existingSymbols, defaultSymbol }: Props) {
           }
           const data = (await res.json()) as Lookup;
           setLookup(data);
-          if (data.price != null && price === 0 && (type === "BUY" || type === "SELL")) {
+          // Auto-fill the price for the new symbol unless the user has already
+          // typed one for it. Applies to BUY/SELL/RIGHT (price-bearing trades).
+          if (
+            data.price != null &&
+            !priceManualRef.current &&
+            (type === "BUY" || type === "SELL" || type === "RIGHT")
+          ) {
             setPrice(data.price);
           }
         })
@@ -255,7 +266,10 @@ export function NewTransactionForm({ existingSymbols, defaultSymbol }: Props) {
             <NumberInput
               label={type === "DIVIDEND" ? "Dividend per share (Rs)" : "Price per share (Rs)"}
               value={price}
-              onChange={setPrice}
+              onChange={(v) => {
+                setPrice(v);
+                priceManualRef.current = true;
+              }}
               step={0.01}
               min={0}
               hint={
