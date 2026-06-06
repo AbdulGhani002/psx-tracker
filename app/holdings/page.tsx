@@ -14,11 +14,13 @@ export const dynamic = "force-dynamic";
 export default async function HoldingsPage({
   searchParams,
 }: {
-  searchParams: { all?: string };
+  searchParams: { all?: string; added?: string; type?: string };
 }) {
   const avail = await checkDataAvailability();
   const summary = await getPortfolioSummary();
   const showAll = searchParams?.all === "1";
+  const added = searchParams?.added;
+  const addedType = searchParams?.type;
   const active = summary.positions.filter((p) => p.shares > 0);
   const historical = summary.positions.filter((p) => p.shares <= 0);
   const rows = showAll ? summary.positions : active;
@@ -96,6 +98,19 @@ export default async function HoldingsPage({
       </PageHeader>
 
       {!avail.available && <SetupBanner reason={avail.reason} />}
+
+      {added && (
+        <div
+          className="mb-6 flex items-center gap-3 border-l-[4px] px-4 py-3"
+          style={{ borderColor: "var(--positive)", background: "var(--paper-2)" }}
+        >
+          <span aria-hidden style={{ color: "var(--positive)" }}>✓</span>
+          <span className="text-[14px]">
+            <span className="font-mono font-medium">{added}</span> {addedType ?? "transaction"} recorded.
+            Its avg cost and P/L below have been updated.
+          </span>
+        </div>
+      )}
 
       <Section
         number="01"

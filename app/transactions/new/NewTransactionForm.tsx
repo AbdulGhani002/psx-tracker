@@ -170,7 +170,8 @@ export function NewTransactionForm({ existingSymbols, defaultSymbol }: Props) {
         setError(body?.detail ?? body?.error ?? "Submission failed.");
         return;
       }
-      router.push(`/holdings/${finalSymbol}`);
+      // Jump to the holdings list with a success flag so it's obvious it saved.
+      router.push(`/holdings?added=${encodeURIComponent(finalSymbol)}&type=${type}`);
       router.refresh();
     } finally {
       setSubmitting(false);
