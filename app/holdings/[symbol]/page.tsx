@@ -3,12 +3,12 @@ import { notFound } from "next/navigation";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { Section } from "@/components/layout/Section";
 import { Stat, StatRow } from "@/components/ui/Stat";
-import { Table, type Column } from "@/components/ui/Table";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { CompoundingModel } from "@/components/model/CompoundingModel";
 import { HoldingSettings } from "./HoldingSettings";
 import { HoldingPlaybook } from "./HoldingPlaybook";
+import { HoldingTransactions } from "./HoldingTransactions";
 import {
   getHoldingBySymbol,
   getTransactionsBySymbol,
@@ -22,9 +22,7 @@ import {
   fmtSignedRs,
   fmtSignedPct,
   fmtPct,
-  fmtDate,
 } from "@/lib/format";
-import type { Transaction } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
@@ -47,19 +45,6 @@ export default async function HoldingDetail({ params }: Props) {
   const unrealizedPct = derived.totalCost > 0 ? unrealizedPL / derived.totalCost : 0;
   const yieldOnCost = derived.totalCost > 0 ? derived.dividendsReceived / derived.totalCost : 0;
   const h = holding as any;
-
-  const txColumns: Column<Transaction>[] = [
-    { key: "date", header: "Date", render: (t) => <span className="font-mono text-[12px]">{fmtDate(t.date)}</span> },
-    {
-      key: "type",
-      header: "Type",
-      render: (t) => <Badge tone={t.type === "BUY" || t.type === "RIGHT" ? "accent" : t.type === "SELL" ? "negative" : "positive"}>{t.type}</Badge>,
-    },
-    { key: "shares", header: "Shares", align: "right", mono: true, render: (t) => fmtNum(Math.abs(t.shares)) },
-    { key: "price", header: "Price", align: "right", mono: true, render: (t) => fmtRs(t.pricePerShare, true) },
-    { key: "net", header: "Net Amount", align: "right", mono: true, render: (t) => fmtRs(t.netAmount) },
-    { key: "notes", header: "Notes", render: (t) => <span className="text-[12px] text-muted">{t.notes}</span> },
-  ];
 
   return (
     <div>
@@ -114,9 +99,9 @@ export default async function HoldingDetail({ params }: Props) {
       <Section
         number="01"
         title="Transaction history"
-        description="Every buy, sell, dividend, bonus, right, and split for this symbol."
+        description="Every buy, sell, dividend, bonus, right, and split for this symbol. Use Delete to send a mistaken entry to Trash — you can undo it right away or restore it later."
       >
-        <Table columns={txColumns} rows={transactions} rowKey={(t) => String(t._id)} empty="No transactions yet." />
+        <HoldingTransactions transactions={transactions} />
       </Section>
 
       <Section
