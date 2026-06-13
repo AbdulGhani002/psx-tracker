@@ -152,7 +152,7 @@ export async function getFundamentals(symbols: string[]): Promise<Record<string,
             latestEps: fresh?.latestEps ?? prev?.latestEps ?? null,
             epsGrowthPct: fresh?.epsGrowthPct ?? prev?.epsGrowthPct ?? null,
             payouts: payouts != null
-              ? payouts.map((p) => ({ date: p.announceDate ?? p.bookClosureStart, pctOfFace: p.pctOfFace, cycle: p.cycle, isCash: p.payoutType === "cash" }))
+              ? payouts.map((p) => ({ date: p.announceDate ?? p.bookClosureStart, pctOfFace: p.pctOfFace, cycle: p.cycle, payoutType: p.payoutType }))
               : prev?.payouts ?? [],
             source: fresh?.source ?? "psx-dps",
             fetchedAt: new Date(),
@@ -174,7 +174,12 @@ export async function getFundamentals(symbols: string[]): Promise<Record<string,
       latestEps: c.latestEps ?? null,
       epsByYear,
       epsGrowthPct: c.epsGrowthPct ?? null,
-      payouts: (c.payouts ?? []).map((p: any) => ({ date: p.date ?? null, pctOfFace: p.pctOfFace, cycle: p.cycle ?? "", isCash: p.isCash !== false })),
+      payouts: (c.payouts ?? []).map((p: any) => ({
+        date: p.date ?? null,
+        pctOfFace: p.pctOfFace,
+        cycle: p.cycle ?? "",
+        type: (p.payoutType ?? (p.isCash === false ? "other" : "cash")) as "cash" | "bonus" | "right" | "other",
+      })),
     };
   }
   return out;

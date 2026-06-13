@@ -1,7 +1,7 @@
 // Single source of truth for the app version + changelog.
 // Bump APP_VERSION and prepend a CHANGELOG entry on every release.
 
-export const APP_VERSION = "2.3.0";
+export const APP_VERSION = "2.4.0";
 
 export const BUILD_DATE =
   process.env.NEXT_PUBLIC_BUILD_DATE ?? "";
@@ -17,6 +17,15 @@ export type ChangelogEntry = {
 
 // Reverse-chronological. Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: "2.4.0",
+    date: "2026-06-13",
+    title: "Bonus shares and splits in the forecast",
+    changes: [
+      "Bonus issues are now read from PSX and projected forward — a new 'Bonus shares ahead' section shows the free shares expected, and dividends after a bonus are forecast on the larger share count.",
+      "Share splits adjust the face value, so a post-split company's percentage dividends translate to the correct rupee amount (a 1:2 split makes a 100% dividend Rs 5/share, not Rs 10). Split holdings are tagged.",
+    ],
+  },
   {
     version: "2.3.0",
     date: "2026-06-13",

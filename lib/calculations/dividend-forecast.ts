@@ -29,11 +29,13 @@ const YEAR_MS = 365 * DAY;
 const DEFAULT_PAYOUT_RATIO_PCT = 60;
 const MAX_SUSTAINABLE_PAYOUT_PCT = 100;
 
+export type PayoutKind = "cash" | "bonus" | "right" | "other";
+
 export type PayoutLite = {
   date: string | null; // ISO announcement date
   pctOfFace: number;
   cycle: string; // F | i | ii | iii | ""
-  isCash: boolean;
+  type: PayoutKind;
 };
 
 export type FundamentalsInput = {
@@ -86,6 +88,22 @@ export type SymbolDividendProfile = {
   basis: "earnings-capped" | "history-only" | "no-earnings-data";
   confidence: "high" | "medium" | "low";
   lastPaymentDate: Date | null;
+
+  // Corporate actions
+  hasSplit: boolean; // shares have been split (face value adjusted)
+  recentBonusPct: number; // most recent fiscal year's total bonus %
+  nextBonusDate: Date | null; // projected next bonus (anniversary), if recurring
+  projectedBonusShares: number; // extra shares that bonus would add to your holding
+};
+
+export type BonusEvent = {
+  symbol: string;
+  name: string;
+  date: Date;
+  year: number;
+  month: number;
+  bonusPct: number;
+  sharesAdded: number;
 };
 
 export type ForecastEvent = {
@@ -109,6 +127,7 @@ export type DividendForecast = {
   profiles: SymbolDividendProfile[];
   events: ForecastEvent[];
   months: ForecastMonth[];
+  bonusEvents: BonusEvent[]; // projected bonus-share issues in the window
   total12m: number;
   paidLast12m: number;
 };
@@ -154,14 +173,31 @@ export type ForecastOptions = {
 
 type HistItem = { date: Date; dps: number; isFinal: boolean };
 
+// Cumulative share-multiplier from recorded SPLIT transactions. A "1:2" split
+// (old:new) doubles the shares and halves the face value, so factor = new/old.
+function splitFactorFor(symbol: string, transactions: Transaction[]): number {
+  let factor = 1;
+  for (const t of transactions) {
+    if (t.symbol !== symbol || t.type !== "SPLIT") continue;
+    const [from, to] = (t.ratio || "").split(":").map((s) => Number(s.trim()));
+    if (from > 0 && to > 0) factor *= to / from;
+  }
+  return factor;
+}
+
+// Current face value: PSX par (default Rs 10) adjusted down by any splits.
+function faceValueFor(fund: FundamentalsInput | undefined, splitFactor = 1): number {
+  const base = fund?.faceValue ?? 10;
+  return splitFactor > 0 ? base / splitFactor : base;
+}
+
 // Build dividend history for a symbol, preferring authoritative PSX payouts.
 function historyFor(
-  symbol: string,
   recorded: { date: Date; ratePerShare: number }[],
-  fund: FundamentalsInput | undefined
+  fund: FundamentalsInput | undefined,
+  face: number
 ): { items: HistItem[]; source: "psx" | "recorded" } {
-  const face = fund?.faceValue ?? 10;
-  const cashPayouts = (fund?.payouts ?? []).filter((p) => p.isCash && p.date && p.pctOfFace > 0);
+  const cashPayouts = (fund?.payouts ?? []).filter((p) => p.type === "cash" && p.date && p.pctOfFace > 0);
   if (cashPayouts.length > 0) {
     const items = cashPayouts
       .map((p) => ({ date: new Date(p.date as string), dps: (p.pctOfFace / 100) * face, isFinal: p.cycle.toUpperCase() === "F" }))
@@ -199,7 +235,7 @@ export function buildDividendProfiles(
 
   // Every held symbol that has either PSX payouts or recorded dividends.
   const symbols = new Set<string>([...recordedBySymbol.keys()]);
-  for (const [sym, f] of Object.entries(fundamentals)) if ((f.payouts ?? []).some((p) => p.isCash)) symbols.add(sym);
+  for (const [sym, f] of Object.entries(fundamentals)) if ((f.payouts ?? []).some((p) => p.type === "cash")) symbols.add(sym);
 
   const profiles: SymbolDividendProfile[] = [];
   for (const symbol of symbols) {
@@ -207,9 +243,10 @@ export function buildDividendProfiles(
     if (!held || held.shares <= 0) continue;
 
     const fund = fundamentals[symbol];
-    const faceValue = fund?.faceValue ?? 10;
+    const splitFactor = splitFactorFor(symbol, transactions);
+    const faceValue = faceValueFor(fund, splitFactor); // split-adjusted par value
     const price = prices[symbol] ?? 0;
-    const { items, source } = historyFor(symbol, recordedBySymbol.get(symbol) ?? [], fund);
+    const { items, source } = historyFor(recordedBySymbol.get(symbol) ?? [], fund, faceValue);
     if (items.length === 0) continue;
 
     // Group by fiscal year of the payment date.
@@ -291,6 +328,31 @@ export function buildDividendProfiles(
     else if (source === "psx" || forwardEps != null || completeYears.length >= 1) confidence = "medium";
     else confidence = "low";
 
+    // --- Bonus shares ---------------------------------------------------------
+    // PSX bonus issues grow your share count. Take the most recent fiscal year's
+    // total bonus % and, if the company keeps issuing bonus, project the next one
+    // a year on from the latest bonus date.
+    const bonusItems = (fund?.payouts ?? [])
+      .filter((p) => p.type === "bonus" && p.date && p.pctOfFace > 0)
+      .map((p) => ({ date: new Date(p.date as string), pct: p.pctOfFace }))
+      .filter((b) => !isNaN(b.date.getTime()))
+      .sort((a, b) => a.date.getTime() - b.date.getTime());
+    let recentBonusPct = 0;
+    let nextBonusDate: Date | null = null;
+    if (bonusItems.length) {
+      const lastBonus = bonusItems[bonusItems.length - 1];
+      const lastBonusFy = taxYearOf(lastBonus.date).endYear;
+      recentBonusPct = bonusItems.filter((b) => taxYearOf(b.date).endYear === lastBonusFy).reduce((s, b) => s + b.pct, 0);
+      let cand = lastBonus.date;
+      let guard = 0;
+      while (cand.getTime() <= asOf.getTime() && guard < 12) {
+        cand = addMonths(cand, 12);
+        guard++;
+      }
+      if (cand.getTime() > asOf.getTime()) nextBonusDate = cand;
+    }
+    const projectedBonusShares = Math.floor(held.shares * (recentBonusPct / 100));
+
     profiles.push({
       symbol,
       name: held.name,
@@ -316,6 +378,10 @@ export function buildDividendProfiles(
       basis,
       confidence,
       lastPaymentDate: items[items.length - 1].date,
+      hasSplit: splitFactor !== 1,
+      recentBonusPct,
+      nextBonusDate,
+      projectedBonusShares,
     });
   }
 
@@ -335,6 +401,7 @@ export function forecastDividends(
   const gridStart = new Date(Date.UTC(asOf.getUTCFullYear(), asOf.getUTCMonth(), 1));
   const windowEnd = addMonths(gridStart, 12);
   const events: ForecastEvent[] = [];
+  const bonusEvents: BonusEvent[] = [];
 
   // Recorded payments, for the fallback timing template.
   const recordedBySymbol = new Map<string, { date: Date; ratePerShare: number }[]>();
@@ -346,8 +413,21 @@ export function forecastDividends(
   }
 
   for (const p of profiles) {
+    // Projected bonus issue inside the window grows the share count.
+    if (p.nextBonusDate && p.recentBonusPct > 0 && p.nextBonusDate < windowEnd) {
+      bonusEvents.push({
+        symbol: p.symbol,
+        name: p.name,
+        date: p.nextBonusDate,
+        year: p.nextBonusDate.getUTCFullYear(),
+        month: p.nextBonusDate.getUTCMonth(),
+        bonusPct: p.recentBonusPct,
+        sharesAdded: p.projectedBonusShares,
+      });
+    }
+
     if (p.forwardDpsAnnual <= 0) continue;
-    const { items } = historyFor(p.symbol, recordedBySymbol.get(p.symbol) ?? [], fundamentals[p.symbol]);
+    const { items } = historyFor(recordedBySymbol.get(p.symbol) ?? [], fundamentals[p.symbol], p.faceValue);
     if (items.length === 0) continue;
 
     // Template = the payouts of the most recent fiscal year present (their
@@ -366,8 +446,11 @@ export function forecastDividends(
       }
       if (candidate.getTime() <= asOf.getTime() || candidate.getTime() >= windowEnd.getTime()) continue;
 
+      // A dividend paid after a projected bonus lands on the larger share count.
+      const grownByBonus = p.nextBonusDate && candidate >= p.nextBonusDate ? 1 + p.recentBonusPct / 100 : 1;
+      const shares = p.shares * grownByBonus;
       const ratePerShare = p.forwardDpsAnnual * (t.dps / templateTotal);
-      const expectedGross = ratePerShare * p.shares;
+      const expectedGross = ratePerShare * shares;
       if (expectedGross <= 0) continue;
 
       events.push({
@@ -377,7 +460,7 @@ export function forecastDividends(
         year: candidate.getUTCFullYear(),
         month: candidate.getUTCMonth(),
         expectedRatePerShare: ratePerShare,
-        shares: p.shares,
+        shares,
         expectedGross,
         basedOn: t.date,
         confidence: p.confidence,
@@ -386,6 +469,7 @@ export function forecastDividends(
   }
 
   events.sort((a, b) => a.date.getTime() - b.date.getTime());
+  bonusEvents.sort((a, b) => a.date.getTime() - b.date.getTime());
 
   const months: ForecastMonth[] = [];
   for (let i = 0; i < 12; i++) {
@@ -402,5 +486,5 @@ export function forecastDividends(
     .filter((t) => t.type === "DIVIDEND" && asDate(t.date).getTime() >= since)
     .reduce((s, t) => s + (t.netAmount || 0), 0);
 
-  return { asOf, windowEnd, profiles, events, months, total12m, paidLast12m };
+  return { asOf, windowEnd, profiles, events, months, bonusEvents, total12m, paidLast12m };
 }

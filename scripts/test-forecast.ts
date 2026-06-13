@@ -99,11 +99,11 @@ const psxFund: Record<string, FundamentalsInput> = {
     epsByYear: { 2024: 20, 2025: 20 },
     epsGrowthPct: 0,
     payouts: [
-      { date: "2025-09-15", pctOfFace: 100, cycle: "F", isCash: true },
-      { date: "2025-10-15", pctOfFace: 50, cycle: "i", isCash: true },
-      { date: "2026-02-15", pctOfFace: 50, cycle: "ii", isCash: true },
-      { date: "2026-04-15", pctOfFace: 50, cycle: "iii", isCash: true },
-      { date: "2025-08-01", pctOfFace: 20, cycle: "", isCash: false }, // bonus — must be ignored
+      { date: "2025-09-15", pctOfFace: 100, cycle: "F", type: "cash" },
+      { date: "2025-10-15", pctOfFace: 50, cycle: "i", type: "cash" },
+      { date: "2026-02-15", pctOfFace: 50, cycle: "ii", type: "cash" },
+      { date: "2026-04-15", pctOfFace: 50, cycle: "iii", type: "cash" },
+      { date: "2025-08-01", pctOfFace: 20, cycle: "", type: "bonus" }, // 20% bonus → shares grow
     ],
   },
 };
@@ -114,9 +114,24 @@ ok("PSXQ cadence quarterly (i/ii/iii/F)", Q.cadence === "quarterly", Q.cadence);
 ok("PSXQ declared = Rs 25 (250% of face)", Math.abs(Q.declaredAnnualDps - 25) < 1e-9, `${Q.declaredAnnualDps}`);
 ok("PSXQ forward capped to EPS 20", Math.abs(Q.forwardDpsAnnual - 20) < 1e-9, `${Q.forwardDpsAnnual}`);
 ok("PSXQ above earnings flagged", Q.aboveEarnings === true, `${Q.aboveEarnings}`);
+ok("PSXQ bonus 20% detected", Q.recentBonusPct === 20, `${Q.recentBonusPct}`);
+ok("PSXQ projected +20 bonus shares (100 x 20%)", Q.projectedBonusShares === 20, `${Q.projectedBonusShares}`);
 const pqf = forecastDividends([], [hld("PSXQ", 100)], { asOf, fundamentals: psxFund });
 ok("PSXQ 4 forecast events", pqf.events.filter((e) => e.symbol === "PSXQ").length === 4, `${pqf.events.filter((e) => e.symbol === "PSXQ").length}`);
-ok("PSXQ total = 2000 (20 x 100)", Math.abs(pqf.total12m - 2000) < 1e-6, `${pqf.total12m}`);
+ok("PSXQ 1 bonus event", pqf.bonusEvents.filter((e) => e.symbol === "PSXQ").length === 1, `${pqf.bonusEvents.length}`);
+// All 4 dividends fall after the Aug-2026 bonus → on 120 shares: 20 x 120 = 2400.
+ok("PSXQ total = 2400 (dividends grown by bonus)", Math.abs(pqf.total12m - 2400) < 1e-6, `${pqf.total12m}`);
+
+// --- Split: a 1:2 split halves face value, so a 100% dividend = Rs 5/share ---
+console.log("=== split-adjusted face ===");
+const splTx: Transaction[] = [tx({ symbol: "SPL", type: "SPLIT", date: "2024-01-01", ratio: "1:2" })];
+const splFund: Record<string, FundamentalsInput> = {
+  SPL: { faceValue: 10, latestEps: 20, epsByYear: { 2024: 20, 2025: 20 }, epsGrowthPct: 0, payouts: [{ date: "2025-09-15", pctOfFace: 100, cycle: "F", type: "cash" }] },
+};
+const sp = buildDividendProfiles(splTx, [hld("SPL", 200)], { asOf, fundamentals: splFund }).find((p) => p.symbol === "SPL")!;
+ok("SPL face value halved to 5 (1:2 split)", Math.abs(sp.faceValue - 5) < 1e-9, `${sp.faceValue}`);
+ok("SPL hasSplit flagged", sp.hasSplit === true, `${sp.hasSplit}`);
+ok("SPL declared = Rs 5 (100% of Rs 5 face, not Rs 10)", Math.abs(sp.declaredAnnualDps - 5) < 1e-9, `${sp.declaredAnnualDps}`);
 
 console.log(`\n${pass} passed, ${fail} failed`);
 if (fail > 0) process.exit(1);

@@ -54,4 +54,6 @@ export {
   type ForecastOptions,
   type Cadence,
   type PayoutLite,
+  type PayoutKind,
+  type BonusEvent,
 } from "./dividend-forecast";

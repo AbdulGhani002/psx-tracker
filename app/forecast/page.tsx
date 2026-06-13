@@ -40,9 +40,12 @@ export default async function ForecastPage() {
       key: "symbol",
       header: "Symbol",
       render: (p) => (
-        <Link href={`/holdings/${p.symbol}`} className="font-mono font-medium hover:text-[var(--accent-deep)]">
-          {p.symbol}
-        </Link>
+        <span className="flex items-center gap-1.5">
+          <Link href={`/holdings/${p.symbol}`} className="font-mono font-medium hover:text-[var(--accent-deep)]">
+            {p.symbol}
+          </Link>
+          {p.hasSplit && <span className="label-cap" title="Face value adjusted for a share split">split</span>}
+        </span>
       ),
     },
     { key: "eps", header: "EPS", align: "right", mono: true, render: (p) => (p.latestEps == null ? "—" : fmtRs(p.latestEps, true)) },
@@ -145,8 +148,35 @@ export default async function ForecastPage() {
             </p>
           </Section>
 
+          {f.bonusEvents.length > 0 && (
+            <Section
+              number="02"
+              title="Bonus shares ahead"
+              display="Free shares, not cash."
+              description="Companies that issue bonus shares grow your holding. Projected from their recent bonus history; dividends after the bonus date are forecast on the larger share count."
+            >
+              <Table
+                columns={[
+                  { key: "symbol", header: "Symbol", render: (b: (typeof f.bonusEvents)[number]) => <span className="font-mono font-medium">{b.symbol}</span> },
+                  { key: "when", header: "Expected", render: (b: (typeof f.bonusEvents)[number]) => <span className="font-mono text-[12px]">{fmtDate(b.date)}</span> },
+                  { key: "pct", header: "Bonus", align: "right", mono: true, render: (b: (typeof f.bonusEvents)[number]) => pct(b.bonusPct) },
+                  {
+                    key: "shares",
+                    header: "Shares added",
+                    align: "right",
+                    mono: true,
+                    render: (b: (typeof f.bonusEvents)[number]) => <span style={{ color: "var(--positive)" }}>+{fmtNum(b.sharesAdded)}</span>,
+                  },
+                ]}
+                rows={f.bonusEvents}
+                rowKey={(b) => `${b.symbol}-${b.year}-${b.month}`}
+                empty="No bonus issues expected."
+              />
+            </Section>
+          )}
+
           <Section
-            number="02"
+            number={f.bonusEvents.length > 0 ? "03" : "02"}
             title="Forward 12 months"
             display="Month by month."
             description="The realistic annual dividend, spread across the months each company has historically paid. Blank months expect nothing."

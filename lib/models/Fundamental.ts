@@ -17,7 +17,7 @@ const PayoutSchema = new Schema(
     date: { type: String, default: null }, // ISO; announcement date
     pctOfFace: { type: Number, required: true },
     cycle: { type: String, default: "" }, // F | i | ii | iii
-    isCash: { type: Boolean, default: true },
+    payoutType: { type: String, default: "cash" }, // cash | bonus | right | other
   },
   { _id: false }
 );
