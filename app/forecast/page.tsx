@@ -19,7 +19,7 @@ function confTone(c: "high" | "medium" | "low"): "positive" | "amber" | "default
 function healthTone(s: SymbolDividendProfile["sustainability"]): "positive" | "amber" | "negative" | "default" {
   if (s === "comfortable") return "positive";
   if (s === "stretched") return "amber";
-  if (s === "at risk") return "negative";
+  if (s === "at risk" || s === "above earnings") return "negative";
   return "default";
 }
 
@@ -55,6 +55,17 @@ export default async function ForecastPage() {
     },
     { key: "cadence", header: "Cadence", render: (p) => <span className="text-[12px] capitalize">{p.cadence}</span> },
     {
+      key: "declared",
+      header: "Declared / yr",
+      align: "right",
+      mono: true,
+      render: (p) => (
+        <span className="text-muted">
+          {p.declaredAnnualDps > 0 ? `${fmtRs(p.declaredAnnualDps, true)} · ${pct((p.declaredAnnualDps / p.faceValue) * 100)}` : "—"}
+        </span>
+      ),
+    },
+    {
       key: "dps",
       header: "Fwd DPS / yr",
       align: "right",
@@ -62,7 +73,7 @@ export default async function ForecastPage() {
       render: (p) => (
         <span>
           {fmtRs(p.forwardDpsAnnual, true)}
-          <span className="text-muted"> · {pct(p.forwardDpsPctOfFace)} face</span>
+          {p.aboveEarnings && <span className="text-[10px]" style={{ color: "var(--negative)" }}> capped</span>}
         </span>
       ),
     },

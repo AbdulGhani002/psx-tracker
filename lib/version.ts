@@ -1,7 +1,7 @@
 // Single source of truth for the app version + changelog.
 // Bump APP_VERSION and prepend a CHANGELOG entry on every release.
 
-export const APP_VERSION = "2.2.0";
+export const APP_VERSION = "2.3.0";
 
 export const BUILD_DATE =
   process.env.NEXT_PUBLIC_BUILD_DATE ?? "";
@@ -17,6 +17,17 @@ export type ChangelogEntry = {
 
 // Reverse-chronological. Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: "2.3.0",
+    date: "2026-06-13",
+    title: "Authoritative dividend history from PSX",
+    changes: [
+      "Dividend cadence and amounts now come straight from PSX's declared payout history, not just what you've recorded — so AHCL reads as annual and quarterly payers like HUBC read as quarterly, automatically.",
+      "Each holding shows its declared dividend (% of face) alongside the earnings-capped sustainable estimate, with an 'above earnings' flag where a company pays out of reserves.",
+      "Payout ratio is matched to the earning year's EPS; the forward forecast still respects what profits can sustain.",
+      "Payout history is cached weekly with the rest of the fundamentals.",
+    ],
+  },
   {
     version: "2.2.0",
     date: "2026-06-13",

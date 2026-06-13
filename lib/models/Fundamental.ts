@@ -12,6 +12,16 @@ const AnnualSchema = new Schema(
   { _id: false }
 );
 
+const PayoutSchema = new Schema(
+  {
+    date: { type: String, default: null }, // ISO; announcement date
+    pctOfFace: { type: Number, required: true },
+    cycle: { type: String, default: "" }, // F | i | ii | iii
+    isCash: { type: Boolean, default: true },
+  },
+  { _id: false }
+);
+
 const FundamentalSchema = new Schema(
   {
     symbol: { type: String, required: true, uppercase: true, trim: true, unique: true },
@@ -19,6 +29,7 @@ const FundamentalSchema = new Schema(
     annual: { type: [AnnualSchema], default: [] },
     latestEps: { type: Number, default: null },
     epsGrowthPct: { type: Number, default: null },
+    payouts: { type: [PayoutSchema], default: [] }, // authoritative PSX payout history
     source: { type: String, default: "psx-dps" },
     fetchedAt: { type: Date, default: () => new Date() },
   },

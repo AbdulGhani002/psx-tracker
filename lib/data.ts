@@ -19,6 +19,7 @@ import {
   type Transaction,
 } from "./models";
 import { fetchFundamentals } from "./prices/fundamentals";
+import { fetchPayouts } from "./prices/payouts";
 import type { FundamentalsInput } from "./calculations/dividend-forecast";
 import { SBP_POLICY_RATE_DEFAULTS, policyRateOn, type RateStep } from "./timeseries/sbp-rate";
 import { fetchAllNavs, findNav } from "./funds/mufap";
@@ -138,18 +139,23 @@ export async function getFundamentals(symbols: string[]): Promise<Record<string,
   if (stale.length) {
     await Promise.all(
       stale.map(async (s) => {
-        const fresh = await fetchFundamentals(s);
-        if (!fresh) return;
+        // Financials (EPS) and payouts come from two PSX endpoints; fetch both.
+        const [fresh, payouts] = await Promise.all([fetchFundamentals(s), fetchPayouts(s)]);
+        if (!fresh && !payouts) return;
+        const prev: any = bySym.get(s);
         const doc = await FundamentalModel.findOneAndUpdate(
           { symbol: s },
           {
             symbol: s,
-            faceValue: fresh.faceValue,
-            annual: fresh.annual,
-            latestEps: fresh.latestEps,
-            epsGrowthPct: fresh.epsGrowthPct,
-            source: fresh.source,
-            fetchedAt: new Date(fresh.fetchedAt),
+            faceValue: fresh?.faceValue ?? prev?.faceValue ?? 10,
+            annual: fresh?.annual ?? prev?.annual ?? [],
+            latestEps: fresh?.latestEps ?? prev?.latestEps ?? null,
+            epsGrowthPct: fresh?.epsGrowthPct ?? prev?.epsGrowthPct ?? null,
+            payouts: payouts != null
+              ? payouts.map((p) => ({ date: p.announceDate ?? p.bookClosureStart, pctOfFace: p.pctOfFace, cycle: p.cycle, isCash: p.payoutType === "cash" }))
+              : prev?.payouts ?? [],
+            source: fresh?.source ?? "psx-dps",
+            fetchedAt: new Date(),
           },
           { upsert: true, new: true }
         ).lean();
@@ -168,6 +174,7 @@ export async function getFundamentals(symbols: string[]): Promise<Record<string,
       latestEps: c.latestEps ?? null,
       epsByYear,
       epsGrowthPct: c.epsGrowthPct ?? null,
+      payouts: (c.payouts ?? []).map((p: any) => ({ date: p.date ?? null, pctOfFace: p.pctOfFace, cycle: p.cycle ?? "", isCash: p.isCash !== false })),
     };
   }
   return out;

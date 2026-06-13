@@ -1,54 +1,59 @@
-// Dividend forecast — earnings-grounded.
+// Dividend forecast — earnings-grounded, driven by authoritative PSX payouts.
 //
-// The old model just repeated whatever per-share dividends you recorded in the
-// trailing 365 days, times your shares. That over-projects badly: it ignores
-// whether the company actually earns enough to pay that, and it mis-reads
-// cadence when recorded payments straddle two fiscal years.
+// Two data sources combine here:
+//   • PSX payout history (declared cash dividends as % of face value, with their
+//     cycle markers F/i/ii/iii and dates) — the truth about cadence and amounts.
+//   • PSX financials (EPS per fiscal year) — the affordability anchor.
 //
-// This model instead asks "how much can they realistically pay?":
-//   1. Group your recorded dividends by Pakistan fiscal year (Jul–Jun).
-//   2. Read cadence from the modal number of payouts per *complete* fiscal year
-//      (so an annual payer reads as annual even if a rolling year caught two).
-//   3. Pull each company's EPS from PSX and express everything in % terms:
-//      payout ratio (DPS / EPS), dividend as % of face value, dividend yield.
-//   4. Forward annual dividend = forward EPS × a sustainable payout ratio
-//      (the company's own historical median, capped at 100% — you can't keep
-//      paying more than you earn). A loss-making year forecasts no dividend.
-//   5. Spread that across the next 12 months following the historical cadence.
+// The model:
+//   1. Build per-symbol dividend history, preferring PSX payouts (DPS = % × face)
+//      and falling back to your recorded dividends if PSX has none.
+//   2. Group by Pakistan fiscal year. Cadence = the most payouts seen in any year
+//      (so a quarterly payer reads quarterly even if PSX truncates older years).
+//   3. "Declared" annual dividend = the most recent year that completed a cycle
+//      (contains a Final). Payout ratio = that ÷ the earning year's EPS.
+//   4. The forward, *sustainable* dividend is capped at earnings (≤100% payout) —
+//      this is "what they can afford". Where a company pays above earnings (common
+//      for holding companies funding from reserves) we flag it and still show the
+//      declared figure.
+//   5. Spread the forward dividend across the next 12 months on the company's own
+//      payout months.
 //
-// All inputs are plain data, so the same function runs on the server and in
-// tests.
+// All inputs are plain data, so the same function runs on the server and in tests.
 
 import type { Transaction, Holding } from "@/lib/types";
 import { taxYearOf } from "@/lib/dates";
 
 const DAY = 24 * 60 * 60 * 1000;
 const YEAR_MS = 365 * DAY;
-const DEFAULT_PAYOUT_RATIO_PCT = 60; // used only when earnings exist but history can't pin a ratio
-const MAX_SUSTAINABLE_PAYOUT_PCT = 100; // can't sustainably pay out more than you earn
+const DEFAULT_PAYOUT_RATIO_PCT = 60;
+const MAX_SUSTAINABLE_PAYOUT_PCT = 100;
 
-export type FundamentalsInput = {
-  faceValue: number; // par value, usually Rs 10
-  latestEps: number | null; // most recent annual EPS
-  epsByYear: Record<number, number>; // fiscalYearEnd -> EPS
-  epsGrowthPct: number | null;
+export type PayoutLite = {
+  date: string | null; // ISO announcement date
+  pctOfFace: number;
+  cycle: string; // F | i | ii | iii | ""
+  isCash: boolean;
 };
 
-export type DividendPayment = {
-  date: Date;
-  ratePerShare: number;
-  gross: number;
+export type FundamentalsInput = {
+  faceValue: number;
+  latestEps: number | null;
+  epsByYear: Record<number, number>; // fiscalYearEnd -> EPS
+  epsGrowthPct: number | null;
+  payouts?: PayoutLite[]; // authoritative PSX payouts (cash + non-cash)
 };
 
 export type FiscalYearDividend = {
   fyEndYear: number;
-  label: string; // e.g. "FY24-25"
-  dps: number; // total per-share for the year
+  label: string;
+  dps: number;
   payments: number;
-  pctOfFace: number; // dps / faceValue * 100
+  hasFinal: boolean;
+  pctOfFace: number;
   eps: number | null;
-  payoutRatioPct: number | null; // dps / eps * 100
-  complete: boolean; // false for the current, still-running fiscal year
+  payoutRatioPct: number | null;
+  complete: boolean;
 };
 
 export type Cadence = "annual" | "semi-annual" | "quarterly" | "irregular";
@@ -58,26 +63,26 @@ export type SymbolDividendProfile = {
   name: string;
   shares: number;
   faceValue: number;
+  source: "psx" | "recorded";
 
-  byFiscalYear: FiscalYearDividend[]; // newest first
+  byFiscalYear: FiscalYearDividend[];
   cadence: Cadence;
   paymentsPerYear: number;
 
-  // earnings
   latestEps: number | null;
   epsGrowthPct: number | null;
-  medianPayoutRatioPct: number | null; // from complete years with positive EPS
+  medianPayoutRatioPct: number | null;
 
-  // forward, realistic estimate
+  declaredAnnualDps: number; // what they actually declare in a full cycle (uncapped)
   forwardEps: number | null;
-  appliedPayoutRatioPct: number | null; // what we actually used
-  typicalDps: number | null; // what they historically pay per year
-  forwardDpsAnnual: number; // the realistic per-share dividend for the year
+  appliedPayoutRatioPct: number | null;
+  forwardDpsAnnual: number; // realistic, earnings-capped
   forwardDpsPctOfFace: number;
-  forwardYieldPct: number | null; // needs a price; null if unknown
-  dividendCover: number | null; // EPS / DPS
-  expectedAnnualIncome: number; // forwardDpsAnnual * shares
-  sustainability: "comfortable" | "stretched" | "at risk" | "no dividend" | "unknown";
+  forwardYieldPct: number | null;
+  dividendCover: number | null;
+  expectedAnnualIncome: number;
+  aboveEarnings: boolean; // declared dividend exceeds EPS (paid from reserves)
+  sustainability: "comfortable" | "stretched" | "at risk" | "above earnings" | "no dividend" | "unknown";
   basis: "earnings-capped" | "history-only" | "no-earnings-data";
   confidence: "high" | "medium" | "low";
   lastPaymentDate: Date | null;
@@ -88,7 +93,7 @@ export type ForecastEvent = {
   name: string;
   date: Date;
   year: number;
-  month: number; // 0-11
+  month: number;
   expectedRatePerShare: number;
   shares: number;
   expectedGross: number;
@@ -96,13 +101,7 @@ export type ForecastEvent = {
   confidence: "high" | "medium" | "low";
 };
 
-export type ForecastMonth = {
-  year: number;
-  month: number;
-  label: string;
-  total: number;
-  events: ForecastEvent[];
-};
+export type ForecastMonth = { year: number; month: number; label: string; total: number; events: ForecastEvent[] };
 
 export type DividendForecast = {
   asOf: Date;
@@ -119,7 +118,6 @@ const MONTH_NAMES = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Se
 function asDate(d: Date | string): Date {
   return d instanceof Date ? d : new Date(d);
 }
-
 function addMonths(d: Date, n: number): Date {
   const day = d.getUTCDate();
   const r = new Date(d.getTime());
@@ -129,22 +127,18 @@ function addMonths(d: Date, n: number): Date {
   r.setUTCDate(Math.min(day, lastDay));
   return r;
 }
-
 function monthLabel(year: number, month: number): string {
   return `${MONTH_NAMES[month]} ${year}`;
 }
-
 function median(xs: number[]): number | null {
   const a = xs.filter((x) => Number.isFinite(x)).sort((p, q) => p - q);
-  if (a.length === 0) return null;
-  const mid = Math.floor(a.length / 2);
-  return a.length % 2 ? a[mid] : (a[mid - 1] + a[mid]) / 2;
+  if (!a.length) return null;
+  const m = Math.floor(a.length / 2);
+  return a.length % 2 ? a[m] : (a[m - 1] + a[m]) / 2;
 }
-
 function clamp(x: number, lo: number, hi: number): number {
   return Math.max(lo, Math.min(hi, x));
 }
-
 function cadenceFor(n: number): Cadence {
   if (n >= 4) return "quarterly";
   if (n === 3) return "irregular";
@@ -155,13 +149,33 @@ function cadenceFor(n: number): Cadence {
 export type ForecastOptions = {
   asOf?: Date;
   fundamentals?: Record<string, FundamentalsInput>;
-  prices?: Record<string, number>; // symbol -> current price, for yield
+  prices?: Record<string, number>;
 };
 
-/**
- * Build the per-symbol dividend profile: fiscal-year history, cadence, earnings,
- * payout ratios, and a realistic forward annual dividend.
- */
+type HistItem = { date: Date; dps: number; isFinal: boolean };
+
+// Build dividend history for a symbol, preferring authoritative PSX payouts.
+function historyFor(
+  symbol: string,
+  recorded: { date: Date; ratePerShare: number }[],
+  fund: FundamentalsInput | undefined
+): { items: HistItem[]; source: "psx" | "recorded" } {
+  const face = fund?.faceValue ?? 10;
+  const cashPayouts = (fund?.payouts ?? []).filter((p) => p.isCash && p.date && p.pctOfFace > 0);
+  if (cashPayouts.length > 0) {
+    const items = cashPayouts
+      .map((p) => ({ date: new Date(p.date as string), dps: (p.pctOfFace / 100) * face, isFinal: p.cycle.toUpperCase() === "F" }))
+      .filter((x) => !isNaN(x.date.getTime()))
+      .sort((a, b) => a.date.getTime() - b.date.getTime());
+    if (items.length) return { items, source: "psx" };
+  }
+  const items = recorded
+    .filter((r) => r.ratePerShare > 0 && !isNaN(r.date.getTime()))
+    .map((r) => ({ date: r.date, dps: r.ratePerShare, isFinal: false }))
+    .sort((a, b) => a.date.getTime() - b.date.getTime());
+  return { items, source: "recorded" };
+}
+
 export function buildDividendProfiles(
   transactions: Transaction[],
   holdings: Holding[],
@@ -175,46 +189,51 @@ export function buildDividendProfiles(
   const sharesBySymbol = new Map<string, { shares: number; name: string }>();
   for (const h of holdings) sharesBySymbol.set(h.symbol, { shares: h.currentShares, name: h.name || h.symbol });
 
-  const bySymbol = new Map<string, DividendPayment[]>();
+  const recordedBySymbol = new Map<string, { date: Date; ratePerShare: number }[]>();
   for (const t of transactions) {
     if (t.type !== "DIVIDEND") continue;
-    const rate = t.pricePerShare || 0;
-    if (rate <= 0 && (t.totalAmount || 0) <= 0) continue;
-    const list = bySymbol.get(t.symbol) ?? [];
-    list.push({ date: asDate(t.date), ratePerShare: rate, gross: t.totalAmount || 0 });
-    bySymbol.set(t.symbol, list);
+    const arr = recordedBySymbol.get(t.symbol) ?? [];
+    arr.push({ date: asDate(t.date), ratePerShare: t.pricePerShare || 0 });
+    recordedBySymbol.set(t.symbol, arr);
   }
 
+  // Every held symbol that has either PSX payouts or recorded dividends.
+  const symbols = new Set<string>([...recordedBySymbol.keys()]);
+  for (const [sym, f] of Object.entries(fundamentals)) if ((f.payouts ?? []).some((p) => p.isCash)) symbols.add(sym);
+
   const profiles: SymbolDividendProfile[] = [];
-  for (const [symbol, raw] of bySymbol) {
+  for (const symbol of symbols) {
     const held = sharesBySymbol.get(symbol);
     if (!held || held.shares <= 0) continue;
-
-    const payments = raw.filter((p) => !isNaN(p.date.getTime())).sort((a, b) => a.date.getTime() - b.date.getTime());
-    if (payments.length === 0) continue;
 
     const fund = fundamentals[symbol];
     const faceValue = fund?.faceValue ?? 10;
     const price = prices[symbol] ?? 0;
+    const { items, source } = historyFor(symbol, recordedBySymbol.get(symbol) ?? [], fund);
+    if (items.length === 0) continue;
 
-    // Group by Pakistan fiscal year.
-    const fyMap = new Map<number, DividendPayment[]>();
-    for (const p of payments) {
-      const fy = taxYearOf(p.date).endYear;
+    // Group by fiscal year of the payment date.
+    const fyMap = new Map<number, HistItem[]>();
+    for (const it of items) {
+      const fy = taxYearOf(it.date).endYear;
       const arr = fyMap.get(fy) ?? [];
-      arr.push(p);
+      arr.push(it);
       fyMap.set(fy, arr);
     }
 
+    const epsFor = (fy: number): number | null =>
+      fund?.epsByYear?.[fy - 1] ?? fund?.epsByYear?.[fy] ?? null; // dividends pay from the prior fiscal year's earnings
+
     const byFiscalYear: FiscalYearDividend[] = [...fyMap.entries()]
-      .map(([fyEndYear, ps]) => {
-        const dps = ps.reduce((s, x) => s + x.ratePerShare, 0);
-        const eps = fund?.epsByYear?.[fyEndYear] ?? null;
+      .map(([fyEndYear, its]) => {
+        const dps = its.reduce((s, x) => s + x.dps, 0);
+        const eps = epsFor(fyEndYear);
         return {
           fyEndYear,
           label: `FY${String(fyEndYear - 1).slice(2)}-${String(fyEndYear).slice(2)}`,
           dps,
-          payments: ps.length,
+          payments: its.length,
+          hasFinal: its.some((x) => x.isFinal),
           pctOfFace: faceValue > 0 ? (dps / faceValue) * 100 : 0,
           eps,
           payoutRatioPct: eps != null && eps > 0 ? (dps / eps) * 100 : null,
@@ -223,32 +242,20 @@ export function buildDividendProfiles(
       })
       .sort((a, b) => b.fyEndYear - a.fyEndYear);
 
-    const completeYears = byFiscalYear.filter((y) => y.complete);
-    const cadenceBasis = completeYears.length > 0 ? completeYears : byFiscalYear;
-
-    // Cadence = modal payments-per-year across complete fiscal years.
-    const countFreq = new Map<number, number>();
-    for (const y of cadenceBasis) countFreq.set(y.payments, (countFreq.get(y.payments) ?? 0) + 1);
-    let modalCount = 1;
-    let best = -1;
-    for (const [count, freq] of countFreq) {
-      if (freq > best || (freq === best && count > modalCount)) {
-        best = freq;
-        modalCount = count;
-      }
-    }
-    const paymentsPerYear = Math.max(1, modalCount);
+    // Cadence = the most payouts seen in any year (robust to truncated history).
+    const paymentsPerYear = Math.max(1, ...byFiscalYear.map((y) => y.payments));
     const cadence = cadenceFor(paymentsPerYear);
 
-    // Payout ratios and typical DPS from complete years (fall back to all).
-    const ratioYears = (completeYears.length ? completeYears : byFiscalYear).filter(
-      (y) => y.payoutRatioPct != null && y.dps > 0
-    );
-    const medianPayoutRatioPct = median(ratioYears.map((y) => y.payoutRatioPct as number));
-    const dpsYears = completeYears.length ? completeYears : byFiscalYear;
-    const typicalDps = median(dpsYears.map((y) => y.dps));
+    // Declared annual dividend = most recent year that completed a cycle (has a
+    // Final); else the most recent complete fiscal year; else the latest year.
+    const cycleYears = byFiscalYear.filter((y) => y.hasFinal);
+    const completeYears = byFiscalYear.filter((y) => y.complete);
+    const declaredYear = cycleYears[0] ?? completeYears[0] ?? byFiscalYear[0];
+    const declaredAnnualDps = declaredYear?.dps ?? 0;
 
-    // Forward estimate.
+    const ratioYears = (cycleYears.length ? cycleYears : completeYears).filter((y) => y.payoutRatioPct != null);
+    const medianPayoutRatioPct = median(ratioYears.map((y) => y.payoutRatioPct as number));
+
     const forwardEps = fund?.latestEps ?? null;
     let forwardDpsAnnual = 0;
     let appliedPayoutRatioPct: number | null = null;
@@ -258,29 +265,30 @@ export function buildDividendProfiles(
       const ratioPct = clamp(medianPayoutRatioPct ?? DEFAULT_PAYOUT_RATIO_PCT, 0, MAX_SUSTAINABLE_PAYOUT_PCT);
       appliedPayoutRatioPct = ratioPct;
       const earningsDps = forwardEps * (ratioPct / 100);
-      // Realistic = the lower of what they earn-room for and what they historically pay.
-      forwardDpsAnnual = typicalDps != null ? Math.min(typicalDps, earningsDps) : earningsDps;
+      forwardDpsAnnual = declaredAnnualDps > 0 ? Math.min(declaredAnnualDps, earningsDps) : earningsDps;
       basis = "earnings-capped";
     } else if (forwardEps != null && forwardEps <= 0) {
-      forwardDpsAnnual = 0; // loss-making → no sustainable dividend
+      forwardDpsAnnual = 0;
       basis = "earnings-capped";
     } else {
-      // No earnings data at all — fall back to history, but stay conservative.
-      forwardDpsAnnual = typicalDps ?? 0;
+      forwardDpsAnnual = declaredAnnualDps;
       basis = "history-only";
     }
 
+    const aboveEarnings = forwardEps != null && forwardEps > 0 && declaredAnnualDps > forwardEps + 1e-9;
     const dividendCover = forwardDpsAnnual > 0 && forwardEps != null ? forwardEps / forwardDpsAnnual : null;
+
     let sustainability: SymbolDividendProfile["sustainability"];
     if (forwardDpsAnnual <= 0) sustainability = forwardEps != null && forwardEps <= 0 ? "no dividend" : "unknown";
+    else if (aboveEarnings) sustainability = "above earnings";
     else if (dividendCover == null) sustainability = "unknown";
     else if (dividendCover >= 2) sustainability = "comfortable";
     else if (dividendCover >= 1) sustainability = "stretched";
     else sustainability = "at risk";
 
     let confidence: SymbolDividendProfile["confidence"];
-    if (completeYears.length >= 3 && forwardEps != null) confidence = "high";
-    else if (completeYears.length >= 1 || forwardEps != null) confidence = "medium";
+    if (source === "psx" && forwardEps != null) confidence = "high";
+    else if (source === "psx" || forwardEps != null || completeYears.length >= 1) confidence = "medium";
     else confidence = "low";
 
     profiles.push({
@@ -288,24 +296,26 @@ export function buildDividendProfiles(
       name: held.name,
       shares: held.shares,
       faceValue,
+      source,
       byFiscalYear,
       cadence,
       paymentsPerYear,
       latestEps: forwardEps,
       epsGrowthPct: fund?.epsGrowthPct ?? null,
       medianPayoutRatioPct,
+      declaredAnnualDps,
       forwardEps,
       appliedPayoutRatioPct,
-      typicalDps,
       forwardDpsAnnual,
       forwardDpsPctOfFace: faceValue > 0 ? (forwardDpsAnnual / faceValue) * 100 : 0,
       forwardYieldPct: price > 0 ? (forwardDpsAnnual / price) * 100 : null,
       dividendCover,
       expectedAnnualIncome: forwardDpsAnnual * held.shares,
+      aboveEarnings,
       sustainability,
       basis,
       confidence,
-      lastPaymentDate: payments[payments.length - 1].date,
+      lastPaymentDate: items[items.length - 1].date,
     });
   }
 
@@ -313,49 +323,42 @@ export function buildDividendProfiles(
   return profiles;
 }
 
-/**
- * Project the next 12 months of dividend cash. The forward annual dividend
- * (realistic, earnings-capped) is spread across the months the company
- * historically pays, following its cadence.
- */
 export function forecastDividends(
   transactions: Transaction[],
   holdings: Holding[],
   opts: ForecastOptions = {}
 ): DividendForecast {
   const asOf = opts.asOf ?? new Date();
+  const fundamentals = opts.fundamentals ?? {};
   const profiles = buildDividendProfiles(transactions, holdings, opts);
 
   const gridStart = new Date(Date.UTC(asOf.getUTCFullYear(), asOf.getUTCMonth(), 1));
   const windowEnd = addMonths(gridStart, 12);
   const events: ForecastEvent[] = [];
 
-  // Raw payments per symbol, to find the historical payment months + weights.
-  const paymentsBySymbol = new Map<string, DividendPayment[]>();
+  // Recorded payments, for the fallback timing template.
+  const recordedBySymbol = new Map<string, { date: Date; ratePerShare: number }[]>();
   for (const t of transactions) {
     if (t.type !== "DIVIDEND") continue;
-    const rate = t.pricePerShare || 0;
-    if (rate <= 0) continue;
-    const arr = paymentsBySymbol.get(t.symbol) ?? [];
-    arr.push({ date: asDate(t.date), ratePerShare: rate, gross: t.totalAmount || 0 });
-    paymentsBySymbol.set(t.symbol, arr);
+    const arr = recordedBySymbol.get(t.symbol) ?? [];
+    arr.push({ date: asDate(t.date), ratePerShare: t.pricePerShare || 0 });
+    recordedBySymbol.set(t.symbol, arr);
   }
 
   for (const p of profiles) {
     if (p.forwardDpsAnnual <= 0) continue;
-    const raw = (paymentsBySymbol.get(p.symbol) ?? []).sort((a, b) => a.date.getTime() - b.date.getTime());
-    if (raw.length === 0) continue;
+    const { items } = historyFor(p.symbol, recordedBySymbol.get(p.symbol) ?? [], fundamentals[p.symbol]);
+    if (items.length === 0) continue;
 
-    // Template = the payments of the most recent fiscal year present in history;
-    // gives us how many payouts, in which months, and their relative sizes.
-    const lastFy = taxYearOf(raw[raw.length - 1].date).endYear;
-    let template = raw.filter((x) => taxYearOf(x.date).endYear === lastFy);
-    if (template.length === 0) template = [raw[raw.length - 1]];
-    const templateTotal = template.reduce((s, x) => s + x.ratePerShare, 0) || 1;
+    // Template = the payouts of the most recent fiscal year present (their
+    // months + relative weights), so cadence and timing follow the company.
+    const lastFy = taxYearOf(items[items.length - 1].date).endYear;
+    let template = items.filter((x) => taxYearOf(x.date).endYear === lastFy);
+    if (template.length === 0) template = [items[items.length - 1]];
+    const templateTotal = template.reduce((s, x) => s + x.dps, 0) || 1;
 
-    for (const pay of template) {
-      // Project this payment's month forward into the window.
-      let candidate = pay.date;
+    for (const t of template) {
+      let candidate = t.date;
       let guard = 0;
       while (candidate.getTime() <= asOf.getTime() && guard < 12) {
         candidate = addMonths(candidate, 12);
@@ -363,8 +366,7 @@ export function forecastDividends(
       }
       if (candidate.getTime() <= asOf.getTime() || candidate.getTime() >= windowEnd.getTime()) continue;
 
-      // Scale this payment's share of the (new, sustainable) annual dividend.
-      const ratePerShare = p.forwardDpsAnnual * (pay.ratePerShare / templateTotal);
+      const ratePerShare = p.forwardDpsAnnual * (t.dps / templateTotal);
       const expectedGross = ratePerShare * p.shares;
       if (expectedGross <= 0) continue;
 
@@ -377,7 +379,7 @@ export function forecastDividends(
         expectedRatePerShare: ratePerShare,
         shares: p.shares,
         expectedGross,
-        basedOn: pay.date,
+        basedOn: t.date,
         confidence: p.confidence,
       });
     }
@@ -391,13 +393,7 @@ export function forecastDividends(
     const year = m.getUTCFullYear();
     const month = m.getUTCMonth();
     const bucket = events.filter((e) => e.year === year && e.month === month);
-    months.push({
-      year,
-      month,
-      label: monthLabel(year, month),
-      total: bucket.reduce((s, e) => s + e.expectedGross, 0),
-      events: bucket,
-    });
+    months.push({ year, month, label: monthLabel(year, month), total: bucket.reduce((s, e) => s + e.expectedGross, 0), events: bucket });
   }
 
   const total12m = events.reduce((s, e) => s + e.expectedGross, 0);

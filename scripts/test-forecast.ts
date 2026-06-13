@@ -68,8 +68,9 @@ ok("QTR forward DPS = 4", Math.abs(P("QTR").forwardDpsAnnual - 4) < 1e-9, `${P("
 // The headline fix: OVER pays Rs 15 but earns Rs 5 — capped to EPS (100% payout), not 15.
 ok("OVER applied payout capped at 100%", P("OVER").appliedPayoutRatioPct === 100, `${P("OVER").appliedPayoutRatioPct}`);
 ok("OVER forward DPS capped to 5 (not 15)", Math.abs(P("OVER").forwardDpsAnnual - 5) < 1e-9, `${P("OVER").forwardDpsAnnual}`);
+ok("OVER declared still shows 15", Math.abs(P("OVER").declaredAnnualDps - 15) < 1e-9, `${P("OVER").declaredAnnualDps}`);
 ok("OVER income = 500 (not 1500)", Math.abs(P("OVER").expectedAnnualIncome - 500) < 1e-6, `${P("OVER").expectedAnnualIncome}`);
-ok("OVER sustainability stretched (cover 1)", P("OVER").sustainability === "stretched", P("OVER").sustainability);
+ok("OVER flagged above earnings", P("OVER").aboveEarnings === true && P("OVER").sustainability === "above earnings", P("OVER").sustainability);
 
 ok("LOSS forecasts no dividend", P("LOSS").forwardDpsAnnual === 0, `${P("LOSS").forwardDpsAnnual}`);
 ok("LOSS sustainability 'no dividend'", P("LOSS").sustainability === "no dividend", P("LOSS").sustainability);
@@ -88,6 +89,34 @@ ok("all events inside window", f.events.every((e) => e.date > asOf && e.date < f
 // Yield needs a price.
 const fp = forecastDividends(txs, holdings, { asOf, fundamentals, prices: { ANN: 100 } });
 ok("ANN yield = 5% at price 100", Math.abs((buildDividendProfiles(txs, holdings, { asOf, fundamentals, prices: { ANN: 100 } }).find((p) => p.symbol === "ANN")!.forwardYieldPct ?? 0) - 5) < 1e-9);
+
+// --- PSX-payouts-driven (authoritative cadence, no recorded dividends) ---
+console.log("=== PSX payouts source ===");
+const psxFund: Record<string, FundamentalsInput> = {
+  PSXQ: {
+    faceValue: 10,
+    latestEps: 20,
+    epsByYear: { 2024: 20, 2025: 20 },
+    epsGrowthPct: 0,
+    payouts: [
+      { date: "2025-09-15", pctOfFace: 100, cycle: "F", isCash: true },
+      { date: "2025-10-15", pctOfFace: 50, cycle: "i", isCash: true },
+      { date: "2026-02-15", pctOfFace: 50, cycle: "ii", isCash: true },
+      { date: "2026-04-15", pctOfFace: 50, cycle: "iii", isCash: true },
+      { date: "2025-08-01", pctOfFace: 20, cycle: "", isCash: false }, // bonus — must be ignored
+    ],
+  },
+};
+const pq = buildDividendProfiles([], [hld("PSXQ", 100)], { asOf, fundamentals: psxFund });
+const Q = pq.find((p) => p.symbol === "PSXQ")!;
+ok("PSXQ profile built from payouts (no recorded divs)", !!Q && Q.source === "psx", Q?.source);
+ok("PSXQ cadence quarterly (i/ii/iii/F)", Q.cadence === "quarterly", Q.cadence);
+ok("PSXQ declared = Rs 25 (250% of face)", Math.abs(Q.declaredAnnualDps - 25) < 1e-9, `${Q.declaredAnnualDps}`);
+ok("PSXQ forward capped to EPS 20", Math.abs(Q.forwardDpsAnnual - 20) < 1e-9, `${Q.forwardDpsAnnual}`);
+ok("PSXQ above earnings flagged", Q.aboveEarnings === true, `${Q.aboveEarnings}`);
+const pqf = forecastDividends([], [hld("PSXQ", 100)], { asOf, fundamentals: psxFund });
+ok("PSXQ 4 forecast events", pqf.events.filter((e) => e.symbol === "PSXQ").length === 4, `${pqf.events.filter((e) => e.symbol === "PSXQ").length}`);
+ok("PSXQ total = 2000 (20 x 100)", Math.abs(pqf.total12m - 2000) < 1e-6, `${pqf.total12m}`);
 
 console.log(`\n${pass} passed, ${fail} failed`);
 if (fail > 0) process.exit(1);
