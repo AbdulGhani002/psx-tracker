@@ -133,5 +133,22 @@ ok("SPL face value halved to 5 (1:2 split)", Math.abs(sp.faceValue - 5) < 1e-9, 
 ok("SPL hasSplit flagged", sp.hasSplit === true, `${sp.hasSplit}`);
 ok("SPL declared = Rs 5 (100% of Rs 5 face, not Rs 10)", Math.abs(sp.declaredAnnualDps - 5) < 1e-9, `${sp.declaredAnnualDps}`);
 
+// --- Face value calibrated from recorded dividends (NOT hardcoded to 10) ---
+console.log("=== face value calibration ===");
+const calFund: Record<string, FundamentalsInput> = {
+  CAL10: { faceValue: 10, latestEps: 20, epsByYear: { 2025: 20 }, epsGrowthPct: 0, payouts: [{ date: "2025-09-15", pctOfFace: 50, cycle: "F", type: "cash" }] },
+  CAL5: { faceValue: 10, latestEps: 20, epsByYear: { 2025: 20 }, epsGrowthPct: 0, payouts: [{ date: "2025-09-15", pctOfFace: 100, cycle: "F", type: "cash" }] },
+};
+const calTx: Transaction[] = [
+  tx({ symbol: "CAL10", date: "2025-09-20", pricePerShare: 5 }), // Rs 5 received vs 50% declared -> par 10
+  tx({ symbol: "CAL5", date: "2025-09-20", pricePerShare: 5 }), // Rs 5 received vs 100% declared -> par 5
+];
+const cal = buildDividendProfiles(calTx, [hld("CAL10", 100), hld("CAL5", 100)], { asOf, fundamentals: calFund });
+const c10 = cal.find((p) => p.symbol === "CAL10")!;
+const c5 = cal.find((p) => p.symbol === "CAL5")!;
+ok("CAL10 par calibrated to 10 (Rs5 / 50%)", c10.faceValue === 10 && c10.faceValueSource === "calibrated", `${c10.faceValue}/${c10.faceValueSource}`);
+ok("CAL5 par calibrated to 5 (Rs5 / 100%)", c5.faceValue === 5 && c5.faceValueSource === "calibrated", `${c5.faceValue}/${c5.faceValueSource}`);
+ok("CAL5 declared = Rs 5 (100% of par 5, not 10)", Math.abs(c5.declaredAnnualDps - 5) < 1e-9, `${c5.declaredAnnualDps}`);
+
 console.log(`\n${pass} passed, ${fail} failed`);
 if (fail > 0) process.exit(1);

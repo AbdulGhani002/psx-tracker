@@ -1,7 +1,7 @@
 // Single source of truth for the app version + changelog.
 // Bump APP_VERSION and prepend a CHANGELOG entry on every release.
 
-export const APP_VERSION = "2.4.0";
+export const APP_VERSION = "2.4.1";
 
 export const BUILD_DATE =
   process.env.NEXT_PUBLIC_BUILD_DATE ?? "";
@@ -17,6 +17,16 @@ export type ChangelogEntry = {
 
 // Reverse-chronological. Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: "2.4.1",
+    date: "2026-06-13",
+    title: "Real par value + upcoming dividends list",
+    changes: [
+      "Face (par) value is no longer assumed to be Rs 10 — it's calibrated from your recorded dividends against PSX's declared percentage (Rs 5 received on a 50% dividend means par Rs 10). Genuinely non-Rs-10 stocks are detected automatically and the source is shown (✓ = calibrated).",
+      "New 'Upcoming dividends' list: the next 12 months of expected payments, soonest first, with date, rate, shares, and amount.",
+      "Par value column added to the analysis, adjusted for splits.",
+    ],
+  },
   {
     version: "2.4.0",
     date: "2026-06-13",

@@ -50,6 +50,26 @@ export default async function ForecastPage() {
     },
     { key: "eps", header: "EPS", align: "right", mono: true, render: (p) => (p.latestEps == null ? "—" : fmtRs(p.latestEps, true)) },
     {
+      key: "par",
+      header: "Par",
+      align: "right",
+      mono: true,
+      render: (p) => {
+        const note =
+          p.faceValueSource === "calibrated"
+            ? "Calibrated from your recorded dividends"
+            : p.faceValueSource === "split-adjusted"
+            ? "Adjusted for a share split"
+            : "Assumed (PSX standard Rs 10)";
+        return (
+          <span title={note} style={{ color: p.faceValueSource === "assumed" ? "var(--muted)" : "var(--ink)" }}>
+            {fmtRs(p.faceValue, true)}
+            {p.faceValueSource === "calibrated" && <span className="text-[9px]" style={{ color: "var(--positive)" }}> ✓</span>}
+          </span>
+        );
+      },
+    },
+    {
       key: "payout",
       header: "Payout",
       align: "right",
@@ -136,6 +156,35 @@ export default async function ForecastPage() {
         <>
           <Section
             number="01"
+            title="Upcoming dividends"
+            display="What's coming, when."
+            description="The next 12 months of expected dividend payments, soonest first, on the months each company has historically paid. Amounts are the earnings-capped estimate."
+          >
+            <Table
+              columns={[
+                { key: "date", header: "Expected", render: (e: ForecastEvent) => <span className="font-mono text-[12px]">{fmtDate(e.date)}</span> },
+                {
+                  key: "symbol",
+                  header: "Symbol",
+                  render: (e: ForecastEvent) => (
+                    <Link href={`/holdings/${e.symbol}`} className="font-mono font-medium hover:text-[var(--accent-deep)]">
+                      {e.symbol}
+                    </Link>
+                  ),
+                },
+                { key: "rate", header: "Rs / share", align: "right", mono: true, render: (e: ForecastEvent) => fmtRs(e.expectedRatePerShare, true) },
+                { key: "shares", header: "Shares", align: "right", mono: true, render: (e: ForecastEvent) => fmtNum(Math.round(e.shares)) },
+                { key: "gross", header: "Expected", align: "right", mono: true, render: (e: ForecastEvent) => <span style={{ color: "var(--positive)" }}>{fmtRs(e.expectedGross)}</span> },
+                { key: "conf", header: "Conf.", render: (e: ForecastEvent) => <Badge tone={confTone(e.confidence)}>{e.confidence}</Badge> },
+              ]}
+              rows={f.events}
+              rowKey={(e) => `${e.symbol}-${e.year}-${e.month}`}
+              empty="No dividends expected in the next 12 months."
+            />
+          </Section>
+
+          <Section
+            number="02"
             title="By holding — the analysis"
             display="Earnings first, then dividend."
             description="EPS and payout ratio drive the forward dividend. Cover is EPS ÷ DPS — above 2× is comfortable, below 1× means they'd pay more than they earn (at risk). Payout is the share of earnings we assume goes to dividends, capped at 100%."
@@ -143,14 +192,14 @@ export default async function ForecastPage() {
             <Table columns={profileCols} rows={f.profiles} rowKey={(p) => p.symbol} empty="No income holdings." />
             <p className="text-[11px] text-muted mt-3 max-w-[80ch]">
               EPS, profit, and growth are scraped from dps.psx.com.pk (standardized by Capital Stake) and cached weekly.
-              Face value assumed Rs 10. Where PSX has no EPS, the estimate falls back to your recorded payout history and
-              is marked lower confidence.
+              Par (face) value is calibrated from your recorded dividends where possible (marked ✓), adjusted for any split,
+              else assumed Rs 10. Where PSX has no EPS, the estimate falls back to your recorded payout history at lower confidence.
             </p>
           </Section>
 
           {f.bonusEvents.length > 0 && (
             <Section
-              number="02"
+              number="03"
               title="Bonus shares ahead"
               display="Free shares, not cash."
               description="Companies that issue bonus shares grow your holding. Projected from their recent bonus history; dividends after the bonus date are forecast on the larger share count."
@@ -176,7 +225,7 @@ export default async function ForecastPage() {
           )}
 
           <Section
-            number={f.bonusEvents.length > 0 ? "03" : "02"}
+            number={f.bonusEvents.length > 0 ? "04" : "03"}
             title="Forward 12 months"
             display="Month by month."
             description="The realistic annual dividend, spread across the months each company has historically paid. Blank months expect nothing."

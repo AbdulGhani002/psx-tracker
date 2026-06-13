@@ -65,6 +65,7 @@ export type SymbolDividendProfile = {
   name: string;
   shares: number;
   faceValue: number;
+  faceValueSource: FaceValueSource;
   source: "psx" | "recorded";
 
   byFiscalYear: FiscalYearDividend[];
@@ -185,10 +186,62 @@ function splitFactorFor(symbol: string, transactions: Transaction[]): number {
   return factor;
 }
 
-// Current face value: PSX par (default Rs 10) adjusted down by any splits.
-function faceValueFor(fund: FundamentalsInput | undefined, splitFactor = 1): number {
-  const base = fund?.faceValue ?? 10;
-  return splitFactor > 0 ? base / splitFactor : base;
+// PSX par values come in a few standard denominations. We snap noisy calibrated
+// values to the nearest of these when they're within ~12%.
+const STANDARD_FACES = [10, 5, 2, 1, 0.5];
+
+function snapFace(v: number): number | null {
+  for (const s of STANDARD_FACES) if (Math.abs(v - s) / s <= 0.12) return s;
+  return null;
+}
+
+export type FaceValueSource = "calibrated" | "split-adjusted" | "assumed";
+
+// Resolve the real face (par) value WITHOUT hardcoding. PSX dividends are a % of
+// par, so par = (rupees you actually received) / (the % PSX declared). We match
+// each recorded cash dividend to the nearest PSX payout and back out par, then
+// snap to a standard denomination. Falls back to Rs 10 (split-adjusted) only
+// when there's nothing to calibrate from.
+function resolveFaceValue(
+  recorded: { date: Date; ratePerShare: number }[],
+  payouts: PayoutLite[] | undefined,
+  splitFactor: number
+): { faceValue: number; source: FaceValueSource } {
+  const fallback = 10 / (splitFactor > 0 ? splitFactor : 1);
+  const cash = (payouts ?? [])
+    .filter((p) => p.type === "cash" && p.date && p.pctOfFace > 0)
+    .map((p) => ({ date: new Date(p.date as string), pct: p.pctOfFace }))
+    .filter((p) => !isNaN(p.date.getTime()));
+
+  const implied: number[] = [];
+  for (const r of recorded) {
+    if (r.ratePerShare <= 0) continue;
+    let best: { date: Date; pct: number } | null = null;
+    let bestDiff = Infinity;
+    for (const p of cash) {
+      const d = Math.abs(p.date.getTime() - r.date.getTime());
+      if (d < bestDiff) {
+        bestDiff = d;
+        best = p;
+      }
+    }
+    if (best && bestDiff <= 150 * DAY) {
+      const snapped = snapFace(r.ratePerShare / (best.pct / 100));
+      if (snapped != null) implied.push(snapped);
+    }
+  }
+
+  if (implied.length) {
+    // Mode of the snapped values.
+    const counts = new Map<number, number>();
+    for (const f of implied) counts.set(f, (counts.get(f) ?? 0) + 1);
+    let face = implied[0];
+    let best = 0;
+    for (const [f, n] of counts) if (n > best) { best = n; face = f; }
+    return { faceValue: face, source: "calibrated" };
+  }
+
+  return { faceValue: fallback, source: splitFactor !== 1 ? "split-adjusted" : "assumed" };
 }
 
 // Build dividend history for a symbol, preferring authoritative PSX payouts.
@@ -244,9 +297,11 @@ export function buildDividendProfiles(
 
     const fund = fundamentals[symbol];
     const splitFactor = splitFactorFor(symbol, transactions);
-    const faceValue = faceValueFor(fund, splitFactor); // split-adjusted par value
+    const recordedDivs = recordedBySymbol.get(symbol) ?? [];
+    // Real par value, calibrated from your dividends — not hardcoded to Rs 10.
+    const { faceValue, source: faceValueSource } = resolveFaceValue(recordedDivs, fund?.payouts, splitFactor);
     const price = prices[symbol] ?? 0;
-    const { items, source } = historyFor(recordedBySymbol.get(symbol) ?? [], fund, faceValue);
+    const { items, source } = historyFor(recordedDivs, fund, faceValue);
     if (items.length === 0) continue;
 
     // Group by fiscal year of the payment date.
@@ -358,6 +413,7 @@ export function buildDividendProfiles(
       name: held.name,
       shares: held.shares,
       faceValue,
+      faceValueSource,
       source,
       byFiscalYear,
       cadence,
