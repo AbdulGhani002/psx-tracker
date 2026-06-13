@@ -17,6 +17,7 @@ import {
   AppSettingsModel,
   CommodityTradeModel,
   AlertLogModel,
+  FundamentalModel,
 } from "@/lib/models";
 
 export const dynamic = "force-dynamic";
@@ -39,6 +40,7 @@ const COLLECTIONS: Array<{ name: string; model: any }> = [
   { name: "ScenarioProjection", model: ScenarioProjectionModel },
   { name: "PriceSnapshot", model: PriceSnapshotModel },
   { name: "AlertLog", model: AlertLogModel },
+  { name: "Fundamental", model: FundamentalModel },
 ];
 
 const MAX_RESTORE_BYTES = 50 * 1024 * 1024; // 50 MB

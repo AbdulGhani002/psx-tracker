@@ -50,4 +50,8 @@ export {
   type ForecastMonth,
   type SymbolDividendProfile,
   type DividendPayment,
+  type FiscalYearDividend,
+  type FundamentalsInput,
+  type ForecastOptions,
+  type Cadence,
 } from "./dividend-forecast";

@@ -16,12 +16,24 @@ function confTone(c: "high" | "medium" | "low"): "positive" | "amber" | "default
   return c === "high" ? "positive" : c === "medium" ? "amber" : "default";
 }
 
+function healthTone(s: SymbolDividendProfile["sustainability"]): "positive" | "amber" | "negative" | "default" {
+  if (s === "comfortable") return "positive";
+  if (s === "stretched") return "amber";
+  if (s === "at risk") return "negative";
+  return "default";
+}
+
+function pct(v: number | null | undefined, digits = 0): string {
+  if (v == null || !Number.isFinite(v)) return "—";
+  return `${v.toFixed(digits)}%`;
+}
+
 export default async function ForecastPage() {
   const avail = await checkDataAvailability();
   const f = await getDividendForecast();
 
   const haveData = f.profiles.length > 0;
-  const change = f.paidLast12m > 0 ? (f.total12m - f.paidLast12m) / f.paidLast12m : null;
+  const withEps = f.profiles.filter((p) => p.latestEps != null).length;
 
   const profileCols: Column<SymbolDividendProfile>[] = [
     {
@@ -33,28 +45,52 @@ export default async function ForecastPage() {
         </Link>
       ),
     },
-    { key: "shares", header: "Shares", align: "right", mono: true, render: (p) => fmtNum(p.shares) },
-    { key: "rate", header: "Annual rate/share", align: "right", mono: true, render: (p) => fmtRs(p.inferredAnnualRatePerShare, true) },
-    { key: "freq", header: "Payouts/yr", align: "right", mono: true, render: (p) => String(p.paymentsPerYear) },
+    { key: "eps", header: "EPS", align: "right", mono: true, render: (p) => (p.latestEps == null ? "—" : fmtRs(p.latestEps, true)) },
     {
-      key: "income",
-      header: "Est. annual income",
+      key: "payout",
+      header: "Payout",
+      align: "right",
+      mono: true,
+      render: (p) => pct(p.appliedPayoutRatioPct),
+    },
+    { key: "cadence", header: "Cadence", render: (p) => <span className="text-[12px] capitalize">{p.cadence}</span> },
+    {
+      key: "dps",
+      header: "Fwd DPS / yr",
       align: "right",
       mono: true,
       render: (p) => (
-        <span style={{ color: "var(--positive)" }}>{fmtRs(p.inferredAnnualRatePerShare * p.shares)}</span>
+        <span>
+          {fmtRs(p.forwardDpsAnnual, true)}
+          <span className="text-muted"> · {pct(p.forwardDpsPctOfFace)} face</span>
+        </span>
       ),
     },
-    { key: "last", header: "Last paid", render: (p) => <span className="font-mono text-[12px]">{fmtDate(p.lastPaymentDate)}</span> },
-    { key: "conf", header: "Confidence", render: (p) => <Badge tone={confTone(p.confidence)}>{p.confidence}</Badge> },
+    { key: "yield", header: "Yield", align: "right", mono: true, render: (p) => pct(p.forwardYieldPct, 1) },
+    {
+      key: "cover",
+      header: "Cover",
+      align: "right",
+      mono: true,
+      render: (p) => (p.dividendCover == null ? "—" : `${p.dividendCover.toFixed(1)}×`),
+    },
+    {
+      key: "income",
+      header: "Est. income / yr",
+      align: "right",
+      mono: true,
+      render: (p) => <span style={{ color: p.expectedAnnualIncome > 0 ? "var(--positive)" : "var(--muted)" }}>{fmtRs(p.expectedAnnualIncome)}</span>,
+    },
+    { key: "health", header: "Health", render: (p) => <Badge tone={healthTone(p.sustainability)}>{p.sustainability}</Badge> },
+    { key: "conf", header: "Conf.", render: (p) => <Badge tone={confTone(p.confidence)}>{p.confidence}</Badge> },
   ];
 
   return (
     <div>
       <PageHeader
         eyebrow="Dividends / Forecast"
-        title="The cash coming your way."
-        subtitle="A 12-month projection built from each holding's own payout history. We repeat last year's dividends forward at the same per-share rate, scaled by the shares you hold today. It is an estimate, not a promise — companies change or skip payouts."
+        title="What they can realistically pay."
+        subtitle="Grounded in each company's earnings, not just past payouts. We read EPS from PSX, work out the historical payout ratio, and cap the forward dividend at what profits can sustain — a loss-making year forecasts nothing. Everything is shown in percentage terms so you can judge it yourself."
       >
         <Link href="/dividends" className="font-mono text-[11px] uppercase tracking-stat text-muted hover:text-[var(--accent-deep)]">
           Recorded dividends
@@ -66,12 +102,8 @@ export default async function ForecastPage() {
       <StatRow>
         <Stat label="Forecast next 12m" value={fmtRs(f.total12m)} tone="positive" size="lg" />
         <Stat label="Paid last 12m" value={fmtRs(f.paidLast12m)} tone="muted" />
-        <Stat
-          label="Change"
-          value={change == null ? "—" : `${change >= 0 ? "+" : ""}${(change * 100).toFixed(0)}%`}
-          tone={change != null && change >= 0 ? "positive" : "default"}
-        />
         <Stat label="Income holdings" value={String(f.profiles.length)} tone="muted" />
+        <Stat label="With EPS data" value={`${withEps}/${f.profiles.length}`} tone="muted" />
         <Stat label="Forecast events" value={String(f.events.length)} tone="muted" />
       </StatRow>
 
@@ -80,7 +112,7 @@ export default async function ForecastPage() {
           <Card>
             <p className="text-[14px] text-muted">
               No dividend history to forecast from yet. Once you record dividends (upload CDC warrant PDFs on
-              the <Link href="/dividends" className="underline">Dividends</Link> page), this calendar fills in automatically.
+              the <Link href="/dividends" className="underline">Dividends</Link> page), this fills in automatically.
             </p>
           </Card>
         </div>
@@ -88,7 +120,26 @@ export default async function ForecastPage() {
 
       {haveData && (
         <>
-          <Section number="01" title="Forward 12 months" display="Month by month." description="Each month shows the dividends expected from your current holdings. Months with nothing expected are left blank.">
+          <Section
+            number="01"
+            title="By holding — the analysis"
+            display="Earnings first, then dividend."
+            description="EPS and payout ratio drive the forward dividend. Cover is EPS ÷ DPS — above 2× is comfortable, below 1× means they'd pay more than they earn (at risk). Payout is the share of earnings we assume goes to dividends, capped at 100%."
+          >
+            <Table columns={profileCols} rows={f.profiles} rowKey={(p) => p.symbol} empty="No income holdings." />
+            <p className="text-[11px] text-muted mt-3 max-w-[80ch]">
+              EPS, profit, and growth are scraped from dps.psx.com.pk (standardized by Capital Stake) and cached weekly.
+              Face value assumed Rs 10. Where PSX has no EPS, the estimate falls back to your recorded payout history and
+              is marked lower confidence.
+            </p>
+          </Section>
+
+          <Section
+            number="02"
+            title="Forward 12 months"
+            display="Month by month."
+            description="The realistic annual dividend, spread across the months each company has historically paid. Blank months expect nothing."
+          >
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
               {f.months.map((m) => (
                 <Card key={`${m.year}-${m.month}`}>
@@ -105,9 +156,7 @@ export default async function ForecastPage() {
                       {m.events.map((e: ForecastEvent, i: number) => (
                         <div key={`${e.symbol}-${i}`} className="flex items-center justify-between text-[12px]">
                           <span className="font-mono">{e.symbol}</span>
-                          <span className="font-mono mono-num text-muted">
-                            {fmtRs(e.expectedRatePerShare, true)}/sh
-                          </span>
+                          <span className="font-mono mono-num text-muted">{fmtRs(e.expectedRatePerShare, true)}/sh</span>
                           <span className="font-mono mono-num">{fmtRs(e.expectedGross)}</span>
                         </div>
                       ))}
@@ -116,15 +165,6 @@ export default async function ForecastPage() {
                 </Card>
               ))}
             </div>
-          </Section>
-
-          <Section number="02" title="By holding" display="Who pays what." description="Inferred annual rate per share and estimated yearly income for each dividend payer you hold. Confidence reflects how much payout history we have.">
-            <Table
-              columns={profileCols}
-              rows={f.profiles}
-              rowKey={(p) => p.symbol}
-              empty="No income holdings."
-            />
           </Section>
         </>
       )}

@@ -13,10 +13,13 @@ import {
   SavingsAccountModel,
   AppSettingsModel,
   CommodityTradeModel,
+  FundamentalModel,
   DEFAULT_SETTINGS,
   type Holding,
   type Transaction,
 } from "./models";
+import { fetchFundamentals } from "./prices/fundamentals";
+import type { FundamentalsInput } from "./calculations/dividend-forecast";
 import { SBP_POLICY_RATE_DEFAULTS, policyRateOn, type RateStep } from "./timeseries/sbp-rate";
 import { fetchAllNavs, findNav } from "./funds/mufap";
 import { valueSavings, valueFund, type SavingsValuation, type FundValuation } from "./calculations/assets";
@@ -113,12 +116,70 @@ export async function getPortfolioSummary(): Promise<PortfolioSummary> {
   return summarisePortfolio({ holdings, transactions, prices });
 }
 
+const FUNDAMENTALS_TTL_MS = 7 * 24 * 60 * 60 * 1000; // refresh weekly
+
+// Cached company fundamentals, refreshing any that are missing or stale. Never
+// throws — a symbol PSX can't serve is simply absent from the map, and the
+// forecast falls back to history for it.
+export async function getFundamentals(symbols: string[]): Promise<Record<string, FundamentalsInput>> {
+  const out: Record<string, FundamentalsInput> = {};
+  if (symbols.length === 0 || !(await tryConnect())) return out;
+  const upper = [...new Set(symbols.map((s) => s.toUpperCase()))];
+
+  const cached = await FundamentalModel.find({ symbol: { $in: upper } }).lean();
+  const bySym = new Map(cached.map((c: any) => [c.symbol, c]));
+  const now = Date.now();
+
+  const stale = upper.filter((s) => {
+    const c = bySym.get(s);
+    return !c || now - new Date(c.fetchedAt).getTime() > FUNDAMENTALS_TTL_MS;
+  });
+
+  if (stale.length) {
+    await Promise.all(
+      stale.map(async (s) => {
+        const fresh = await fetchFundamentals(s);
+        if (!fresh) return;
+        const doc = await FundamentalModel.findOneAndUpdate(
+          { symbol: s },
+          {
+            symbol: s,
+            faceValue: fresh.faceValue,
+            annual: fresh.annual,
+            latestEps: fresh.latestEps,
+            epsGrowthPct: fresh.epsGrowthPct,
+            source: fresh.source,
+            fetchedAt: new Date(fresh.fetchedAt),
+          },
+          { upsert: true, new: true }
+        ).lean();
+        if (doc) bySym.set(s, doc);
+      })
+    );
+  }
+
+  for (const s of upper) {
+    const c: any = bySym.get(s);
+    if (!c) continue;
+    const epsByYear: Record<number, number> = {};
+    for (const a of c.annual ?? []) if (a.eps != null) epsByYear[a.fiscalYear] = a.eps;
+    out[s] = {
+      faceValue: c.faceValue ?? 10,
+      latestEps: c.latestEps ?? null,
+      epsByYear,
+      epsGrowthPct: c.epsGrowthPct ?? null,
+    };
+  }
+  return out;
+}
+
 export async function getDividendForecast(): Promise<DividendForecast> {
-  const [holdings, transactions] = await Promise.all([
-    getAllHoldings(),
-    getAllTransactions(),
-  ]);
-  return forecastDividends(transactions, holdings);
+  const [holdings, transactions] = await Promise.all([getAllHoldings(), getAllTransactions()]);
+  const held = holdings.filter((h) => h.currentShares > 0).map((h) => h.symbol);
+  const [prices, fundamentals] = await Promise.all([getCurrentPrices(held), getFundamentals(held)]);
+  const priceMap: Record<string, number> = {};
+  for (const [k, v] of prices) priceMap[k] = v;
+  return forecastDividends(transactions, holdings, { fundamentals, prices: priceMap });
 }
 
 export async function getTargetAllocations() {

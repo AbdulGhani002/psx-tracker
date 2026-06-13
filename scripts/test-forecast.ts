@@ -1,4 +1,4 @@
-import { forecastDividends, buildDividendProfiles } from "../lib/calculations/dividend-forecast";
+import { forecastDividends, buildDividendProfiles, type FundamentalsInput } from "../lib/calculations/dividend-forecast";
 import type { Transaction, Holding } from "../lib/types";
 
 let pass = 0, fail = 0;
@@ -14,79 +14,80 @@ function tx(p: Partial<Transaction>): Transaction {
 function hld(symbol: string, shares: number): Holding {
   return { symbol, name: symbol, currentShares: shares } as Holding;
 }
-
-const asOf = new Date("2026-06-06T00:00:00Z");
-
-// ANN: annual payer with 3 years of history (high confidence), holds 1000 shares.
-// QTR: quarterly payer, last 4 quarters, holds 500 shares.
-// ZERO: has dividend history but 0 shares held -> must be excluded.
-const txs: Transaction[] = [
-  tx({ symbol: "ANN", date: "2023-09-15", pricePerShare: 5, totalAmount: 5000, netAmount: 4500 }),
-  tx({ symbol: "ANN", date: "2024-09-15", pricePerShare: 5, totalAmount: 5000, netAmount: 4500 }),
-  tx({ symbol: "ANN", date: "2025-09-15", pricePerShare: 5, totalAmount: 5000, netAmount: 4500 }),
-
-  tx({ symbol: "QTR", date: "2025-08-01", pricePerShare: 2, totalAmount: 1000, netAmount: 900 }),
-  tx({ symbol: "QTR", date: "2025-11-01", pricePerShare: 2, totalAmount: 1000, netAmount: 900 }),
-  tx({ symbol: "QTR", date: "2026-02-01", pricePerShare: 2, totalAmount: 1000, netAmount: 900 }),
-  tx({ symbol: "QTR", date: "2026-05-01", pricePerShare: 2, totalAmount: 1000, netAmount: 900 }),
-
-  tx({ symbol: "ZERO", date: "2025-10-01", pricePerShare: 3, totalAmount: 3000, netAmount: 2700 }),
-];
-const holdings: Holding[] = [hld("ANN", 1000), hld("QTR", 500), hld("ZERO", 0)];
-
-console.log("=== profiles ===");
-const profiles = buildDividendProfiles(txs, holdings, asOf);
-ok("two income holdings (ZERO excluded)", profiles.length === 2, `n=${profiles.length}`);
-const ann = profiles.find((p) => p.symbol === "ANN")!;
-const qtr = profiles.find((p) => p.symbol === "QTR")!;
-ok("ANN cadence = 1/yr", ann.paymentsPerYear === 1, `ppy=${ann.paymentsPerYear}`);
-ok("QTR cadence = 4/yr", qtr.paymentsPerYear === 4, `ppy=${qtr.paymentsPerYear}`);
-ok("ANN annual rate/share = 5", Math.abs(ann.inferredAnnualRatePerShare - 5) < 1e-9, `r=${ann.inferredAnnualRatePerShare}`);
-ok("QTR annual rate/share = 8", Math.abs(qtr.inferredAnnualRatePerShare - 8) < 1e-9, `r=${qtr.inferredAnnualRatePerShare}`);
-ok("ANN confidence high (3y history)", ann.confidence === "high", ann.confidence);
-
-console.log("=== forecast ===");
-const f = forecastDividends(txs, holdings, asOf);
-ok("5 forecast events (1 ANN + 4 QTR)", f.events.length === 5, `n=${f.events.length}`);
-ok("total 12m = 9000", Math.abs(f.total12m - 9000) < 1e-6, `total=${f.total12m}`);
-ok("no event for ZERO", !f.events.some((e) => e.symbol === "ZERO"));
-ok("all events within next 12 months", f.events.every((e) => e.date > asOf && e.date <= f.windowEnd));
-
-// ANN: 2025-09-15 -> 2026-09-15
-const annEvent = f.events.find((e) => e.symbol === "ANN")!;
-ok("ANN projected to 2026-09", annEvent.year === 2026 && annEvent.month === 8, `${annEvent.year}-${annEvent.month}`);
-ok("ANN gross = 5000", Math.abs(annEvent.expectedGross - 5000) < 1e-6, `g=${annEvent.expectedGross}`);
-
-// QTR gross each = 2 * 500 = 1000, four of them
-const qtrEvents = f.events.filter((e) => e.symbol === "QTR");
-ok("4 QTR events", qtrEvents.length === 4);
-ok("QTR gross each = 1000", qtrEvents.every((e) => Math.abs(e.expectedGross - 1000) < 1e-6));
-
-// months array always has 12 buckets
-ok("12 month buckets", f.months.length === 12, `n=${f.months.length}`);
-const bucketSum = f.months.reduce((s, m) => s + m.total, 0);
-ok("month buckets sum to total12m", Math.abs(bucketSum - f.total12m) < 1e-6, `sum=${bucketSum}`);
-
-// paidLast12m: dividends with date >= 2025-06-06, net summed.
-// ANN 2025-09-15 (4500) + QTR x4 (900 each = 3600) = 8100. ZERO 2025-10-01 (2700) also counts (cash received regardless of current holding).
-ok("paidLast12m = 10800", Math.abs(f.paidLast12m - 10800) < 1e-6, `paid=${f.paidLast12m}`);
-
-console.log("=== leap-year + month-end clamp ===");
-{
-  const t2: Transaction[] = [
-    tx({ symbol: "LEAP", date: "2024-02-29", pricePerShare: 1, totalAmount: 100, netAmount: 90 }),
-    tx({ symbol: "EOM", date: "2025-01-31", pricePerShare: 1, totalAmount: 100, netAmount: 90 }),
-  ];
-  const h2: Holding[] = [hld("LEAP", 100), hld("EOM", 100)];
-  const f2 = forecastDividends(t2, h2, asOf);
-  const leap = f2.events.find((e) => e.symbol === "LEAP");
-  ok("LEAP event exists", !!leap);
-  ok("LEAP stays in February (month=1, not March)", !!leap && leap.month === 1, leap ? `month=${leap.month}` : "none");
-  const eom = f2.events.find((e) => e.symbol === "EOM");
-  ok("EOM stays in January (month=0)", !!eom && eom.month === 0, eom ? `month=${eom.month}` : "none");
-  const bsum = f2.months.reduce((s, m) => s + m.total, 0);
-  ok("f2 buckets sum to total12m", Math.abs(bsum - f2.total12m) < 1e-6, `bsum=${bsum} total=${f2.total12m}`);
+function fund(latestEps: number, epsByYear: Record<number, number>): FundamentalsInput {
+  return { faceValue: 10, latestEps, epsByYear, epsGrowthPct: null };
 }
+
+const asOf = new Date("2026-06-06T00:00:00Z"); // PK fiscal year ending 2026 is still running
+
+// ANN  — healthy annual payer: Rs 5/yr once a year, EPS 10 (50% payout).
+// QTR  — healthy quarterly payer: Rs 1 x4 = Rs 4/yr, EPS 8 (50% payout).
+// OVER — pays Rs 15/yr but only earns EPS 5 (the AHCL problem): must be capped.
+// LOSS — loss-making (EPS -2): should forecast no dividend.
+const txs: Transaction[] = [
+  tx({ symbol: "ANN", date: "2022-10-15", pricePerShare: 5 }),
+  tx({ symbol: "ANN", date: "2023-10-15", pricePerShare: 5 }),
+  tx({ symbol: "ANN", date: "2024-10-15", pricePerShare: 5 }),
+
+  tx({ symbol: "QTR", date: "2023-08-01", pricePerShare: 1 }),
+  tx({ symbol: "QTR", date: "2023-11-01", pricePerShare: 1 }),
+  tx({ symbol: "QTR", date: "2024-02-01", pricePerShare: 1 }),
+  tx({ symbol: "QTR", date: "2024-05-01", pricePerShare: 1 }),
+  tx({ symbol: "QTR", date: "2024-08-01", pricePerShare: 1 }),
+  tx({ symbol: "QTR", date: "2024-11-01", pricePerShare: 1 }),
+  tx({ symbol: "QTR", date: "2025-02-01", pricePerShare: 1 }),
+  tx({ symbol: "QTR", date: "2025-05-01", pricePerShare: 1 }),
+
+  tx({ symbol: "OVER", date: "2022-10-15", pricePerShare: 15 }),
+  tx({ symbol: "OVER", date: "2023-10-15", pricePerShare: 15 }),
+  tx({ symbol: "OVER", date: "2024-10-15", pricePerShare: 15 }),
+
+  tx({ symbol: "LOSS", date: "2024-10-15", pricePerShare: 3 }),
+];
+const holdings: Holding[] = [hld("ANN", 1000), hld("QTR", 500), hld("OVER", 100), hld("LOSS", 100)];
+const fundamentals: Record<string, FundamentalsInput> = {
+  ANN: fund(10, { 2023: 10, 2024: 10, 2025: 10 }),
+  QTR: fund(8, { 2024: 8, 2025: 8 }),
+  OVER: fund(5, { 2023: 5, 2024: 5, 2025: 5 }),
+  LOSS: fund(-2, { 2025: -2 }),
+};
+
+console.log("=== profiles (earnings-grounded) ===");
+const profiles = buildDividendProfiles(txs, holdings, { asOf, fundamentals });
+const P = (s: string) => profiles.find((p) => p.symbol === s)!;
+
+ok("ANN cadence annual", P("ANN").cadence === "annual", P("ANN").cadence);
+ok("ANN payout ratio 50%", Math.abs((P("ANN").medianPayoutRatioPct ?? 0) - 50) < 1e-9, `${P("ANN").medianPayoutRatioPct}`);
+ok("ANN forward DPS = 5", Math.abs(P("ANN").forwardDpsAnnual - 5) < 1e-9, `${P("ANN").forwardDpsAnnual}`);
+ok("ANN income = 5000", Math.abs(P("ANN").expectedAnnualIncome - 5000) < 1e-6, `${P("ANN").expectedAnnualIncome}`);
+ok("ANN comfortable (cover 2)", P("ANN").sustainability === "comfortable", P("ANN").sustainability);
+
+ok("QTR cadence quarterly", P("QTR").cadence === "quarterly", P("QTR").cadence);
+ok("QTR forward DPS = 4", Math.abs(P("QTR").forwardDpsAnnual - 4) < 1e-9, `${P("QTR").forwardDpsAnnual}`);
+
+// The headline fix: OVER pays Rs 15 but earns Rs 5 — capped to EPS (100% payout), not 15.
+ok("OVER applied payout capped at 100%", P("OVER").appliedPayoutRatioPct === 100, `${P("OVER").appliedPayoutRatioPct}`);
+ok("OVER forward DPS capped to 5 (not 15)", Math.abs(P("OVER").forwardDpsAnnual - 5) < 1e-9, `${P("OVER").forwardDpsAnnual}`);
+ok("OVER income = 500 (not 1500)", Math.abs(P("OVER").expectedAnnualIncome - 500) < 1e-6, `${P("OVER").expectedAnnualIncome}`);
+ok("OVER sustainability stretched (cover 1)", P("OVER").sustainability === "stretched", P("OVER").sustainability);
+
+ok("LOSS forecasts no dividend", P("LOSS").forwardDpsAnnual === 0, `${P("LOSS").forwardDpsAnnual}`);
+ok("LOSS sustainability 'no dividend'", P("LOSS").sustainability === "no dividend", P("LOSS").sustainability);
+
+console.log("=== forecast events ===");
+const f = forecastDividends(txs, holdings, { asOf, fundamentals });
+ok("ANN: 1 event", f.events.filter((e) => e.symbol === "ANN").length === 1, `${f.events.filter((e) => e.symbol === "ANN").length}`);
+ok("QTR: 4 events", f.events.filter((e) => e.symbol === "QTR").length === 4, `${f.events.filter((e) => e.symbol === "QTR").length}`);
+ok("OVER: 1 event", f.events.filter((e) => e.symbol === "OVER").length === 1);
+ok("LOSS: no events", f.events.filter((e) => e.symbol === "LOSS").length === 0);
+ok("total12m = 7500", Math.abs(f.total12m - 7500) < 1e-6, `${f.total12m}`);
+ok("12 month buckets", f.months.length === 12, `${f.months.length}`);
+ok("buckets sum to total", Math.abs(f.months.reduce((s, m) => s + m.total, 0) - f.total12m) < 1e-6);
+ok("all events inside window", f.events.every((e) => e.date > asOf && e.date < f.windowEnd));
+
+// Yield needs a price.
+const fp = forecastDividends(txs, holdings, { asOf, fundamentals, prices: { ANN: 100 } });
+ok("ANN yield = 5% at price 100", Math.abs((buildDividendProfiles(txs, holdings, { asOf, fundamentals, prices: { ANN: 100 } }).find((p) => p.symbol === "ANN")!.forwardYieldPct ?? 0) - 5) < 1e-9);
 
 console.log(`\n${pass} passed, ${fail} failed`);
 if (fail > 0) process.exit(1);

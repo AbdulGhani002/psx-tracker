@@ -17,3 +17,4 @@ export { SavingsAccountModel, type SavingsAccount } from "./SavingsAccount";
 export { AppSettingsModel, type AppSettings, DEFAULT_SETTINGS } from "./AppSettings";
 export { CommodityTradeModel, type CommodityTrade, COMMODITY_SIDES } from "./CommodityTrade";
 export { AlertLogModel, type AlertLog } from "./AlertLog";
+export { FundamentalModel, type Fundamental } from "./Fundamental";

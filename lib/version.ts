@@ -1,7 +1,7 @@
 // Single source of truth for the app version + changelog.
 // Bump APP_VERSION and prepend a CHANGELOG entry on every release.
 
-export const APP_VERSION = "2.1.1";
+export const APP_VERSION = "2.2.0";
 
 export const BUILD_DATE =
   process.env.NEXT_PUBLIC_BUILD_DATE ?? "";
@@ -17,6 +17,18 @@ export type ChangelogEntry = {
 
 // Reverse-chronological. Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: "2.2.0",
+    date: "2026-06-13",
+    title: "Earnings-grounded dividend forecast",
+    changes: [
+      "Dividend forecast now reads each company's EPS and profit from PSX and caps the forward dividend at what earnings can sustain — no more projecting a payout a company can't afford.",
+      "Everything is shown in percentage terms: payout ratio, dividend as % of face value, dividend yield, and dividend cover (EPS ÷ DPS).",
+      "Cadence is read per fiscal year, so an annual payer (e.g. AHCL) is no longer mistaken for a quarterly one.",
+      "A loss-making year forecasts no dividend, with a clear at-risk / stretched / comfortable health read.",
+      "Company fundamentals are scraped from dps.psx.com.pk and cached weekly.",
+    ],
+  },
   {
     version: "2.1.1",
     date: "2026-06-08",
