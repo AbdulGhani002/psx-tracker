@@ -232,13 +232,15 @@ function resolveFaceValue(
   }
 
   if (implied.length) {
-    // Mode of the snapped values.
+    // Only trust calibration when the snapped values AGREE (a clear majority).
+    // Conflicting values (often from messily-recorded amounts) fall back to the
+    // standard rather than guessing wrong.
     const counts = new Map<number, number>();
     for (const f of implied) counts.set(f, (counts.get(f) ?? 0) + 1);
     let face = implied[0];
     let best = 0;
     for (const [f, n] of counts) if (n > best) { best = n; face = f; }
-    return { faceValue: face, source: "calibrated" };
+    if (best * 2 > implied.length) return { faceValue: face, source: "calibrated" };
   }
 
   return { faceValue: fallback, source: splitFactor !== 1 ? "split-adjusted" : "assumed" };

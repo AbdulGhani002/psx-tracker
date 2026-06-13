@@ -150,5 +150,19 @@ ok("CAL10 par calibrated to 10 (Rs5 / 50%)", c10.faceValue === 10 && c10.faceVal
 ok("CAL5 par calibrated to 5 (Rs5 / 100%)", c5.faceValue === 5 && c5.faceValueSource === "calibrated", `${c5.faceValue}/${c5.faceValueSource}`);
 ok("CAL5 declared = Rs 5 (100% of par 5, not 10)", Math.abs(c5.declaredAnnualDps - 5) < 1e-9, `${c5.declaredAnnualDps}`);
 
+// Conflicting recorded amounts (the AHCL case) must NOT mis-calibrate par — fall back to 10.
+const conflictFund: Record<string, FundamentalsInput> = {
+  CONF: { faceValue: 10, latestEps: 6, epsByYear: { 2024: 6, 2025: 6 }, epsGrowthPct: 0, payouts: [
+    { date: "2025-09-15", pctOfFace: 100, cycle: "F", type: "cash" },
+    { date: "2024-11-05", pctOfFace: 100, cycle: "F", type: "cash" },
+  ] },
+};
+const conflictTx: Transaction[] = [
+  tx({ symbol: "CONF", date: "2025-09-18", pricePerShare: 10 }), // -> implies 10
+  tx({ symbol: "CONF", date: "2024-11-08", pricePerShare: 1 }), // -> implies 1 (messy)
+];
+const conf = buildDividendProfiles(conflictTx, [hld("CONF", 100)], { asOf, fundamentals: conflictFund }).find((p) => p.symbol === "CONF")!;
+ok("CONF par falls back to 10 on conflicting evidence", conf.faceValue === 10 && conf.faceValueSource === "assumed", `${conf.faceValue}/${conf.faceValueSource}`);
+
 console.log(`\n${pass} passed, ${fail} failed`);
 if (fail > 0) process.exit(1);
