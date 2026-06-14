@@ -19,15 +19,17 @@ type Props = {
   equityValue: number;
   totalNetWorth: number;
   actualReturnPct: number | null;
+  reliableReturn: boolean;
+  defaultReturnPct: number;
   forecastDividends12m: number;
 };
 
-export function IncomePlanner({ equityValue, totalNetWorth, actualReturnPct, forecastDividends12m }: Props) {
+export function IncomePlanner({ equityValue, totalNetWorth, actualReturnPct, reliableReturn, defaultReturnPct, forecastDividends12m }: Props) {
   const [base, setBase] = useState<"networth" | "equity">("networth");
   const startPortfolio = base === "networth" ? totalNetWorth : equityValue;
 
   const [portfolio, setPortfolio] = useState(Math.round(startPortfolio) || 1_000_000);
-  const [ret, setRet] = useState(actualReturnPct != null ? Number(actualReturnPct.toFixed(1)) : 13);
+  const [ret, setRet] = useState(defaultReturnPct);
   const [inflation, setInflation] = useState(10);
   const [safeRate, setSafeRate] = useState(3);
   const [target, setTarget] = useState(200_000);
@@ -73,7 +75,12 @@ export function IncomePlanner({ equityValue, totalNetWorth, actualReturnPct, for
         <Stat label="Max income / mo" value={fmtRs(w.maxMonthly)} tone="muted" hint="spends all profit — capital erodes" />
         <Stat label="Real return" value={fmtPct(w.realReturnPct / 100, 1)} tone={w.realReturnPct >= 0 ? "default" : "negative"} hint={`${ret}% return − ${inflation}% inflation`} />
         <Stat label="Per +1 lakh" value={`+${fmtRs(w.perLakhSafe)}`} tone="muted" hint={`safe · +${fmtRs(w.perLakhMax)} max`} />
-        <Stat label="Your actual return" value={actualReturnPct != null ? fmtPct(actualReturnPct / 100, 1) : "—"} tone="accent" hint={actualReturnPct != null ? "money-weighted (XIRR)" : "need more history"} />
+        <Stat
+          label="Your actual return"
+          value={actualReturnPct != null ? fmtPct(actualReturnPct / 100, 1) : "—"}
+          tone="accent"
+          hint={reliableReturn ? "money-weighted (XIRR) — used" : actualReturnPct != null ? "short history — using 13% instead" : "need more history"}
+        />
       </StatRow>
 
       <Section number="01" title="Your numbers" display="Tune the assumptions." description="Defaults use your actual return and a Pakistan-realistic 3% safe rate and 10% inflation. Change anything.">
@@ -86,7 +93,7 @@ export function IncomePlanner({ equityValue, totalNetWorth, actualReturnPct, for
           </div>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-x-6 gap-y-5">
             <NumberInput label="Portfolio value (Rs)" value={portfolio} onChange={setPortfolio} min={0} step={100000} />
-            <NumberInput label="Expected return (%/yr)" value={ret} onChange={setRet} min={0} max={100} step={0.5} suffix="%" hint={actualReturnPct != null ? `your XIRR is ${actualReturnPct.toFixed(1)}%` : undefined} />
+            <NumberInput label="Expected return (%/yr)" value={ret} onChange={setRet} min={0} max={100} step={0.5} suffix="%" hint={reliableReturn ? `your XIRR ${actualReturnPct!.toFixed(1)}%` : `13% PSX long-run (your XIRR ${actualReturnPct != null ? actualReturnPct.toFixed(0) + "%" : "n/a"} needs ≥1y history)`} />
             <NumberInput label="Inflation (%/yr)" value={inflation} onChange={setInflation} min={0} max={60} step={0.5} suffix="%" />
             <NumberInput label="Safe withdrawal rate (% real)" value={safeRate} onChange={setSafeRate} min={0} max={15} step={0.25} suffix="%" hint="3% is the Pakistan-honest number" />
             <NumberInput label="Target income (Rs/mo)" value={target} onChange={setTarget} min={0} step={10000} />
