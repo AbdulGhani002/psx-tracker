@@ -9,6 +9,7 @@ import { CompoundingModel } from "@/components/model/CompoundingModel";
 import { HoldingSettings } from "./HoldingSettings";
 import { HoldingPlaybook } from "./HoldingPlaybook";
 import { HoldingTransactions } from "./HoldingTransactions";
+import { DividendOverride } from "./DividendOverride";
 import {
   getHoldingBySymbol,
   getTransactionsBySymbol,
@@ -145,6 +146,23 @@ export default async function HoldingDetail({ params }: Props) {
 
       <Section
         number="04"
+        title="Dividend forecast override"
+        display="Pin the dividend numbers."
+        description="When the automatic forecast gets a stock wrong — unusual par value, incomplete recorded dividends, or a cadence it can't read — set the values here. Anything left at Auto stays automatic."
+      >
+        <DividendOverride
+          symbol={symbol}
+          initial={{
+            parValue: h.dividendOverride?.parValue ?? 0,
+            cadence: h.dividendOverride?.cadence ?? "",
+            payoutRatioPct: h.dividendOverride?.payoutRatioPct ?? 0,
+            expectedAnnualDps: h.dividendOverride?.expectedAnnualDps ?? 0,
+          }}
+        />
+      </Section>
+
+      <Section
+        number="05"
         title="Forward projection"
         description="A multi-scenario compounding model specific to this stock. Pick a preset, tune the sliders, then save them as this stock's defaults."
       >

@@ -1,7 +1,7 @@
 // Single source of truth for the app version + changelog.
 // Bump APP_VERSION and prepend a CHANGELOG entry on every release.
 
-export const APP_VERSION = "2.4.1";
+export const APP_VERSION = "2.5.0";
 
 export const BUILD_DATE =
   process.env.NEXT_PUBLIC_BUILD_DATE ?? "";
@@ -17,6 +17,16 @@ export type ChangelogEntry = {
 
 // Reverse-chronological. Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: "2.5.0",
+    date: "2026-06-14",
+    title: "Income planner, per-holding overrides, dividend growth",
+    changes: [
+      "New Income planner (/income): a Pakistan-aware withdrawal calculator driven by your own actual return (money-weighted XIRR). Safe vs max monthly income, the portfolio you need for a target, a depletion test that shows when fast-growing withdrawals run the pot dry, and passive-income coverage from your forecast dividends.",
+      "Per-holding dividend override: pin par value, cadence, payout ratio, or the expected dividend yourself on any holding when the automatic forecast gets it wrong. Overridden holdings are tagged 'set'.",
+      "Dividend growth: the forecast now reads each company's EPS-growth trend (clamped) to inform forward dividend growth.",
+    ],
+  },
   {
     version: "2.4.1",
     date: "2026-06-13",

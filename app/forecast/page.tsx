@@ -45,6 +45,7 @@ export default async function ForecastPage() {
             {p.symbol}
           </Link>
           {p.hasSplit && <span className="label-cap" title="Face value adjusted for a share split">split</span>}
+          {p.overridden && <span className="label-cap" title="You pinned one or more dividend values" style={{ color: "var(--accent-deep)" }}>set</span>}
         </span>
       ),
     },

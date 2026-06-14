@@ -37,6 +37,19 @@ const HoldingSchema = new Schema(
       ],
       default: [],
     },
+    // Manual dividend-forecast overrides (0 / "" = auto).
+    dividendOverride: {
+      type: new Schema(
+        {
+          parValue: { type: Number, default: 0 },
+          cadence: { type: String, default: "" },
+          payoutRatioPct: { type: Number, default: 0 },
+          expectedAnnualDps: { type: Number, default: 0 },
+        },
+        { _id: false }
+      ),
+      default: () => ({}),
+    },
     // Saved per-stock compounding-model assumptions (overrides generic defaults).
     modelAssumptions: {
       type: new Schema(

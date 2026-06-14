@@ -32,6 +32,13 @@ export type Holding = {
     useDRIP: boolean;
     saved: boolean;
   };
+  // Manual dividend-forecast overrides; 0 / "" means "auto" (use the model).
+  dividendOverride?: {
+    parValue?: number; // Rs face value
+    cadence?: string; // "" | annual | semi-annual | quarterly
+    payoutRatioPct?: number; // % of EPS
+    expectedAnnualDps?: number; // Rs/share/yr — pins the forward dividend directly
+  };
   createdAt: Date | string;
   updatedAt: Date | string;
 };

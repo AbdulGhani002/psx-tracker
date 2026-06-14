@@ -164,5 +164,24 @@ const conflictTx: Transaction[] = [
 const conf = buildDividendProfiles(conflictTx, [hld("CONF", 100)], { asOf, fundamentals: conflictFund }).find((p) => p.symbol === "CONF")!;
 ok("CONF par falls back to 10 on conflicting evidence", conf.faceValue === 10 && conf.faceValueSource === "assumed", `${conf.faceValue}/${conf.faceValueSource}`);
 
+// --- Per-holding overrides + dividend growth ---
+console.log("=== overrides + growth ===");
+const ovHold = { symbol: "OVR", name: "OVR", currentShares: 100, dividendOverride: { parValue: 0, cadence: "quarterly", payoutRatioPct: 0, expectedAnnualDps: 7 } } as unknown as Holding;
+const ovp = buildDividendProfiles([tx({ symbol: "OVR", date: "2025-09-15", pricePerShare: 3 })], [ovHold], { asOf, fundamentals: { OVR: fund(5, { 2025: 5 }) } }).find((p) => p.symbol === "OVR")!;
+ok("override pins forward DPS to 7", Math.abs(ovp.forwardDpsAnnual - 7) < 1e-9, `${ovp.forwardDpsAnnual}`);
+ok("override income = 700", Math.abs(ovp.expectedAnnualIncome - 700) < 1e-6, `${ovp.expectedAnnualIncome}`);
+ok("override cadence = quarterly", ovp.cadence === "quarterly", ovp.cadence);
+ok("overridden flag set", ovp.overridden === true);
+
+const parHold = { symbol: "PAR", name: "PAR", currentShares: 100, dividendOverride: { parValue: 5, cadence: "", payoutRatioPct: 0, expectedAnnualDps: 0 } } as unknown as Holding;
+const parFund: Record<string, FundamentalsInput> = { PAR: { faceValue: 10, latestEps: 20, epsByYear: { 2025: 20 }, epsGrowthPct: 0, payouts: [{ date: "2025-09-15", pctOfFace: 100, cycle: "F", type: "cash" }] } };
+const parp = buildDividendProfiles([], [parHold], { asOf, fundamentals: parFund }).find((p) => p.symbol === "PAR")!;
+ok("par override -> faceValue 5, source override", parp.faceValue === 5 && parp.faceValueSource === "override", `${parp.faceValue}/${parp.faceValueSource}`);
+ok("par override -> declared 5 (100% of 5)", Math.abs(parp.declaredAnnualDps - 5) < 1e-9, `${parp.declaredAnnualDps}`);
+
+const grFund: Record<string, FundamentalsInput> = { GRW: { faceValue: 10, latestEps: 10, epsByYear: { 2025: 10 }, epsGrowthPct: 45, payouts: [{ date: "2025-09-15", pctOfFace: 50, cycle: "F", type: "cash" }] } };
+const grp = buildDividendProfiles([], [hld("GRW", 100)], { asOf, fundamentals: grFund }).find((p) => p.symbol === "GRW")!;
+ok("dividend growth clamped to 30%", grp.dividendGrowthPct === 30, `${grp.dividendGrowthPct}`);
+
 console.log(`\n${pass} passed, ${fail} failed`);
 if (fail > 0) process.exit(1);

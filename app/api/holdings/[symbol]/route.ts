@@ -42,6 +42,14 @@ const patchSchema = z.object({
       saved: z.boolean().optional(),
     })
     .optional(),
+  dividendOverride: z
+    .object({
+      parValue: z.number().min(0).optional(),
+      cadence: z.enum(["", "annual", "semi-annual", "quarterly"]).optional(),
+      payoutRatioPct: z.number().min(0).max(500).optional(),
+      expectedAnnualDps: z.number().min(0).optional(),
+    })
+    .optional(),
 });
 
 type Params = { params: { symbol: string } };

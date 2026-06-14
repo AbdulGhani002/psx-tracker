@@ -74,7 +74,9 @@ export type SymbolDividendProfile = {
 
   latestEps: number | null;
   epsGrowthPct: number | null;
+  dividendGrowthPct: number; // expected annual dividend growth (from EPS trend, clamped)
   medianPayoutRatioPct: number | null;
+  overridden: boolean; // user pinned one or more values
 
   declaredAnnualDps: number; // what they actually declare in a full cycle (uncapped)
   forwardEps: number | null;
@@ -195,7 +197,7 @@ function snapFace(v: number): number | null {
   return null;
 }
 
-export type FaceValueSource = "calibrated" | "split-adjusted" | "assumed";
+export type FaceValueSource = "calibrated" | "split-adjusted" | "assumed" | "override";
 
 // Resolve the real face (par) value WITHOUT hardcoding. PSX dividends are a % of
 // par, so par = (rupees you actually received) / (the % PSX declared). We match
@@ -277,8 +279,8 @@ export function buildDividendProfiles(
   const prices = opts.prices ?? {};
   const currentFyEnd = taxYearOf(asOf).endYear;
 
-  const sharesBySymbol = new Map<string, { shares: number; name: string }>();
-  for (const h of holdings) sharesBySymbol.set(h.symbol, { shares: h.currentShares, name: h.name || h.symbol });
+  const sharesBySymbol = new Map<string, { shares: number; name: string; override: any }>();
+  for (const h of holdings) sharesBySymbol.set(h.symbol, { shares: h.currentShares, name: h.name || h.symbol, override: (h as any).dividendOverride ?? {} });
 
   const recordedBySymbol = new Map<string, { date: Date; ratePerShare: number }[]>();
   for (const t of transactions) {
@@ -298,10 +300,15 @@ export function buildDividendProfiles(
     if (!held || held.shares <= 0) continue;
 
     const fund = fundamentals[symbol];
+    const ov = held.override ?? {};
     const splitFactor = splitFactorFor(symbol, transactions);
     const recordedDivs = recordedBySymbol.get(symbol) ?? [];
     // Real par value, calibrated from your dividends — not hardcoded to Rs 10.
-    const { faceValue, source: faceValueSource } = resolveFaceValue(recordedDivs, fund?.payouts, splitFactor);
+    let { faceValue, source: faceValueSource } = resolveFaceValue(recordedDivs, fund?.payouts, splitFactor);
+    if (ov.parValue > 0) {
+      faceValue = ov.parValue;
+      faceValueSource = "override";
+    }
     const price = prices[symbol] ?? 0;
     const { items, source } = historyFor(recordedDivs, fund, faceValue);
     if (items.length === 0) continue;
@@ -337,8 +344,14 @@ export function buildDividendProfiles(
       .sort((a, b) => b.fyEndYear - a.fyEndYear);
 
     // Cadence = the most payouts seen in any year (robust to truncated history).
-    const paymentsPerYear = Math.max(1, ...byFiscalYear.map((y) => y.payments));
-    const cadence = cadenceFor(paymentsPerYear);
+    // A manual cadence override wins.
+    const cadenceCounts: Record<string, number> = { annual: 1, "semi-annual": 2, quarterly: 4, irregular: 3 };
+    let paymentsPerYear = Math.max(1, ...byFiscalYear.map((y) => y.payments));
+    let cadence = cadenceFor(paymentsPerYear);
+    if (ov.cadence && cadenceCounts[ov.cadence]) {
+      cadence = ov.cadence as Cadence;
+      paymentsPerYear = cadenceCounts[ov.cadence];
+    }
 
     // Declared annual dividend = most recent year that completed a cycle (has a
     // Final); else the most recent complete fiscal year; else the latest year.
@@ -368,6 +381,21 @@ export function buildDividendProfiles(
       forwardDpsAnnual = declaredAnnualDps;
       basis = "history-only";
     }
+
+    // Manual overrides win over the model.
+    if (ov.payoutRatioPct > 0 && forwardEps != null && forwardEps > 0) {
+      appliedPayoutRatioPct = ov.payoutRatioPct;
+      forwardDpsAnnual = forwardEps * (ov.payoutRatioPct / 100);
+    }
+    if (ov.expectedAnnualDps > 0) {
+      forwardDpsAnnual = ov.expectedAnnualDps;
+      appliedPayoutRatioPct = forwardEps != null && forwardEps > 0 ? (forwardDpsAnnual / forwardEps) * 100 : appliedPayoutRatioPct;
+    }
+    const overridden = !!(ov.parValue > 0 || ov.cadence || ov.payoutRatioPct > 0 || ov.expectedAnnualDps > 0);
+
+    // Expected dividend growth from the EPS trend (clamped so a wild year doesn't
+    // dominate). Feeds multi-year income projections.
+    const dividendGrowthPct = clamp(fund?.epsGrowthPct ?? 0, -50, 30);
 
     const aboveEarnings = forwardEps != null && forwardEps > 0 && declaredAnnualDps > forwardEps + 1e-9;
     const dividendCover = forwardDpsAnnual > 0 && forwardEps != null ? forwardEps / forwardDpsAnnual : null;
@@ -422,7 +450,9 @@ export function buildDividendProfiles(
       paymentsPerYear,
       latestEps: forwardEps,
       epsGrowthPct: fund?.epsGrowthPct ?? null,
+      dividendGrowthPct,
       medianPayoutRatioPct,
+      overridden,
       declaredAnnualDps,
       forwardEps,
       appliedPayoutRatioPct,
