@@ -161,6 +161,7 @@ export default async function HoldingDetail({ params }: Props) {
             payoutRatioPct: h.dividendOverride?.payoutRatioPct ?? 0,
             expectedAnnualDps: h.dividendOverride?.expectedAnnualDps ?? 0,
           }}
+          bookValuePerShare={h.bookValuePerShare ?? 0}
         />
       </Section>
 

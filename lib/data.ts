@@ -39,6 +39,7 @@ import {
 } from "./calculations";
 import { forecastDividends, type DividendForecast } from "./calculations/dividend-forecast";
 import { computeSotp, deriveSharesOutstanding, type SotpResult } from "./calculations/sotp";
+import { computeValuation, type Valuation } from "./calculations/valuation";
 
 function plain<T>(v: unknown): T {
   return JSON.parse(JSON.stringify(v));
@@ -193,6 +194,47 @@ export async function getDividendForecast(): Promise<DividendForecast> {
   const priceMap: Record<string, number> = {};
   for (const [k, v] of prices) priceMap[k] = v;
   return forecastDividends(transactions, holdings, { fundamentals, prices: priceMap });
+}
+
+export type HoldingValuation = Valuation & {
+  symbol: string;
+  name: string;
+  price: number;
+  eps: number | null;
+  bookValuePerShare: number;
+  shares: number;
+  marketValue: number;
+};
+
+// Valuation across all held stocks. EPS from cached fundamentals, forward
+// dividend + growth from the forecast, book value from the (editable) holding
+// field, required return from the live SBP rate + your equity-premium setting.
+export async function getValuations(): Promise<{ valuations: HoldingValuation[]; requiredReturnPct: number; fairPE: number; sbpRatePct: number }> {
+  const [holdings, settings, sbp] = await Promise.all([getAllHoldings(), getAppSettings(), getSbpRateSteps()]);
+  const held = holdings.filter((h) => h.currentShares > 0);
+  const fairPE = (settings as any).defaultFairPE ?? 8;
+  const sbpRatePct = policyRateOn(new Date().toISOString().slice(0, 10), sbp.steps) ?? 11;
+  const requiredReturnPct = sbpRatePct + ((settings as any).equityRiskPremiumPct ?? 6);
+  if (!held.length) return { valuations: [], requiredReturnPct, fairPE, sbpRatePct };
+
+  const syms = held.map((h) => h.symbol);
+  const [prices, funds, forecast] = await Promise.all([getCurrentPrices(syms), getFundamentals(syms), getDividendForecast()]);
+  const profBySym = new Map(forecast.profiles.map((p) => [p.symbol, p]));
+
+  const valuations = held
+    .map((h) => {
+      const price = prices.get(h.symbol) ?? 0;
+      const eps = funds[h.symbol]?.latestEps ?? null;
+      const prof = profBySym.get(h.symbol);
+      const forwardDps = prof?.forwardDpsAnnual ?? 0;
+      const dividendGrowthPct = prof?.dividendGrowthPct ?? funds[h.symbol]?.epsGrowthPct ?? 0;
+      const bookValuePerShare = (h as any).bookValuePerShare ?? 0;
+      const v = computeValuation({ price, eps, forwardDps, dividendGrowthPct, bookValuePerShare, requiredReturnPct, fairPE });
+      return { symbol: h.symbol, name: h.name, price, eps, bookValuePerShare, shares: h.currentShares, marketValue: price * h.currentShares, ...v };
+    })
+    .sort((a, b) => b.marketValue - a.marketValue);
+
+  return { valuations, requiredReturnPct, fairPE, sbpRatePct };
 }
 
 export type LookThrough = SotpResult & { symbol: string; name: string };
@@ -416,6 +458,9 @@ export async function getAppSettings(): Promise<AppSettings> {
     pmexCommissionPerLot: doc?.pmexCommissionPerLot ?? DEFAULT_SETTINGS.pmexCommissionPerLot,
     pmexCgtPercent: doc?.pmexCgtPercent ?? DEFAULT_SETTINGS.pmexCgtPercent,
     concentrationCap: doc?.concentrationCap ?? DEFAULT_SETTINGS.concentrationCap,
+    equityRiskPremiumPct: (doc as any)?.equityRiskPremiumPct ?? DEFAULT_SETTINGS.equityRiskPremiumPct,
+    defaultFairPE: (doc as any)?.defaultFairPE ?? DEFAULT_SETTINGS.defaultFairPE,
+    targetMonthlyIncome: (doc as any)?.targetMonthlyIncome ?? DEFAULT_SETTINGS.targetMonthlyIncome,
     telegramBotToken: (doc as any)?.telegramBotToken ?? "",
     telegramChatId: (doc as any)?.telegramChatId ?? "",
     alertsEnabled: (doc as any)?.alertsEnabled ?? false,

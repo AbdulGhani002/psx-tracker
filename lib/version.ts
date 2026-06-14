@@ -1,7 +1,7 @@
 // Single source of truth for the app version + changelog.
 // Bump APP_VERSION and prepend a CHANGELOG entry on every release.
 
-export const APP_VERSION = "2.6.0";
+export const APP_VERSION = "2.7.0";
 
 export const BUILD_DATE =
   process.env.NEXT_PUBLIC_BUILD_DATE ?? "";
@@ -17,6 +17,17 @@ export type ChangelogEntry = {
 
 // Reverse-chronological. Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: "2.7.0",
+    date: "2026-06-14",
+    title: "Valuation suite — P/E, yields, fair value, margin of safety",
+    changes: [
+      "New Valuation page: P/E, earnings yield and dividend yield computed automatically from scraped EPS + live price + the dividend forecast.",
+      "Fair value blends a dividend-discount model (required return = live SBP rate + your equity premium) with an earnings multiple (your fair P/E), and shows the margin of safety and a cheap / fair / expensive verdict per holding.",
+      "P/B and ROE light up when you enter a book value per share on the holding page — one of several editable inputs so you can keep the analysis current as new figures come out.",
+      "Equity premium, fair P/E, and a target monthly income are editable in Settings.",
+    ],
+  },
   {
     version: "2.6.0",
     date: "2026-06-14",

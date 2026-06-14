@@ -12,6 +12,10 @@ const AppSettingsSchema = new Schema(
     pmexCommissionPerLot: { type: Number, default: 200 }, // Rs per lot, round-turn
     pmexCgtPercent: { type: Number, default: 15 }, // % CGT on commodity futures gains
     concentrationCap: { type: Number, default: 25 }, // % single-stock cap
+    // Valuation assumptions (editable)
+    equityRiskPremiumPct: { type: Number, default: 6 }, // added to the SBP rate for required return
+    defaultFairPE: { type: Number, default: 8 }, // assumed fair P/E for earnings-based fair value
+    targetMonthlyIncome: { type: Number, default: 0 }, // for the income planner / passive-income coverage
     // Telegram alerts
     telegramBotToken: { type: String, default: "" },
     telegramChatId: { type: String, default: "" },
@@ -35,6 +39,9 @@ export const DEFAULT_SETTINGS = {
   pmexCommissionPerLot: 200,
   pmexCgtPercent: 15,
   concentrationCap: 25,
+  equityRiskPremiumPct: 6,
+  defaultFairPE: 8,
+  targetMonthlyIncome: 0,
   telegramBotToken: "",
   telegramChatId: "",
   alertsEnabled: false,

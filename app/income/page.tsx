@@ -1,17 +1,19 @@
 import { PageHeader } from "@/components/layout/PageHeader";
 import { SetupBanner } from "@/components/layout/SetupBanner";
 import { IncomePlanner } from "./IncomePlanner";
-import { getPortfolioSummary, getDividendForecast, getNetWorth, checkDataAvailability } from "@/lib/data";
+import { getPortfolioSummary, getDividendForecast, getNetWorth, getAppSettings, checkDataAvailability } from "@/lib/data";
 
 export const dynamic = "force-dynamic";
 
 export default async function IncomePage() {
   const avail = await checkDataAvailability();
-  const [summary, forecast, netWorth] = await Promise.all([
+  const [summary, forecast, netWorth, settings] = await Promise.all([
     getPortfolioSummary(),
     getDividendForecast(),
     getNetWorth().catch(() => null),
+    getAppSettings(),
   ]);
+  const defaultTarget = (settings as any).targetMonthlyIncome || 200_000;
 
   // Your actual money-weighted return (XIRR) — but only trust it as the planning
   // assumption with enough history and a believable value. A few weeks of recent
@@ -39,6 +41,7 @@ export default async function IncomePage() {
         actualReturnPct={actualReturnPct}
         reliableReturn={reliableReturn}
         defaultReturnPct={defaultReturnPct}
+        defaultTarget={defaultTarget}
         forecastDividends12m={forecastDividends12m}
       />
     </div>

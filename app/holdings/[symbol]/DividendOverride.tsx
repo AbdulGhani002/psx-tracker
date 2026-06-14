@@ -14,9 +14,10 @@ type Override = {
   expectedAnnualDps: number;
 };
 
-export function DividendOverride({ symbol, initial }: { symbol: string; initial: Override }) {
+export function DividendOverride({ symbol, initial, bookValuePerShare = 0 }: { symbol: string; initial: Override; bookValuePerShare?: number }) {
   const router = useRouter();
   const [o, setO] = useState<Override>(initial);
+  const [book, setBook] = useState<number>(bookValuePerShare);
   const [saving, setSaving] = useState(false);
   const [savedAt, setSavedAt] = useState<number | null>(null);
 
@@ -30,7 +31,7 @@ export function DividendOverride({ symbol, initial }: { symbol: string; initial:
       const res = await fetch(`/api/holdings/${symbol}`, {
         method: "PATCH",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ dividendOverride: o }),
+        body: JSON.stringify({ dividendOverride: o, bookValuePerShare: book }),
       });
       if (res.ok) {
         setSavedAt(Date.now());
@@ -90,6 +91,14 @@ export function DividendOverride({ symbol, initial }: { symbol: string; initial:
           min={0}
           step={0.5}
           hint="0 = auto · pins the forward dividend directly"
+        />
+        <NumberInput
+          label="Book value / share (Rs)"
+          value={book}
+          onChange={setBook}
+          min={0}
+          step={1}
+          hint="from the balance sheet (equity ÷ shares) — unlocks P/B + ROE on Valuation"
         />
       </div>
       <div className="flex items-center gap-3 mt-6 pt-4 border-t border-rule">

@@ -18,6 +18,9 @@ type Settings = {
   pmexCommissionPerLot: number;
   pmexCgtPercent: number;
   concentrationCap: number;
+  equityRiskPremiumPct: number;
+  defaultFairPE: number;
+  targetMonthlyIncome: number;
   telegramBotToken: string;
   telegramChatId: string;
   alertsEnabled: boolean;
@@ -92,6 +95,11 @@ export function AppSettingsManager({ initial, telegramConfigured }: { initial: S
 
         <NumberInput label="PMEX commission / lot (Rs)" value={s.pmexCommissionPerLot} onChange={(v) => set("pmexCommissionPerLot", v)} min={0} step={10} hint="Round-turn, from your broker schedule." />
         <NumberInput label="PMEX CGT (%)" value={s.pmexCgtPercent} onChange={(v) => set("pmexCgtPercent", v)} min={0} max={100} step={0.5} suffix="%" />
+        <div />
+
+        <NumberInput label="Equity risk premium (%)" value={s.equityRiskPremiumPct} onChange={(v) => set("equityRiskPremiumPct", v)} min={0} max={30} step={0.5} suffix="%" hint="Added to the SBP rate for the fair-value required return." />
+        <NumberInput label="Default fair P/E" value={s.defaultFairPE} onChange={(v) => set("defaultFairPE", v)} min={1} max={40} step={0.5} hint="Used for the earnings-based fair value." />
+        <NumberInput label="Target income (Rs/mo)" value={s.targetMonthlyIncome} onChange={(v) => set("targetMonthlyIncome", v)} min={0} step={10000} hint="For the income planner & passive-income coverage." />
       </div>
 
       <div className="mt-6 pt-5 border-t border-rule">

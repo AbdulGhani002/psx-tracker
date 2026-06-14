@@ -21,10 +21,11 @@ type Props = {
   actualReturnPct: number | null;
   reliableReturn: boolean;
   defaultReturnPct: number;
+  defaultTarget: number;
   forecastDividends12m: number;
 };
 
-export function IncomePlanner({ equityValue, totalNetWorth, actualReturnPct, reliableReturn, defaultReturnPct, forecastDividends12m }: Props) {
+export function IncomePlanner({ equityValue, totalNetWorth, actualReturnPct, reliableReturn, defaultReturnPct, defaultTarget, forecastDividends12m }: Props) {
   const [base, setBase] = useState<"networth" | "equity">("networth");
   const startPortfolio = base === "networth" ? totalNetWorth : equityValue;
 
@@ -32,7 +33,7 @@ export function IncomePlanner({ equityValue, totalNetWorth, actualReturnPct, rel
   const [ret, setRet] = useState(defaultReturnPct);
   const [inflation, setInflation] = useState(10);
   const [safeRate, setSafeRate] = useState(3);
-  const [target, setTarget] = useState(200_000);
+  const [target, setTarget] = useState(defaultTarget || 200_000);
   const [incomeGrowth, setIncomeGrowth] = useState(10);
 
   const w = useMemo(
