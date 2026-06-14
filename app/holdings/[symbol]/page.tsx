@@ -10,11 +10,13 @@ import { HoldingSettings } from "./HoldingSettings";
 import { HoldingPlaybook } from "./HoldingPlaybook";
 import { HoldingTransactions } from "./HoldingTransactions";
 import { DividendOverride } from "./DividendOverride";
+import { LookThroughPanel } from "./LookThroughPanel";
 import {
   getHoldingBySymbol,
   getTransactionsBySymbol,
   getCurrentPrices,
   getPortfolioSummary,
+  getLookThroughFor,
 } from "@/lib/data";
 import { deriveFromTransactions } from "@/lib/calculations";
 import {
@@ -35,6 +37,7 @@ export default async function HoldingDetail({ params }: Props) {
   if (!holding) notFound();
 
   const transactions = await getTransactionsBySymbol(symbol);
+  const lookThrough = await getLookThroughFor(symbol).catch(() => null);
   const prices = await getCurrentPrices([symbol]);
   const currentPrice = prices.get(symbol) ?? 0;
   const derived = deriveFromTransactions(transactions);
@@ -163,6 +166,25 @@ export default async function HoldingDetail({ params }: Props) {
 
       <Section
         number="05"
+        title="Look-through value"
+        display="What it really owns."
+        description="For a holding company, sum the live value of the stakes it owns (and subtract its debt) to get a net asset value per share, then compare to the market price. The gap is the holding-company discount."
+      >
+        <LookThroughPanel
+          symbol={symbol}
+          initial={{
+            enabled: h.lookThrough?.enabled ?? false,
+            constituents: h.lookThrough?.constituents ?? [],
+            unlistedValuePkr: h.lookThrough?.unlistedValuePkr ?? 0,
+            netDebtPkr: h.lookThrough?.netDebtPkr ?? 0,
+            sharesOutstanding: h.lookThrough?.sharesOutstanding ?? 0,
+          }}
+          result={lookThrough}
+        />
+      </Section>
+
+      <Section
+        number="06"
         title="Forward projection"
         description="A multi-scenario compounding model specific to this stock. Pick a preset, tune the sliders, then save them as this stock's defaults."
       >

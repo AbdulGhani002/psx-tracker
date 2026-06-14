@@ -50,6 +50,24 @@ const HoldingSchema = new Schema(
       ),
       default: () => ({}),
     },
+    // Sum-of-the-parts / look-through config (holding companies).
+    lookThrough: {
+      type: new Schema(
+        {
+          enabled: { type: Boolean, default: false },
+          constituents: {
+            type: [new Schema({ label: { type: String, default: "" }, symbol: { type: String, default: "" }, shares: { type: Number, default: 0 } }, { _id: false })],
+            default: [],
+          },
+          unlistedValuePkr: { type: Number, default: 0 },
+          netDebtPkr: { type: Number, default: 0 },
+          sharesOutstanding: { type: Number, default: 0 }, // 0 = derive from profit/EPS
+        },
+        { _id: false }
+      ),
+      default: () => ({}),
+    },
+    bookValuePerShare: { type: Number, default: 0 }, // optional, enables P/B + ROE
     // Saved per-stock compounding-model assumptions (overrides generic defaults).
     modelAssumptions: {
       type: new Schema(

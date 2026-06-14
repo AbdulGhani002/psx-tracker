@@ -38,6 +38,7 @@ import {
   type CashSummary,
 } from "./calculations";
 import { forecastDividends, type DividendForecast } from "./calculations/dividend-forecast";
+import { computeSotp, deriveSharesOutstanding, type SotpResult } from "./calculations/sotp";
 
 function plain<T>(v: unknown): T {
   return JSON.parse(JSON.stringify(v));
@@ -192,6 +193,43 @@ export async function getDividendForecast(): Promise<DividendForecast> {
   const priceMap: Record<string, number> = {};
   for (const [k, v] of prices) priceMap[k] = v;
   return forecastDividends(transactions, holdings, { fundamentals, prices: priceMap });
+}
+
+export type LookThrough = SotpResult & { symbol: string; name: string };
+
+// Look-through (sum-of-the-parts) valuation for a single holding company.
+// Stakes are from the holding config; constituent + own prices are live;
+// shares outstanding derives from financials when not pinned.
+export async function getLookThroughFor(symbol: string): Promise<LookThrough | null> {
+  if (!(await tryConnect())) return null;
+  const sym = symbol.toUpperCase();
+  const h = await HoldingModel.findOne({ symbol: sym }).lean();
+  const lt = (h as any)?.lookThrough;
+  if (!h || !lt?.enabled || !(lt.constituents?.length > 0)) return null;
+
+  const constituents = (lt.constituents as Array<{ label: string; symbol: string; shares: number }>).filter((c) => c.symbol);
+  const symbols = [...new Set([sym, ...constituents.map((c) => c.symbol.toUpperCase())])];
+  const prices = await getCurrentPrices(symbols);
+  const priceObj: Record<string, number> = {};
+  for (const [k, v] of prices) priceObj[k] = v;
+
+  let shares = lt.sharesOutstanding || 0;
+  if (shares <= 0) {
+    const f: any = await FundamentalModel.findOne({ symbol: sym }).lean();
+    const latest = f?.annual?.[0];
+    shares = deriveSharesOutstanding(latest?.profitAfterTax ?? null, latest?.eps ?? null);
+  }
+
+  const result = computeSotp({
+    constituents: constituents.map((c) => ({ label: c.label, symbol: c.symbol.toUpperCase(), shares: c.shares })),
+    prices: priceObj,
+    unlistedValuePkr: lt.unlistedValuePkr ?? 0,
+    netDebtPkr: lt.netDebtPkr ?? 0,
+    sharesOutstanding: shares,
+    marketPrice: prices.get(sym) ?? 0,
+    heldShares: (h as any).currentShares ?? 0,
+  });
+  return { symbol: sym, name: (h as any).name ?? sym, ...result };
 }
 
 export async function getTargetAllocations() {

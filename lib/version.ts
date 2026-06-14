@@ -1,7 +1,7 @@
 // Single source of truth for the app version + changelog.
 // Bump APP_VERSION and prepend a CHANGELOG entry on every release.
 
-export const APP_VERSION = "2.5.0";
+export const APP_VERSION = "2.6.0";
 
 export const BUILD_DATE =
   process.env.NEXT_PUBLIC_BUILD_DATE ?? "";
@@ -17,6 +17,16 @@ export type ChangelogEntry = {
 
 // Reverse-chronological. Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: "2.6.0",
+    date: "2026-06-14",
+    title: "Look-through (sum-of-the-parts) value for holding companies",
+    changes: [
+      "New per-holding 'Look-through value' section: for a holding company (e.g. AHCL), enter the stakes it owns once (from the annual report), and the app values them at live PSX prices, subtracts net debt, and computes a net-asset-value per share.",
+      "Shows the discount (or premium) of the market price to the underlying assets — the classic holding-company discount — and what your shares are worth on a look-through basis vs the market.",
+      "Shares outstanding auto-derives from earnings (profit ÷ EPS) when not pinned. Constituents with no live price are flagged so the NAV isn't silently understated.",
+    ],
+  },
   {
     version: "2.5.0",
     date: "2026-06-14",

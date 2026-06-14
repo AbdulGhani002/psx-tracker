@@ -39,6 +39,16 @@ export type Holding = {
     payoutRatioPct?: number; // % of EPS
     expectedAnnualDps?: number; // Rs/share/yr — pins the forward dividend directly
   };
+  // Sum-of-the-parts / look-through config for holding companies. Stakes come
+  // from the annual report (entered once); prices are pulled live.
+  lookThrough?: {
+    enabled?: boolean;
+    constituents?: Array<{ label: string; symbol: string; shares: number }>; // shares this company owns in each
+    unlistedValuePkr?: number; // unlisted/other assets, Rs
+    netDebtPkr?: number; // net debt at the holding-co level, Rs (subtracted)
+    sharesOutstanding?: number; // 0 = derive from EPS×shares = profit
+  };
+  bookValuePerShare?: number; // optional, for P/B + ROE (from financials); 0 = unknown
   createdAt: Date | string;
   updatedAt: Date | string;
 };
