@@ -17,6 +17,7 @@ import { SERIES_META } from "./series-meta";
 export type BenchmarkPoint = {
   date: string;
   portfolio: number | null;
+  netWorth: number | null;
   kse100: number | null;
   kmi30: number | null;
   portfolioUsd: number | null;

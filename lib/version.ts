@@ -1,7 +1,7 @@
 // Single source of truth for the app version + changelog.
 // Bump APP_VERSION and prepend a CHANGELOG entry on every release.
 
-export const APP_VERSION = "2.8.1";
+export const APP_VERSION = "2.9.0";
 
 export const BUILD_DATE =
   process.env.NEXT_PUBLIC_BUILD_DATE ?? "";
@@ -17,6 +17,15 @@ export type ChangelogEntry = {
 
 // Reverse-chronological. Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: "2.9.0",
+    date: "2026-06-14",
+    title: "Total net-worth benchmark line",
+    changes: [
+      "The dashboard benchmark chart now has a 'Net worth (all assets)' line — total wealth (stocks + funds + savings + cash) tracked over time and compared to KSE-100, not just your stocks.",
+      "It's a true time-weighted return: external cash deposits/withdrawals are neutralized so the line shows performance, not money you added. Savings compound; cash is rebuilt from your ledger; funds are held at current value (no daily NAV history).",
+    ],
+  },
   {
     version: "2.8.1",
     date: "2026-06-14",

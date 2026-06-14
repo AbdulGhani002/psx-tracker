@@ -2,6 +2,37 @@ import type { Transaction } from "@/lib/types";
 import { fetchEodSeries, fetchManyEod, type EodPoint } from "./psx-eod";
 import { fetchYahooDaily, type YahooRange } from "./yahoo";
 import { riskFreeIndex, type RateStep } from "./sbp-rate";
+import { computeCashBalance } from "../calculations/cash";
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+function daysBetween(aIso: string, bIso: string): number {
+  return Math.max(0, (new Date(bIso).getTime() - new Date(aIso).getTime()) / DAY_MS);
+}
+
+// Savings balance as of a date: anchor + movements, each compounded daily at the
+// account rate from its event date forward.
+function savingsValueAt(
+  acc: { ratePercent: number; anchorDate: string; anchorBalance: number; movements: { date: string; type: string; amount: number }[] },
+  dIso: string
+): number {
+  const r = acc.ratePercent / 100 / 365;
+  const events = [
+    { date: new Date(acc.anchorDate).toISOString().slice(0, 10), amount: acc.anchorBalance },
+    ...acc.movements.map((m) => ({ date: new Date(m.date).toISOString().slice(0, 10), amount: m.type === "WITHDRAWAL" ? -m.amount : m.amount })),
+  ]
+    .filter((e) => e.date <= dIso)
+    .sort((a, b) => a.date.localeCompare(b.date));
+  if (events.length === 0) return 0;
+  let bal = 0;
+  let last: string | null = null;
+  for (const e of events) {
+    if (last) bal *= Math.pow(1 + r, daysBetween(last, e.date));
+    bal += e.amount;
+    last = e.date;
+  }
+  if (last) bal *= Math.pow(1 + r, daysBetween(last, dIso));
+  return bal;
+}
 
 function isoToday(): string {
   return new Date().toISOString().slice(0, 10);
@@ -62,6 +93,7 @@ function closeOnOrBefore(
 
 export type SeriesKey =
   | "portfolio"
+  | "netWorth"
   | "kse100"
   | "kmi30"
   | "portfolioUsd"
@@ -69,10 +101,21 @@ export type SeriesKey =
   | "usdpkr"
   | "riskFree";
 
+// Extra assets to fold into a total net-worth line. Funds/commodities lack daily
+// history so they're held at their current value across the window (honest
+// approximation); savings compound and cash is reconstructed from the ledger.
+export type NetWorthExtras = {
+  savings: { ratePercent: number; anchorDate: string; anchorBalance: number; movements: { date: string; type: string; amount: number }[] }[];
+  fundsNow: number;
+  commoditiesNow: number;
+  cashEntries: { date: string | Date; type: string; amount: number }[];
+};
+
 export type BenchmarkPoint = {
   date: string;
   portfolioValue: number;
   portfolio: number | null; // indexed to 100
+  netWorth: number | null;
   kse100: number | null;
   kmi30: number | null;
   portfolioUsd: number | null;
@@ -103,10 +146,12 @@ export async function buildBenchmarkSeries({
   transactions,
   rangeKey = "90D",
   rateSteps,
+  netWorthExtras,
 }: {
   transactions: Transaction[];
   rangeKey?: string;
   rateSteps?: RateStep[];
+  netWorthExtras?: NetWorthExtras;
 }): Promise<BenchmarkSeries | null> {
   const days = RANGE_TO_DAYS[rangeKey] ?? 90;
   const yahooRange = RANGE_TO_YAHOO[rangeKey] ?? "3mo";
@@ -241,6 +286,47 @@ export async function buildBenchmarkSeries({
 
   const riskFree = riskFreeIndex(trimmed.map((r) => r.date), rateSteps, 100);
 
+  // NET WORTH time-weighted return: total wealth per day (stocks live + savings
+  // compounded + cash from the ledger + funds/commodities held flat at current),
+  // with external cash deposits/withdrawals neutralized so the line is return,
+  // not contributions.
+  const netWorthIdx: (number | null)[] = [];
+  if (netWorthExtras) {
+    const ex = netWorthExtras;
+    const cashAt = (dIso: string): number => {
+      const txs = transactions.filter((t) => new Date(t.date).toISOString().slice(0, 10) <= dIso);
+      const entries = ex.cashEntries.filter((e) => new Date(e.date).toISOString().slice(0, 10) <= dIso);
+      try {
+        return computeCashBalance(txs as any, entries as any).balance;
+      } catch {
+        return 0;
+      }
+    };
+    const externalFlowOn = (dIso: string): number =>
+      ex.cashEntries
+        .filter((e) => new Date(e.date).toISOString().slice(0, 10) === dIso)
+        .reduce((s, e) => s + (e.type === "WITHDRAWAL" ? -e.amount : e.amount), 0);
+    const netWorthAt = (dIso: string, stocks: number): number => {
+      const savings = ex.savings.reduce((s, a) => s + savingsValueAt(a, dIso), 0);
+      return stocks + savings + cashAt(dIso) + ex.fundsNow + ex.commoditiesNow;
+    };
+
+    let nwIdx = 100;
+    let prevV: number | null = null;
+    for (let i = 0; i < trimmed.length; i++) {
+      const v = netWorthAt(trimmed[i].date, trimmed[i].portfolioValue);
+      if (i === 0 || prevV == null || prevV <= 0) {
+        netWorthIdx.push(100);
+      } else {
+        const flow = externalFlowOn(trimmed[i].date);
+        const r = (v - flow) / prevV;
+        if (Number.isFinite(r) && r > 0) nwIdx *= r;
+        netWorthIdx.push(nwIdx);
+      }
+      prevV = v;
+    }
+  }
+
   const idx100 = (v: number | null, b: number): number | null =>
     v != null && b > 0 ? (v / b) * 100 : null;
 
@@ -249,6 +335,7 @@ export async function buildBenchmarkSeries({
     date: r.date,
     portfolioValue: r.portfolioValue,
     portfolio: twr[i] ?? null,
+    netWorth: netWorthExtras ? netWorthIdx[i] ?? null : null,
     kse100: idx100(r.kse, base.kse),
     kmi30: idx100(r.kmi, base.kmi),
     portfolioUsd: hasUsd ? twrUsd[i] ?? null : null,
@@ -265,7 +352,7 @@ export async function buildBenchmarkSeries({
 
   const returns: Partial<Record<SeriesKey, number>> = {};
   const available: SeriesKey[] = [];
-  for (const k of ["portfolio", "kse100", "kmi30", "portfolioUsd", "sp500", "usdpkr", "riskFree"] as SeriesKey[]) {
+  for (const k of ["portfolio", "netWorth", "kse100", "kmi30", "portfolioUsd", "sp500", "usdpkr", "riskFree"] as SeriesKey[]) {
     const r = ret(k);
     if (r !== undefined) {
       returns[k] = r;

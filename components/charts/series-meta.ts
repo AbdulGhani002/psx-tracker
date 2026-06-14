@@ -2,6 +2,7 @@ import { CHART_THEME } from "./theme";
 
 export type SeriesKey =
   | "portfolio"
+  | "netWorth"
   | "kse100"
   | "kmi30"
   | "portfolioUsd"
@@ -29,7 +30,17 @@ export const SERIES_META: Record<SeriesKey, SeriesMeta> = {
     stroke: CHART_THEME.accent,
     width: 2.25,
     defaultOn: true,
-    hint: "Your holdings, valued at daily close, indexed to 100.",
+    hint: "Your stock holdings, valued at daily close, indexed to 100.",
+  },
+  netWorth: {
+    key: "netWorth",
+    label: "Net worth (all assets)",
+    short: "Net worth",
+    stroke: "#c8884a",
+    width: 2,
+    dash: "7 3",
+    defaultOn: false,
+    hint: "Total wealth — stocks + funds + savings + cash — time-weighted (external deposits neutralized).",
   },
   kse100: {
     key: "kse100",
@@ -95,6 +106,7 @@ export const SERIES_META: Record<SeriesKey, SeriesMeta> = {
 
 export const SERIES_ORDER: SeriesKey[] = [
   "portfolio",
+  "netWorth",
   "kse100",
   "kmi30",
   "portfolioUsd",
