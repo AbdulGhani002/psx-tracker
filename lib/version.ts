@@ -1,7 +1,7 @@
 // Single source of truth for the app version + changelog.
 // Bump APP_VERSION and prepend a CHANGELOG entry on every release.
 
-export const APP_VERSION = "2.8.0";
+export const APP_VERSION = "2.8.1";
 
 export const BUILD_DATE =
   process.env.NEXT_PUBLIC_BUILD_DATE ?? "";
@@ -17,6 +17,14 @@ export type ChangelogEntry = {
 
 // Reverse-chronological. Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: "2.8.1",
+    date: "2026-06-14",
+    title: "Weekly auto-refresh of fundamentals & payouts",
+    changes: [
+      "A scheduled job now refreshes every holding's EPS, financials, and dividend payouts from PSX once a week, so the forecast and valuation always use current data without waiting for a page to lazily fetch it.",
+    ],
+  },
   {
     version: "2.8.0",
     date: "2026-06-14",
