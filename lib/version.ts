@@ -1,7 +1,7 @@
 // Single source of truth for the app version + changelog.
 // Bump APP_VERSION and prepend a CHANGELOG entry on every release.
 
-export const APP_VERSION = "2.7.0";
+export const APP_VERSION = "2.8.0";
 
 export const BUILD_DATE =
   process.env.NEXT_PUBLIC_BUILD_DATE ?? "";
@@ -17,6 +17,16 @@ export type ChangelogEntry = {
 
 // Reverse-chronological. Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: "2.8.0",
+    date: "2026-06-14",
+    title: "Risk analysis — concentration, correlation, stress test",
+    changes: [
+      "New Risk page: concentration (single-name and sector weights vs your cap, plus a Herfindahl-based 'effective holdings' diversification read).",
+      "Correlation matrix of daily returns between your holdings — shows which names move together and the average pairwise correlation.",
+      "Interactive stress test: drag a market drop and see the hit to net worth and to your safe monthly income (equities + funds fall, savings + cash hold).",
+    ],
+  },
   {
     version: "2.7.0",
     date: "2026-06-14",

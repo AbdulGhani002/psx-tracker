@@ -40,6 +40,8 @@ import {
 import { forecastDividends, type DividendForecast } from "./calculations/dividend-forecast";
 import { computeSotp, deriveSharesOutstanding, type SotpResult } from "./calculations/sotp";
 import { computeValuation, type Valuation } from "./calculations/valuation";
+import { analyzeConcentration, analyzeCorrelation, type ConcentrationResult, type CorrelationResult } from "./calculations/risk-analysis";
+import { fetchManyEod } from "./timeseries/psx-eod";
 
 function plain<T>(v: unknown): T {
   return JSON.parse(JSON.stringify(v));
@@ -235,6 +237,46 @@ export async function getValuations(): Promise<{ valuations: HoldingValuation[];
     .sort((a, b) => b.marketValue - a.marketValue);
 
   return { valuations, requiredReturnPct, fairPE, sbpRatePct };
+}
+
+export type RiskAnalysis = {
+  concentration: ConcentrationResult;
+  correlation: CorrelationResult;
+  stressBase: { equity: number; funds: number; savings: number; cash: number };
+  safeRatePct: number;
+  concentrationCap: number;
+};
+
+// Concentration + correlation + the base figures for the (client-side) stress
+// test. Correlation uses EOD price series per holding.
+export async function getRiskAnalysis(): Promise<RiskAnalysis> {
+  const [summary, nw, settings] = await Promise.all([getPortfolioSummary(), getNetWorth().catch(() => null), getAppSettings()]);
+  const cap = (settings as any).concentrationCap ?? 25;
+  const positions = summary.positions
+    .filter((p) => p.marketValue > 0)
+    .map((p) => ({ symbol: p.symbol, sector: p.sector, marketValue: p.marketValue }));
+  const concentration = analyzeConcentration(positions, cap);
+
+  let correlation: CorrelationResult = { symbols: [], matrix: [], avgPairwise: null, mostCorrelated: null };
+  try {
+    const symbols = positions.map((p) => p.symbol);
+    if (symbols.length >= 2) {
+      const eod = await fetchManyEod(symbols);
+      const series = [...eod.entries()].map(([symbol, points]) => ({ symbol, points: points.map((p) => ({ date: p.date, close: p.close })) }));
+      correlation = analyzeCorrelation(series);
+    }
+  } catch {
+    /* correlation is best-effort */
+  }
+
+  const stressBase = {
+    equity: (nw as any)?.equity ?? summary.totalValue ?? 0,
+    funds: (nw as any)?.funds ?? 0,
+    savings: (nw as any)?.savings ?? 0,
+    cash: (nw as any)?.cash ?? 0,
+  };
+
+  return { concentration, correlation, stressBase, safeRatePct: 3, concentrationCap: cap };
 }
 
 export type LookThrough = SotpResult & { symbol: string; name: string };
