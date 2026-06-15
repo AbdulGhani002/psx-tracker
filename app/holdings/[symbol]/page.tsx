@@ -11,6 +11,7 @@ import { HoldingPlaybook } from "./HoldingPlaybook";
 import { HoldingTransactions } from "./HoldingTransactions";
 import { DividendOverride } from "./DividendOverride";
 import { LookThroughPanel } from "./LookThroughPanel";
+import { knownHoldingCompany } from "@/lib/holding-companies";
 import {
   getHoldingBySymbol,
   getTransactionsBySymbol,
@@ -209,6 +210,7 @@ export default async function HoldingDetail({ params }: Props) {
             sharesOutstanding: h.lookThrough?.sharesOutstanding ?? 0,
           }}
           result={lookThrough}
+          known={knownHoldingCompany(symbol)}
         />
       </Section>
 

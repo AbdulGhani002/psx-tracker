@@ -1,7 +1,7 @@
 // Single source of truth for the app version + changelog.
 // Bump APP_VERSION and prepend a CHANGELOG entry on every release.
 
-export const APP_VERSION = "2.12.0";
+export const APP_VERSION = "2.13.0";
 
 export const BUILD_DATE =
   process.env.NEXT_PUBLIC_BUILD_DATE ?? "";
@@ -17,6 +17,15 @@ export type ChangelogEntry = {
 
 // Reverse-chronological. Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: "2.13.0",
+    date: "2026-06-15",
+    title: "Holding-company library — one-click stakes for AHCL & others",
+    changes: [
+      "A known-holding-company library: on any recognized holding company, one click loads its stakes into the look-through (all editable). AHCL pre-filled with its 5 listed strategic stakes; its unlisted subsidiaries (Sachal Energy, Black Gold, Rayaan, PIA) are listed as a note to value under 'unlisted / other'.",
+      "Engro Holdings (ENGROH, ex-Dawood Hercules/DAWH) is recognized too, so the look-through works for it the moment you hold it.",
+    ],
+  },
   {
     version: "2.12.0",
     date: "2026-06-15",

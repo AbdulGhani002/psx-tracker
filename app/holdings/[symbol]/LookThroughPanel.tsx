@@ -31,7 +31,9 @@ type Result = {
   missingPrices: string[];
 } | null;
 
-export function LookThroughPanel({ symbol, initial, result }: { symbol: string; initial: Config; result: Result }) {
+type Known = { name: string; listed: { label: string; symbol: string; ownershipPct: number }[]; unlisted: { label: string; note: string }[]; source: string } | null;
+
+export function LookThroughPanel({ symbol, initial, result, known }: { symbol: string; initial: Config; result: Result; known?: Known }) {
   const router = useRouter();
   const [c, setC] = useState<Config>(initial);
   const [editing, setEditing] = useState(!initial.enabled);
@@ -45,6 +47,14 @@ export function LookThroughPanel({ symbol, initial, result }: { symbol: string; 
   }
   function removeRow(i: number) {
     setC((p) => ({ ...p, constituents: p.constituents.filter((_, j) => j !== i) }));
+  }
+  function loadKnown() {
+    if (!known) return;
+    setC((p) => ({
+      ...p,
+      enabled: true,
+      constituents: known.listed.map((k) => ({ label: k.label, symbol: k.symbol, shares: 0, ownershipPct: k.ownershipPct })),
+    }));
   }
 
   async function save() {
@@ -162,7 +172,20 @@ export function LookThroughPanel({ symbol, initial, result }: { symbol: string; 
                   </div>
                 ))}
               </div>
-              <button className="label-cap hover:text-[var(--accent-deep)]" onClick={addRow}>+ Add company</button>
+              <div className="flex items-center gap-4">
+                <button className="label-cap hover:text-[var(--accent-deep)]" onClick={addRow}>+ Add company</button>
+                {known && (
+                  <button className="label-cap hover:text-[var(--accent-deep)]" style={{ color: "var(--accent)" }} onClick={loadKnown}>
+                    ↻ Load {known.name}&apos;s known stakes
+                  </button>
+                )}
+              </div>
+              {known && known.unlisted.length > 0 && (
+                <p className="text-[11px] text-muted max-w-[74ch]">
+                  Also owns (unlisted — no PSX price; add their value to &quot;Unlisted / other&quot; below):{" "}
+                  {known.unlisted.map((u) => `${u.label} ${u.note}`).join("; ")}. Source: {known.source}.
+                </p>
+              )}
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4 pt-3">
                 <label className="block"><span className="label-cap">Unlisted / other assets (Rs)</span><input className="w-full bg-transparent border-b border-ink text-[14px] py-1 font-mono" type="number" value={c.unlistedValuePkr || ""} onChange={(e) => setC((p) => ({ ...p, unlistedValuePkr: Number(e.target.value) }))} /></label>
                 <label className="block"><span className="label-cap">Net debt (Rs)</span><input className="w-full bg-transparent border-b border-ink text-[14px] py-1 font-mono" type="number" value={c.netDebtPkr || ""} onChange={(e) => setC((p) => ({ ...p, netDebtPkr: Number(e.target.value) }))} /></label>
