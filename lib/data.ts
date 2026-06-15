@@ -42,6 +42,7 @@ import { computeSotp, deriveSharesOutstanding, type SotpResult } from "./calcula
 import { computeValuation, type Valuation } from "./calculations/valuation";
 import { analyzeConcentration, analyzeCorrelation, type ConcentrationResult, type CorrelationResult } from "./calculations/risk-analysis";
 import { fetchManyEod } from "./timeseries/psx-eod";
+import { fetchMarketWatch, indexLabel } from "./prices/marketwatch";
 
 function plain<T>(v: unknown): T {
   return JSON.parse(JSON.stringify(v));
@@ -350,6 +351,38 @@ export async function getLookThroughFor(symbol: string): Promise<LookThrough | n
     heldShares: (h as any).currentShares ?? 0,
   });
   return { symbol: sym, name: (h as any).name ?? sym, ...result };
+}
+
+export type MarketContext = {
+  symbol: string;
+  price: number;
+  week52High: number | null;
+  week52Low: number | null;
+  positionPct: number | null; // where price sits in the 52-week range
+  indices: string[]; // indices this symbol belongs to
+};
+
+// Derived market context for a symbol: 52-week range from EOD history + index
+// membership from PSX market-watch. All from free PSX data, no paid feed.
+export async function getMarketContext(symbol: string): Promise<MarketContext> {
+  const sym = symbol.toUpperCase();
+  const [eod, prices, mw] = await Promise.all([
+    fetchEodSeries(sym).catch(() => [] as { date: string; close: number }[]),
+    getCurrentPrices([sym]),
+    fetchMarketWatch().catch(() => null),
+  ]);
+  const cutoff = new Date(Date.now() - 365 * 86400000).toISOString().slice(0, 10);
+  const closes = eod.filter((p) => p.date >= cutoff).map((p) => p.close).filter((c) => c > 0);
+  const week52High = closes.length ? Math.max(...closes) : null;
+  const week52Low = closes.length ? Math.min(...closes) : null;
+  const price = prices.get(sym) ?? 0;
+  const positionPct =
+    week52High != null && week52Low != null && week52High > week52Low && price > 0
+      ? ((price - week52Low) / (week52High - week52Low)) * 100
+      : null;
+  const row = mw?.get(sym);
+  const indices = row ? row.listedIn.map(indexLabel) : [];
+  return { symbol: sym, price, week52High, week52Low, positionPct, indices };
 }
 
 export async function getTargetAllocations() {

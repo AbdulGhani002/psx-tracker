@@ -1,7 +1,7 @@
 // Single source of truth for the app version + changelog.
 // Bump APP_VERSION and prepend a CHANGELOG entry on every release.
 
-export const APP_VERSION = "2.11.0";
+export const APP_VERSION = "2.12.0";
 
 export const BUILD_DATE =
   process.env.NEXT_PUBLIC_BUILD_DATE ?? "";
@@ -17,6 +17,15 @@ export type ChangelogEntry = {
 
 // Reverse-chronological. Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: "2.12.0",
+    date: "2026-06-15",
+    title: "52-week range + index membership (from PSX data)",
+    changes: [
+      "Each holding now shows its 52-week high/low and where the price sits in that range — computed from the EOD history, no paid feed.",
+      "Index membership (KSE-100, KMI-30, All-Share, etc.) is read live from PSX market-watch and shown on the holding page.",
+    ],
+  },
   {
     version: "2.11.0",
     date: "2026-06-15",

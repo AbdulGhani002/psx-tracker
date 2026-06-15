@@ -17,6 +17,7 @@ import {
   getCurrentPrices,
   getPortfolioSummary,
   getLookThroughFor,
+  getMarketContext,
 } from "@/lib/data";
 import { deriveFromTransactions } from "@/lib/calculations";
 import {
@@ -38,6 +39,7 @@ export default async function HoldingDetail({ params }: Props) {
 
   const transactions = await getTransactionsBySymbol(symbol);
   const lookThrough = await getLookThroughFor(symbol).catch(() => null);
+  const market = await getMarketContext(symbol).catch(() => null);
   const prices = await getCurrentPrices([symbol]);
   const currentPrice = prices.get(symbol) ?? 0;
   const derived = deriveFromTransactions(transactions);
@@ -99,6 +101,32 @@ export default async function HoldingDetail({ params }: Props) {
         />
         <Stat label="Dividends" value={fmtRs(derived.dividendsReceived)} hint={`Yield on cost ${fmtPct(yieldOnCost, 2)}`} />
       </StatRow>
+
+      {market && (market.week52High != null || market.indices.length > 0) && (
+        <div className="mt-5 flex flex-wrap items-center gap-x-8 gap-y-3 text-[13px]">
+          {market.week52High != null && market.week52Low != null && (
+            <div className="flex items-center gap-3">
+              <span className="label-cap">52-week</span>
+              <span className="font-mono mono-num text-muted">{fmtRs(market.week52Low, true)}</span>
+              <span className="relative inline-block w-28 h-[4px]" style={{ background: "var(--rule)" }}>
+                {market.positionPct != null && (
+                  <span className="absolute top-1/2 -translate-y-1/2 w-2 h-2 rounded-full" style={{ left: `calc(${Math.min(100, Math.max(0, market.positionPct))}% - 4px)`, background: "var(--accent)" }} aria-hidden />
+                )}
+              </span>
+              <span className="font-mono mono-num text-muted">{fmtRs(market.week52High, true)}</span>
+              {market.positionPct != null && <span className="font-mono mono-num text-[11px]" style={{ color: "var(--muted)" }}>{market.positionPct.toFixed(0)}% of range</span>}
+            </div>
+          )}
+          {market.indices.length > 0 && (
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="label-cap">Indices</span>
+              {market.indices.map((ix) => (
+                <Badge key={ix} tone="default">{ix}</Badge>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       <Section
         number="01"
