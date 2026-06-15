@@ -55,7 +55,7 @@ const patchSchema = z.object({
     .object({
       enabled: z.boolean().optional(),
       constituents: z
-        .array(z.object({ label: z.string().default(""), symbol: z.string().default(""), shares: z.number().min(0).default(0) }))
+        .array(z.object({ label: z.string().default(""), symbol: z.string().default(""), shares: z.number().min(0).default(0), ownershipPct: z.number().min(0).max(100).default(0) }))
         .max(60)
         .optional(),
       unlistedValuePkr: z.number().optional(),

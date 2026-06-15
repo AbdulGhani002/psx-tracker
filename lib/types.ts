@@ -43,7 +43,9 @@ export type Holding = {
   // from the annual report (entered once); prices are pulled live.
   lookThrough?: {
     enabled?: boolean;
-    constituents?: Array<{ label: string; symbol: string; shares: number }>; // shares this company owns in each
+    // Either give the share count owned, or an ownership % (shares auto-derived
+    // from the constituent's own shares outstanding).
+    constituents?: Array<{ label: string; symbol: string; shares: number; ownershipPct?: number }>;
     unlistedValuePkr?: number; // unlisted/other assets, Rs
     netDebtPkr?: number; // net debt at the holding-co level, Rs (subtracted)
     sharesOutstanding?: number; // 0 = derive from EPS×shares = profit

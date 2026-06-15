@@ -1,7 +1,7 @@
 // Single source of truth for the app version + changelog.
 // Bump APP_VERSION and prepend a CHANGELOG entry on every release.
 
-export const APP_VERSION = "2.10.0";
+export const APP_VERSION = "2.11.0";
 
 export const BUILD_DATE =
   process.env.NEXT_PUBLIC_BUILD_DATE ?? "";
@@ -17,6 +17,15 @@ export type ChangelogEntry = {
 
 // Reverse-chronological. Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: "2.11.0",
+    date: "2026-06-15",
+    title: "Look-through by stake %, AHCL pre-seeded",
+    changes: [
+      "Look-through constituents can be entered as a stake % (from the annual report) instead of a raw share count — the app derives the shares from that company's own shares outstanding (live).",
+      "AHCL is pre-seeded with its real listed stakes (Fatima Fertilizer 15.19%, Javedan 19.84%, Aisha Steel 13.8%, Power Cement 6.5%, Arif Habib Ltd 72.92%) so its look-through NAV vs market discount works out of the box — all editable, add unlisted assets (PIA, Sachal) and net debt yourself.",
+    ],
+  },
   {
     version: "2.10.0",
     date: "2026-06-15",

@@ -41,7 +41,7 @@ export async function GET(req: NextRequest) {
   } else {
     const { valuations } = await getValuations();
     name = "valuation";
-    rows = [["Symbol", "Price", "EPS", "Par", "P/E", "P/B", "ROE %", "Earn. yield %", "Div. yield %", "Fair value", "Margin of safety %", "Verdict"]];
+    rows = [["Symbol", "Price", "EPS", "Book value", "P/E", "P/B", "ROE %", "Earn. yield %", "Div. yield %", "Fair value", "Margin of safety %", "Verdict"]];
     for (const v of valuations) {
       rows.push([v.symbol, n(v.price), n(v.eps), n(v.bookValuePerShare), n(v.pe, 1), n(v.pb, 1), n(v.roePct, 0), n(v.earningsYieldPct, 1), n(v.dividendYieldPct, 1), n(v.fairValue), n(v.marginOfSafetyPct, 0), v.verdict]);
     }

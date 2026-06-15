@@ -56,7 +56,7 @@ const HoldingSchema = new Schema(
         {
           enabled: { type: Boolean, default: false },
           constituents: {
-            type: [new Schema({ label: { type: String, default: "" }, symbol: { type: String, default: "" }, shares: { type: Number, default: 0 } }, { _id: false })],
+            type: [new Schema({ label: { type: String, default: "" }, symbol: { type: String, default: "" }, shares: { type: Number, default: 0 }, ownershipPct: { type: Number, default: 0 } }, { _id: false })],
             default: [],
           },
           unlistedValuePkr: { type: Number, default: 0 },

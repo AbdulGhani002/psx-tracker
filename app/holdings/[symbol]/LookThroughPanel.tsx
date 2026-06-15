@@ -8,7 +8,7 @@ import { Toggle } from "@/components/ui/Toggle";
 import { Stat, StatRow } from "@/components/ui/Stat";
 import { fmtRs, fmtCompact, fmtNum } from "@/lib/format";
 
-type Constituent = { label: string; symbol: string; shares: number };
+type Constituent = { label: string; symbol: string; shares: number; ownershipPct?: number };
 type Config = {
   enabled: boolean;
   constituents: Constituent[];
@@ -41,7 +41,7 @@ export function LookThroughPanel({ symbol, initial, result }: { symbol: string; 
     setC((p) => ({ ...p, constituents: p.constituents.map((row, j) => (j === i ? { ...row, [k]: v } : row)) }));
   }
   function addRow() {
-    setC((p) => ({ ...p, constituents: [...p.constituents, { label: "", symbol: "", shares: 0 }] }));
+    setC((p) => ({ ...p, constituents: [...p.constituents, { label: "", symbol: "", shares: 0, ownershipPct: 0 }] }));
   }
   function removeRow(i: number) {
     setC((p) => ({ ...p, constituents: p.constituents.filter((_, j) => j !== i) }));
@@ -56,7 +56,7 @@ export function LookThroughPanel({ symbol, initial, result }: { symbol: string; 
         body: JSON.stringify({
           lookThrough: {
             enabled: c.enabled,
-            constituents: c.constituents.filter((r) => r.symbol.trim()).map((r) => ({ label: r.label, symbol: r.symbol.toUpperCase().trim(), shares: r.shares })),
+            constituents: c.constituents.filter((r) => r.symbol.trim()).map((r) => ({ label: r.label, symbol: r.symbol.toUpperCase().trim(), shares: r.shares, ownershipPct: r.ownershipPct ?? 0 })),
             unlistedValuePkr: c.unlistedValuePkr,
             netDebtPkr: c.netDebtPkr,
             sharesOutstanding: c.sharesOutstanding,
@@ -139,16 +139,25 @@ export function LookThroughPanel({ symbol, initial, result }: { symbol: string; 
           <Toggle label="Value this as a holding company (look-through)" value={c.enabled} onChange={(v) => setC((p) => ({ ...p, enabled: v }))} hint="Sum the live value of the stakes it owns and compare to its market price." />
           {c.enabled && (
             <div className="mt-4 space-y-3">
-              <p className="text-[12px] text-muted max-w-[70ch]">
-                Add each listed company this one owns and how many shares it holds (from the latest annual report&apos;s investment
-                schedule). Prices are pulled live. Shares-outstanding auto-derives from earnings if you leave it 0.
+              <p className="text-[12px] text-muted max-w-[74ch]">
+                Add each listed company this one owns. Give either the <b>stake %</b> (from the annual report — shares are then
+                derived from that company&apos;s own shares outstanding) or an exact <b>share count</b>. Prices are pulled live.
+                The holding-co shares-outstanding auto-derives from earnings if left 0.
               </p>
+              <div className="grid grid-cols-12 gap-2 label-cap">
+                <span className="col-span-3">Name</span>
+                <span className="col-span-2">Symbol</span>
+                <span className="col-span-3 text-right">Stake %</span>
+                <span className="col-span-3 text-right">or shares</span>
+                <span className="col-span-1" />
+              </div>
               <div className="space-y-2">
                 {c.constituents.map((row, i) => (
                   <div key={i} className="grid grid-cols-12 gap-2 items-center">
-                    <input className="col-span-4 bg-transparent border-b border-rule text-[13px] py-1" placeholder="Name (optional)" value={row.label} onChange={(e) => setRow(i, "label", e.target.value)} />
-                    <input className="col-span-3 bg-transparent border-b border-rule text-[13px] py-1 font-mono uppercase" placeholder="SYMBOL" value={row.symbol} onChange={(e) => setRow(i, "symbol", e.target.value)} />
-                    <input className="col-span-4 bg-transparent border-b border-rule text-[13px] py-1 font-mono text-right" type="number" placeholder="shares owned" value={row.shares || ""} onChange={(e) => setRow(i, "shares", Number(e.target.value))} />
+                    <input className="col-span-3 bg-transparent border-b border-rule text-[13px] py-1" placeholder="Name" value={row.label} onChange={(e) => setRow(i, "label", e.target.value)} />
+                    <input className="col-span-2 bg-transparent border-b border-rule text-[13px] py-1 font-mono uppercase" placeholder="SYM" value={row.symbol} onChange={(e) => setRow(i, "symbol", e.target.value)} />
+                    <input className="col-span-3 bg-transparent border-b border-rule text-[13px] py-1 font-mono text-right" type="number" placeholder="%" value={row.ownershipPct || ""} onChange={(e) => setRow(i, "ownershipPct", Number(e.target.value))} />
+                    <input className="col-span-3 bg-transparent border-b border-rule text-[13px] py-1 font-mono text-right" type="number" placeholder="shares" value={row.shares || ""} onChange={(e) => setRow(i, "shares", Number(e.target.value))} />
                     <button className="col-span-1 text-[11px] text-muted hover:text-[var(--negative)]" onClick={() => removeRow(i)}>✕</button>
                   </div>
                 ))}

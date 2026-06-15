@@ -313,21 +313,35 @@ export async function getLookThroughFor(symbol: string): Promise<LookThrough | n
   const lt = (h as any)?.lookThrough;
   if (!h || !lt?.enabled || !(lt.constituents?.length > 0)) return null;
 
-  const constituents = (lt.constituents as Array<{ label: string; symbol: string; shares: number }>).filter((c) => c.symbol);
-  const symbols = [...new Set([sym, ...constituents.map((c) => c.symbol.toUpperCase())])];
+  const constituents = (lt.constituents as Array<{ label: string; symbol: string; shares: number; ownershipPct?: number }>).filter((c) => c.symbol);
+  const conSyms = constituents.map((c) => c.symbol.toUpperCase());
+  const symbols = [...new Set([sym, ...conSyms])];
   const prices = await getCurrentPrices(symbols);
   const priceObj: Record<string, number> = {};
   for (const [k, v] of prices) priceObj[k] = v;
 
-  let shares = lt.sharesOutstanding || 0;
-  if (shares <= 0) {
-    const f: any = await FundamentalModel.findOne({ symbol: sym }).lean();
-    const latest = f?.annual?.[0];
-    shares = deriveSharesOutstanding(latest?.profitAfterTax ?? null, latest?.eps ?? null);
+  // Total shares outstanding for the holding co + any constituent given as an
+  // ownership %, derived from each company's financials (cached, fetched if new).
+  const needShares = [sym, ...constituents.filter((c) => (c.ownershipPct ?? 0) > 0).map((c) => c.symbol.toUpperCase())];
+  await getFundamentals(needShares); // ensure cached
+  const fundDocs: any[] = await FundamentalModel.find({ symbol: { $in: [...new Set(needShares)] } }).lean();
+  const sharesOutMap = new Map<string, number>();
+  for (const f of fundDocs) {
+    const latest = f.annual?.[0];
+    sharesOutMap.set(f.symbol, deriveSharesOutstanding(latest?.profitAfterTax ?? null, latest?.eps ?? null));
   }
 
+  let shares = lt.sharesOutstanding || 0;
+  if (shares <= 0) shares = sharesOutMap.get(sym) ?? 0;
+
+  const resolvedConstituents = constituents.map((c) => {
+    const cs = c.symbol.toUpperCase();
+    const ownedShares = (c.ownershipPct ?? 0) > 0 ? ((c.ownershipPct as number) / 100) * (sharesOutMap.get(cs) ?? 0) : c.shares;
+    return { label: c.label || cs, symbol: cs, shares: ownedShares };
+  });
+
   const result = computeSotp({
-    constituents: constituents.map((c) => ({ label: c.label, symbol: c.symbol.toUpperCase(), shares: c.shares })),
+    constituents: resolvedConstituents,
     prices: priceObj,
     unlistedValuePkr: lt.unlistedValuePkr ?? 0,
     netDebtPkr: lt.netDebtPkr ?? 0,
