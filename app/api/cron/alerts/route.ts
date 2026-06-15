@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { connectDb } from "@/lib/db";
 import { AlertLogModel } from "@/lib/models";
-import { getAppSettings, getWatchlist, getCurrentPrices, getPortfolioSummary, getAllHoldings } from "@/lib/data";
+import { getAppSettings, getWatchlist, getCurrentPrices, getPortfolioSummary, getAllHoldings, getUpcomingExDates } from "@/lib/data";
 import { sendTelegram } from "@/lib/notify/telegram";
 
 export const dynamic = "force-dynamic";
@@ -48,6 +48,21 @@ export async function POST() {
       const dir = p.deviation > 0 ? "over" : "under";
       candidates.push({ key: `drift:${p.symbol}:${today}`, message: `⚖️ <b>${p.symbol}</b> drifted ${dir} target — ${p.currentPercent.toFixed(1)}% vs ${p.targetPercent}% (±${band}%)` });
     }
+  }
+
+  // 3. Upcoming ex-dividend / book-closure (next 14 days). Deduped by symbol+date
+  //    so each entitlement is announced once, not every day.
+  try {
+    const exDates = await getUpcomingExDates(14);
+    for (const e of exDates) {
+      const dps = (e.pctOfFace / 100) * e.faceValue;
+      candidates.push({
+        key: `exdiv:${e.symbol}:${e.date}`,
+        message: `💰 <b>${e.symbol}</b> ex-dividend ${e.date} — ${e.pctOfFace}% (Rs ${dps.toFixed(2)}/share). Hold before book closure to qualify.`,
+      });
+    }
+  } catch {
+    /* best-effort */
   }
 
   // Insert-only dedup: a successful insert means this key is fresh today.

@@ -156,7 +156,7 @@ export async function getFundamentals(symbols: string[]): Promise<Record<string,
             latestEps: fresh?.latestEps ?? prev?.latestEps ?? null,
             epsGrowthPct: fresh?.epsGrowthPct ?? prev?.epsGrowthPct ?? null,
             payouts: payouts != null
-              ? payouts.map((p) => ({ date: p.announceDate ?? p.bookClosureStart, pctOfFace: p.pctOfFace, cycle: p.cycle, payoutType: p.payoutType }))
+              ? payouts.map((p) => ({ date: p.announceDate ?? p.bookClosureStart, bookClosure: p.bookClosureStart, pctOfFace: p.pctOfFace, cycle: p.cycle, payoutType: p.payoutType }))
               : prev?.payouts ?? [],
             source: fresh?.source ?? "psx-dps",
             fetchedAt: new Date(),
@@ -187,6 +187,28 @@ export async function getFundamentals(symbols: string[]): Promise<Record<string,
     };
   }
   return out;
+}
+
+// Upcoming ex-dividend / book-closure dates for held symbols (next `days` days),
+// from the cached PSX payouts. Powers the ex-dividend Telegram alert.
+export async function getUpcomingExDates(days = 14): Promise<Array<{ symbol: string; date: string; pctOfFace: number; faceValue: number }>> {
+  if (!(await tryConnect())) return [];
+  const holdings = await HoldingModel.find({ currentShares: { $gt: 0 } }).lean();
+  const syms = holdings.map((h: any) => h.symbol);
+  if (!syms.length) return [];
+  const funds: any[] = await FundamentalModel.find({ symbol: { $in: syms } }).lean();
+  const today = new Date().toISOString().slice(0, 10);
+  const end = new Date(Date.now() + days * 86400000).toISOString().slice(0, 10);
+  const out: Array<{ symbol: string; date: string; pctOfFace: number; faceValue: number }> = [];
+  for (const f of funds) {
+    for (const p of f.payouts ?? []) {
+      const bc = p.bookClosure;
+      if (p.payoutType === "cash" && bc && bc >= today && bc <= end) {
+        out.push({ symbol: f.symbol, date: bc, pctOfFace: p.pctOfFace, faceValue: f.faceValue ?? 10 });
+      }
+    }
+  }
+  return out.sort((a, b) => a.date.localeCompare(b.date));
 }
 
 export async function getDividendForecast(): Promise<DividendForecast> {

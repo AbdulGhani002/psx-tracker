@@ -15,6 +15,7 @@ const AnnualSchema = new Schema(
 const PayoutSchema = new Schema(
   {
     date: { type: String, default: null }, // ISO; announcement date
+    bookClosure: { type: String, default: null }, // ISO; book-closure (entitlement) date
     pctOfFace: { type: Number, required: true },
     cycle: { type: String, default: "" }, // F | i | ii | iii
     payoutType: { type: String, default: "cash" }, // cash | bonus | right | other

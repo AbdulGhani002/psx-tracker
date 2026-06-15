@@ -127,9 +127,14 @@ export default async function ForecastPage() {
         title="What they can realistically pay."
         subtitle="Grounded in each company's earnings, not just past payouts. We read EPS from PSX, work out the historical payout ratio, and cap the forward dividend at what profits can sustain — a loss-making year forecasts nothing. Everything is shown in percentage terms so you can judge it yourself."
       >
-        <Link href="/dividends" className="font-mono text-[11px] uppercase tracking-stat text-muted hover:text-[var(--accent-deep)]">
-          Recorded dividends
-        </Link>
+        <div className="flex items-center gap-4">
+          <a href="/api/export?sheet=forecast" className="font-mono text-[11px] uppercase tracking-stat text-muted hover:text-[var(--accent-deep)]">
+            Download CSV
+          </a>
+          <Link href="/dividends" className="font-mono text-[11px] uppercase tracking-stat text-muted hover:text-[var(--accent-deep)]">
+            Recorded dividends
+          </Link>
+        </div>
       </PageHeader>
 
       {!avail.available && <SetupBanner reason={avail.reason} />}

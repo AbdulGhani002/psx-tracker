@@ -1,7 +1,7 @@
 // Single source of truth for the app version + changelog.
 // Bump APP_VERSION and prepend a CHANGELOG entry on every release.
 
-export const APP_VERSION = "2.9.0";
+export const APP_VERSION = "2.10.0";
 
 export const BUILD_DATE =
   process.env.NEXT_PUBLIC_BUILD_DATE ?? "";
@@ -17,6 +17,15 @@ export type ChangelogEntry = {
 
 // Reverse-chronological. Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: "2.10.0",
+    date: "2026-06-15",
+    title: "Ex-dividend alerts + CSV export",
+    changes: [
+      "Telegram alert when a holding is about to go ex-dividend (within 14 days of book closure), so you hold long enough to qualify. Fires once per entitlement.",
+      "Download CSV of the valuation, dividend forecast, or holdings tables (opens in Excel) — links on the Valuation and Forecast pages, plus /api/export.",
+    ],
+  },
   {
     version: "2.9.0",
     date: "2026-06-14",

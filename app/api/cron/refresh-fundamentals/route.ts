@@ -36,7 +36,7 @@ export async function POST() {
           epsGrowthPct: fund?.epsGrowthPct ?? prev?.epsGrowthPct ?? null,
           payouts:
             payouts != null
-              ? payouts.map((p) => ({ date: p.announceDate ?? p.bookClosureStart, pctOfFace: p.pctOfFace, cycle: p.cycle, payoutType: p.payoutType }))
+              ? payouts.map((p) => ({ date: p.announceDate ?? p.bookClosureStart, bookClosure: p.bookClosureStart, pctOfFace: p.pctOfFace, cycle: p.cycle, payoutType: p.payoutType }))
               : prev?.payouts ?? [],
           source: fund?.source ?? "psx-dps",
           fetchedAt: new Date(),

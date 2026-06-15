@@ -63,9 +63,14 @@ export default async function ValuationPage() {
         title="What you own, and what it's worth."
         subtitle="Valuation for every holding. P/E, yields and a fair value are computed automatically from the EPS and dividends we scrape. Fair value blends a dividend-discount model with an earnings multiple; margin of safety is how far the price sits below fair value."
       >
-        <Link href="/settings" className="font-mono text-[11px] uppercase tracking-stat text-muted hover:text-[var(--accent-deep)]">
-          Edit assumptions
-        </Link>
+        <div className="flex items-center gap-4">
+          <a href="/api/export?sheet=valuation" className="font-mono text-[11px] uppercase tracking-stat text-muted hover:text-[var(--accent-deep)]">
+            Download CSV
+          </a>
+          <Link href="/settings" className="font-mono text-[11px] uppercase tracking-stat text-muted hover:text-[var(--accent-deep)]">
+            Edit assumptions
+          </Link>
+        </div>
       </PageHeader>
 
       {!avail.available && <SetupBanner reason={avail.reason} />}
