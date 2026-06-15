@@ -290,40 +290,51 @@ export async function buildBenchmarkSeries({
   // compounded + cash from the ledger + funds/commodities held flat at current),
   // with external cash deposits/withdrawals neutralized so the line is return,
   // not contributions.
+  // Net-worth daily return as a value-weighted blend of each asset's OWN return:
+  // stocks move with the market (held shares priced at both days), savings accrue
+  // interest, funds/cash contribute no daily return. Weighting by each asset's
+  // value at the start of the day. This avoids any cash-flow artifacts entirely
+  // (buys/deposits move money between buckets without inventing return).
   const netWorthIdx: (number | null)[] = [];
   if (netWorthExtras) {
     const ex = netWorthExtras;
+    const savingsTotalAt = (dIso: string) => ex.savings.reduce((s, a) => s + savingsValueAt(a, dIso), 0);
+    const savingsDailyRateAt = (dIso: string) => {
+      let val = 0, weighted = 0;
+      for (const a of ex.savings) {
+        const v = savingsValueAt(a, dIso);
+        val += v;
+        weighted += v * (a.ratePercent / 100 / 365);
+      }
+      return val > 0 ? weighted / val : 0;
+    };
     const cashAt = (dIso: string): number => {
       const txs = transactions.filter((t) => new Date(t.date).toISOString().slice(0, 10) <= dIso);
       const entries = ex.cashEntries.filter((e) => new Date(e.date).toISOString().slice(0, 10) <= dIso);
       try {
-        return computeCashBalance(txs as any, entries as any).balance;
+        return Math.max(0, computeCashBalance(txs as any, entries as any).balance);
       } catch {
         return 0;
       }
     };
-    const externalFlowOn = (dIso: string): number =>
-      ex.cashEntries
-        .filter((e) => new Date(e.date).toISOString().slice(0, 10) === dIso)
-        .reduce((s, e) => s + (e.type === "WITHDRAWAL" ? -e.amount : e.amount), 0);
-    const netWorthAt = (dIso: string, stocks: number): number => {
-      const savings = ex.savings.reduce((s, a) => s + savingsValueAt(a, dIso), 0);
-      return stocks + savings + cashAt(dIso) + ex.fundsNow + ex.commoditiesNow;
-    };
 
     let nwIdx = 100;
-    let prevV: number | null = null;
-    for (let i = 0; i < trimmed.length; i++) {
-      const v = netWorthAt(trimmed[i].date, trimmed[i].portfolioValue);
-      if (i === 0 || prevV == null || prevV <= 0) {
-        netWorthIdx.push(100);
-      } else {
-        const flow = externalFlowOn(trimmed[i].date);
-        const r = (v - flow) / prevV;
-        if (Number.isFinite(r) && r > 0) nwIdx *= r;
-        netWorthIdx.push(nwIdx);
-      }
-      prevV = v;
+    netWorthIdx.push(100);
+    for (let i = 1; i < trimmed.length; i++) {
+      const prevDate = trimmed[i - 1].date;
+      const currDate = trimmed[i].date;
+      const prevShares = sharesHeldAt(prevDate, transactions);
+      const bmv = valueOfSharesAt(prevShares, prevDate);
+      const emv = valueOfSharesAt(prevShares, currDate);
+      const stockRet = bmv > 0 ? emv / bmv - 1 : 0;
+      const wStocks = trimmed[i - 1].portfolioValue;
+      const wSavings = savingsTotalAt(prevDate);
+      const wCash = cashAt(prevDate);
+      const wFunds = ex.fundsNow;
+      const totalW = wStocks + wSavings + wCash + wFunds;
+      const dailyRet = totalW > 0 ? (wStocks * stockRet + wSavings * savingsDailyRateAt(prevDate)) / totalW : 0;
+      if (Number.isFinite(dailyRet)) nwIdx *= 1 + dailyRet;
+      netWorthIdx.push(nwIdx);
     }
   }
 
