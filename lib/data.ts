@@ -1,5 +1,7 @@
 import "server-only";
 import { connectDb } from "./db";
+import { getCurrentUserId } from "./auth/current-user";
+import { knownHoldingCompany } from "./holding-companies";
 import {
   HoldingModel,
   TransactionModel,
@@ -14,6 +16,8 @@ import {
   AppSettingsModel,
   CommodityTradeModel,
   FundamentalModel,
+  FeedSnapshotModel,
+  UserModel,
   DEFAULT_SETTINGS,
   type Holding,
   type Transaction,
@@ -42,10 +46,19 @@ import { computeSotp, deriveSharesOutstanding, type SotpResult } from "./calcula
 import { computeValuation, type Valuation } from "./calculations/valuation";
 import { analyzeConcentration, analyzeCorrelation, type ConcentrationResult, type CorrelationResult } from "./calculations/risk-analysis";
 import { fetchManyEod } from "./timeseries/psx-eod";
-import { fetchMarketWatch, indexLabel } from "./prices/marketwatch";
+import { fetchMarketWatch, indexLabel, isInIndex } from "./prices/marketwatch";
+import { taxYearOf } from "./dates";
+import { compareSectors, type SectorComparison } from "./calculations/sector-weights";
+import type { SectorWeightsSnapshot } from "./feeds/sector-weights";
 
 function plain<T>(v: unknown): T {
   return JSON.parse(JSON.stringify(v));
+}
+
+// The current user's id, or a sentinel that matches no documents — so an
+// unauthenticated/job-less context returns an empty result instead of leaking.
+async function meId(): Promise<string> {
+  return (await getCurrentUserId()) ?? "__no_user__";
 }
 
 export type DataAvailability = { available: true } | { available: false; reason: string };
@@ -69,27 +82,30 @@ export async function checkDataAvailability(): Promise<DataAvailability> {
 }
 
 export async function getAllHoldings(): Promise<Holding[]> {
-  if (!(await tryConnect())) return [];
-  const docs = await HoldingModel.find().sort({ symbol: 1 }).lean();
+  const uid = await getCurrentUserId();
+  if (!uid || !(await tryConnect())) return [];
+  const docs = await HoldingModel.find({ userId: uid }).sort({ symbol: 1 }).lean();
   return plain<Holding[]>(docs);
 }
 
 export async function getHoldingBySymbol(symbol: string): Promise<Holding | null> {
-  if (!(await tryConnect())) return null;
-  const doc = await HoldingModel.findOne({ symbol: symbol.toUpperCase() }).lean();
+  const uid = await getCurrentUserId();
+  if (!uid || !(await tryConnect())) return null;
+  const doc = await HoldingModel.findOne({ userId: uid, symbol: symbol.toUpperCase() }).lean();
   return doc ? plain<Holding>(doc) : null;
 }
 
 export async function getAllTransactions(): Promise<Transaction[]> {
-  if (!(await tryConnect())) return [];
-  // { deletedAt: null } also matches legacy docs that predate the field.
-  const docs = await TransactionModel.find({ deletedAt: null }).sort({ date: -1, createdAt: -1 }).lean();
+  const uid = await getCurrentUserId();
+  if (!uid || !(await tryConnect())) return [];
+  const docs = await TransactionModel.find({ userId: uid, deletedAt: null }).sort({ date: -1, createdAt: -1 }).lean();
   return plain<Transaction[]>(docs);
 }
 
 export async function getTransactionsBySymbol(symbol: string): Promise<Transaction[]> {
-  if (!(await tryConnect())) return [];
-  const docs = await TransactionModel.find({ symbol: symbol.toUpperCase(), deletedAt: null })
+  const uid = await getCurrentUserId();
+  if (!uid || !(await tryConnect())) return [];
+  const docs = await TransactionModel.find({ userId: uid, symbol: symbol.toUpperCase(), deletedAt: null })
     .sort({ date: 1, createdAt: 1 })
     .lean();
   return plain<Transaction[]>(docs);
@@ -97,8 +113,9 @@ export async function getTransactionsBySymbol(symbol: string): Promise<Transacti
 
 // Soft-deleted transactions only — powers the Trash view.
 export async function getDeletedTransactions(): Promise<Transaction[]> {
-  if (!(await tryConnect())) return [];
-  const docs = await TransactionModel.find({ deletedAt: { $ne: null } })
+  const uid = await getCurrentUserId();
+  if (!uid || !(await tryConnect())) return [];
+  const docs = await TransactionModel.find({ userId: uid, deletedAt: { $ne: null } })
     .sort({ deletedAt: -1 })
     .lean();
   return plain<Transaction[]>(docs);
@@ -153,6 +170,7 @@ export async function getFundamentals(symbols: string[]): Promise<Record<string,
           {
             symbol: s,
             faceValue: fresh?.faceValue ?? prev?.faceValue ?? 10,
+            sector: fresh?.sector || prev?.sector || "",
             annual: fresh?.annual ?? prev?.annual ?? [],
             latestEps: fresh?.latestEps ?? prev?.latestEps ?? null,
             epsGrowthPct: fresh?.epsGrowthPct ?? prev?.epsGrowthPct ?? null,
@@ -194,7 +212,7 @@ export async function getFundamentals(symbols: string[]): Promise<Record<string,
 // from the cached PSX payouts. Powers the ex-dividend Telegram alert.
 export async function getUpcomingExDates(days = 14): Promise<Array<{ symbol: string; date: string; pctOfFace: number; faceValue: number }>> {
   if (!(await tryConnect())) return [];
-  const holdings = await HoldingModel.find({ currentShares: { $gt: 0 } }).lean();
+  const holdings = await HoldingModel.find({ userId: await meId(), currentShares: { $gt: 0 } }).lean();
   const syms = holdings.map((h: any) => h.symbol);
   if (!syms.length) return [];
   const funds: any[] = await FundamentalModel.find({ symbol: { $in: syms } }).lean();
@@ -229,12 +247,19 @@ export type HoldingValuation = Valuation & {
   bookValuePerShare: number;
   shares: number;
   marketValue: number;
+  basis: "earnings" | "nav"; // holding companies are valued on look-through NAV, not P/E
+  navPerShare: number | null;
+  navNote: string; // caveat when NAV is incomplete (e.g. listed stakes only)
 };
 
 // Valuation across all held stocks. EPS from cached fundamentals, forward
 // dividend + growth from the forecast, book value from the (editable) holding
 // field, required return from the live SBP rate + your equity-premium setting.
 export async function getValuations(): Promise<{ valuations: HoldingValuation[]; requiredReturnPct: number; fairPE: number; sbpRatePct: number }> {
+  return cachedSnapshot("page:valuations", 90 * 60 * 1000, computeValuations);
+}
+
+async function computeValuations(): Promise<{ valuations: HoldingValuation[]; requiredReturnPct: number; fairPE: number; sbpRatePct: number }> {
   const [holdings, settings, sbp] = await Promise.all([getAllHoldings(), getAppSettings(), getSbpRateSteps()]);
   const held = holdings.filter((h) => h.currentShares > 0);
   const fairPE = (settings as any).defaultFairPE ?? 8;
@@ -246,6 +271,21 @@ export async function getValuations(): Promise<{ valuations: HoldingValuation[];
   const [prices, funds, forecast] = await Promise.all([getCurrentPrices(syms), getFundamentals(syms), getDividendForecast()]);
   const profBySym = new Map(forecast.profiles.map((p) => [p.symbol, p]));
 
+  // Holding companies (look-through enabled) are valued on NAV, not P/E — their
+  // EPS is dominated by fair-value revaluation of the shares they own and share
+  // of associates' profits, so a P/E verdict is misleading. Fetch their
+  // sum-of-the-parts NAV/share once.
+  const lookThroughs = new Map<string, LookThrough>();
+  await Promise.all(
+    held
+      .filter((h) => (h as any).lookThrough?.enabled)
+      .map(async (h) => {
+        // Valuation only needs the top-level NAV — skip the (expensive) child drill-down.
+        const lt = await getLookThroughFor(h.symbol, { skipChildren: true }).catch(() => null);
+        if (lt) lookThroughs.set(h.symbol, lt);
+      })
+  );
+
   const valuations = held
     .map((h) => {
       const price = prices.get(h.symbol) ?? 0;
@@ -255,7 +295,26 @@ export async function getValuations(): Promise<{ valuations: HoldingValuation[];
       const dividendGrowthPct = prof?.dividendGrowthPct ?? funds[h.symbol]?.epsGrowthPct ?? 0;
       const bookValuePerShare = (h as any).bookValuePerShare ?? 0;
       const v = computeValuation({ price, eps, forwardDps, dividendGrowthPct, bookValuePerShare, requiredReturnPct, fairPE });
-      return { symbol: h.symbol, name: h.name, price, eps, bookValuePerShare, shares: h.currentShares, marketValue: price * h.currentShares, ...v };
+
+      let basis: "earnings" | "nav" = "earnings";
+      let navPerShare: number | null = null;
+      let navNote = "";
+      let merged: Valuation = v;
+      const lt = lookThroughs.get(h.symbol);
+      if (lt && lt.navPerShare > 0) {
+        basis = "nav";
+        navPerShare = lt.navPerShare;
+        const mos = lt.discountPct; // (NAV − price) / NAV; positive = trading below assets
+        let verdict: Valuation["verdict"];
+        if (mos == null) verdict = "unknown";
+        else if (mos >= 20) verdict = "cheap";
+        else if (mos <= -10) verdict = "expensive";
+        else verdict = "fair";
+        merged = { ...v, fairValue: navPerShare, marginOfSafetyPct: mos, verdict };
+        if (lt.unlistedValue <= 0 && lt.netDebt <= 0) navNote = "NAV from listed stakes only — add unlisted assets & net debt";
+      }
+
+      return { symbol: h.symbol, name: h.name, price, eps, bookValuePerShare, shares: h.currentShares, marketValue: price * h.currentShares, basis, navPerShare, navNote, ...merged };
     })
     .sort((a, b) => b.marketValue - a.marketValue);
 
@@ -273,6 +332,10 @@ export type RiskAnalysis = {
 // Concentration + correlation + the base figures for the (client-side) stress
 // test. Correlation uses EOD price series per holding.
 export async function getRiskAnalysis(): Promise<RiskAnalysis> {
+  return cachedSnapshot("page:riskAnalysis", 90 * 60 * 1000, computeRiskAnalysis);
+}
+
+async function computeRiskAnalysis(): Promise<RiskAnalysis> {
   const [summary, nw, settings] = await Promise.all([getPortfolioSummary(), getNetWorth().catch(() => null), getAppSettings()]);
   const cap = (settings as any).concentrationCap ?? 25;
   const positions = summary.positions
@@ -302,19 +365,189 @@ export async function getRiskAnalysis(): Promise<RiskAnalysis> {
   return { concentration, correlation, stressBase, safeRatePct: 3, concentrationCap: cap };
 }
 
-export type LookThrough = SotpResult & { symbol: string; name: string };
+// --- Precomputed feed snapshots ---------------------------------------------
+// Heavy datasets (e.g. KSE-100 sector weights) are computed by a background cron
+// and stored as a single latest document per key, so the UI reads them
+// instantly instead of recomputing on every page load.
+
+export type FeedSnapshotMeta<T> = {
+  data: T | null;
+  status: string; // ok | error | building | missing
+  note: string;
+  updatedAt: string | null; // ISO
+};
+
+export async function getFeedSnapshot<T = unknown>(key: string): Promise<FeedSnapshotMeta<T>> {
+  if (!(await tryConnect())) return { data: null, status: "missing", note: "no db", updatedAt: null };
+  const doc: any = await FeedSnapshotModel.findOne({ key }).lean();
+  if (!doc) return { data: null, status: "missing", note: "", updatedAt: null };
+  return {
+    data: doc.data ? plain<T>(doc.data) : null,
+    status: doc.status ?? "ok",
+    note: doc.note ?? "",
+    updatedAt: doc.updatedAt ? new Date(doc.updatedAt).toISOString() : null,
+  };
+}
+
+// Pass data = null/undefined to update only status/note (e.g. on a failed run),
+// preserving the last good payload so the UI keeps showing it.
+export async function saveFeedSnapshot(key: string, data: unknown, status = "ok", note = ""): Promise<void> {
+  if (!(await tryConnect())) return;
+  const set: Record<string, unknown> = { key, status, note, updatedAt: new Date() };
+  if (data != null) set.data = data;
+  await FeedSnapshotModel.findOneAndUpdate({ key }, set, { upsert: true });
+}
+
+// Read-through cache for an expensive aggregate: serve a fresh stored snapshot
+// instantly, recompute when stale (storing the new one), and on a compute
+// failure fall back to the last good snapshot. Keeps slow pages (valuation,
+// dashboard) fast even on a cold load. The snapshot cron pre-warms these keys.
+export async function cachedSnapshot<T>(key: string, ttlMs: number, compute: () => Promise<T>): Promise<T> {
+  // Per-user cache key so one account's heavy aggregates never serve another's.
+  const uid = await getCurrentUserId();
+  key = uid ? `${key}:${uid}` : key;
+  const cached = await getFeedSnapshot<T>(key);
+  const fresh = cached.data != null && cached.updatedAt && Date.now() - new Date(cached.updatedAt).getTime() < ttlMs;
+  if (fresh) return cached.data as T;
+  try {
+    const result = await compute();
+    await saveFeedSnapshot(key, result as unknown, "ok").catch(() => {});
+    return result;
+  } catch (e) {
+    if (cached.data != null) return cached.data as T; // stale-but-shown beats an error
+    throw e;
+  }
+}
+
+// Warm the current user's expensive page aggregates. Runs inside a
+// runAsUser(...) scope on the cron, so the getters cache under per-user keys.
+export async function warmPageCaches(): Promise<Record<string, string>> {
+  const jobs: Array<[string, () => Promise<unknown>]> = [
+    ["valuations", getValuations],
+    ["riskMetrics", getRiskMetrics],
+    ["riskAnalysis", getRiskAnalysis],
+    ["todaysMovers", getTodaysMovers],
+    ["shariah", getShariahStatus],
+  ];
+  const out: Record<string, string> = {};
+  for (const [name, fn] of jobs) {
+    try {
+      await fn();
+      out[name] = "ok";
+    } catch (e) {
+      out[name] = "error: " + String(e).slice(0, 60);
+    }
+  }
+  return out;
+}
+
+// Every user id — the cron loops these to warm each account's caches.
+export async function getAllUserIds(): Promise<string[]> {
+  if (!(await tryConnect())) return [];
+  const docs = await UserModel.find({}, { _id: 1 }).lean();
+  return docs.map((u: any) => String(u._id));
+}
+
+export type SectorComparisonResult = {
+  comparison: SectorComparison[];
+  index: string;
+  asOf: string | null; // when the index snapshot was built
+  updatedAt: string | null; // when it was stored
+  status: string;
+  note: string;
+  membersPriced: number;
+  membersTotal: number;
+  yourEquityValue: number;
+};
+
+// Your sector mix vs the KSE-100's, served from the stored snapshot (instant).
+// "Your" side is computed live from current holdings (cheap); the index side is
+// the precomputed market-cap weighting.
+export async function getSectorComparison(): Promise<SectorComparisonResult> {
+  const [snap, summary] = await Promise.all([
+    getFeedSnapshot<SectorWeightsSnapshot>("kse100SectorWeights"),
+    getPortfolioSummary().catch(() => null),
+  ]);
+
+  const yours = (summary?.positions ?? [])
+    .filter((p) => p.marketValue > 0)
+    .map((p) => ({ sector: p.sector || "Unclassified", value: p.marketValue }));
+  const yourEquityValue = yours.reduce((s, y) => s + y.value, 0);
+
+  const indexSectors = snap.data?.sectors ?? [];
+  const comparison = compareSectors(yours, indexSectors);
+
+  return {
+    comparison,
+    index: snap.data?.index ?? "KSE100",
+    asOf: snap.data?.asOf ?? null,
+    updatedAt: snap.updatedAt,
+    status: snap.status,
+    note: snap.note,
+    membersPriced: snap.data?.priced ?? 0,
+    membersTotal: snap.data?.members ?? 0,
+    yourEquityValue,
+  };
+}
+
+export type LookThrough = SotpResult & { symbol: string; name: string; children?: LookThrough[]; partial?: boolean };
 
 // Look-through (sum-of-the-parts) valuation for a single holding company.
 // Stakes are from the holding config; constituent + own prices are live;
-// shares outstanding derives from financials when not pinned.
-export async function getLookThroughFor(symbol: string): Promise<LookThrough | null> {
+// shares outstanding derives from financials when not pinned. Recurses one extra
+// level: any listed constituent that is itself a configured holding company
+// (e.g. AHL inside AHCL) is drilled into and attached as a child for analysis.
+export async function getLookThroughFor(
+  symbol: string,
+  opts?: { depth?: number; visited?: Set<string>; skipChildren?: boolean }
+): Promise<LookThrough | null> {
   if (!(await tryConnect())) return null;
+  const depth = opts?.depth ?? 0;
+  const visited = opts?.visited ?? new Set<string>();
   const sym = symbol.toUpperCase();
-  const h = await HoldingModel.findOne({ symbol: sym }).lean();
-  const lt = (h as any)?.lookThrough;
-  if (!h || !lt?.enabled || !(lt.constituents?.length > 0)) return null;
+  const h: any = await HoldingModel.findOne({ userId: await meId(), symbol: sym }).lean();
+  const lt = h?.lookThrough;
+  const dbEnabled = !!lt?.enabled && ((lt.constituents?.length > 0) || (lt.unlistedHoldings?.length > 0));
 
-  const constituents = (lt.constituents as Array<{ label: string; symbol: string; shares: number; ownershipPct?: number }>).filter((c) => c.symbol);
+  // Config from the holding's own look-through if enabled; otherwise fall back
+  // to the known-companies library so SUB-holdings (e.g. Fatima inside AHCL)
+  // drill down without needing a phantom holding row in your portfolio.
+  const known = knownHoldingCompany(sym);
+  type Cfg = {
+    constituents: Array<{ label: string; symbol: string; shares: number; ownershipPct?: number }>;
+    unlistedHoldings: Array<{ label: string; valuePkr: number; ownershipPct?: number; note?: string }>;
+    unlistedValuePkr: number;
+    netDebtPkr: number;
+    sharesOutstanding: number;
+    name: string;
+    heldShares: number;
+  };
+  let cfg: Cfg;
+  if (dbEnabled) {
+    cfg = {
+      constituents: lt.constituents ?? [],
+      unlistedHoldings: (lt.unlistedHoldings ?? []).map((u: any) => ({ label: u.label, valuePkr: u.valuePkr ?? 0, ownershipPct: u.ownershipPct ?? 0, note: u.note ?? "" })),
+      unlistedValuePkr: lt.unlistedValuePkr ?? 0,
+      netDebtPkr: lt.netDebtPkr ?? 0,
+      sharesOutstanding: lt.sharesOutstanding ?? 0,
+      name: h?.name ?? sym,
+      heldShares: h?.currentShares ?? 0,
+    };
+  } else if (known && (known.listed.length > 0 || known.unlisted.length > 0)) {
+    cfg = {
+      constituents: known.listed.map((k) => ({ label: k.label, symbol: k.symbol, shares: 0, ownershipPct: k.ownershipPct })),
+      unlistedHoldings: known.unlisted.map((u) => ({ label: u.label, valuePkr: u.valuePkr ?? 0, ownershipPct: u.ownershipPct ?? 0, note: u.note })),
+      unlistedValuePkr: 0,
+      netDebtPkr: 0,
+      sharesOutstanding: known.sharesOutstanding ?? 0,
+      name: h?.name ?? known.name,
+      heldShares: h?.currentShares ?? 0,
+    };
+  } else {
+    return null;
+  }
+
+  const constituents = cfg.constituents.filter((c) => c.symbol);
   const conSyms = constituents.map((c) => c.symbol.toUpperCase());
   const symbols = [...new Set([sym, ...conSyms])];
   const prices = await getCurrentPrices(symbols);
@@ -332,7 +565,7 @@ export async function getLookThroughFor(symbol: string): Promise<LookThrough | n
     sharesOutMap.set(f.symbol, deriveSharesOutstanding(latest?.profitAfterTax ?? null, latest?.eps ?? null));
   }
 
-  let shares = lt.sharesOutstanding || 0;
+  let shares = cfg.sharesOutstanding || 0;
   if (shares <= 0) shares = sharesOutMap.get(sym) ?? 0;
 
   const resolvedConstituents = constituents.map((c) => {
@@ -344,13 +577,47 @@ export async function getLookThroughFor(symbol: string): Promise<LookThrough | n
   const result = computeSotp({
     constituents: resolvedConstituents,
     prices: priceObj,
-    unlistedValuePkr: lt.unlistedValuePkr ?? 0,
-    netDebtPkr: lt.netDebtPkr ?? 0,
+    unlistedHoldings: cfg.unlistedHoldings,
+    unlistedValuePkr: cfg.unlistedValuePkr,
+    netDebtPkr: cfg.netDebtPkr,
     sharesOutstanding: shares,
     marketPrice: prices.get(sym) ?? 0,
-    heldShares: (h as any).currentShares ?? 0,
+    heldShares: cfg.heldShares,
   });
-  return { symbol: sym, name: (h as any).name ?? sym, ...result };
+
+  const base: LookThrough = { symbol: sym, name: cfg.name, ...result };
+  if (known?.investmentsOnly) base.partial = true; // operating co: holdings ≠ NAV
+
+  // Recurse: drill into any listed constituent that is itself a configured
+  // holding company (e.g. AHL inside AHCL). getLookThroughFor returns null for
+  // ordinary operating companies, so only true sub-holdings attach. Depth + a
+  // visited set guard against cycles and runaway recursion.
+  if (depth < 2 && !opts?.skipChildren) {
+    visited.add(sym);
+    const children: LookThrough[] = [];
+    for (const c of result.constituents) {
+      const cs = c.symbol.toUpperCase();
+      if (visited.has(cs)) continue;
+      const child = await getLookThroughFor(cs, { depth: depth + 1, visited });
+      if (child) children.push(child);
+    }
+    if (children.length) base.children = children;
+  }
+
+  return base;
+}
+
+// Look-through breakdowns for every holding company in the portfolio (anything
+// with look-through configured). Powers the "How it's valued" methodology page.
+export async function getAllLookThroughs(): Promise<LookThrough[]> {
+  if (!(await tryConnect())) return [];
+  const holdings = await HoldingModel.find({ userId: await meId(), "lookThrough.enabled": true }).lean();
+  const out = await Promise.all(
+    holdings.map((h: any) => getLookThroughFor(h.symbol).catch(() => null))
+  );
+  return out
+    .filter((x): x is LookThrough => x != null && x.navPerShare > 0)
+    .sort((a, b) => b.yourMarketValue - a.yourMarketValue);
 }
 
 export type MarketContext = {
@@ -364,6 +631,90 @@ export type MarketContext = {
 
 // Derived market context for a symbol: 52-week range from EOD history + index
 // membership from PSX market-watch. All from free PSX data, no paid feed.
+export type ShariahHolding = {
+  symbol: string;
+  name: string;
+  sector: string;
+  shares: number;
+  marketValue: number;
+  inKmi30: boolean;
+  inKmiAllShare: boolean;
+  compliant: boolean | null; // null = unknown (symbol not in market-watch feed)
+  dividendThisYear: number;
+  purificationPct: number;
+  purificationDue: number;
+};
+
+// Shariah view: tag each holding by KMI index membership (the KMI All-Share /
+// KMI-30 indices are Meezan-screened, so membership ≈ currently compliant), and
+// compute the purification (charity) due from this year's dividends using the
+// non-permissible income % you enter per holding.
+export async function getShariahStatus(): Promise<{
+  holdings: ShariahHolding[];
+  compliantValue: number;
+  nonCompliantValue: number;
+  unknownValue: number;
+  totalValue: number;
+  totalPurification: number;
+  taxYearLabel: string;
+}> {
+  return cachedSnapshot("page:shariah", 90 * 60 * 1000, computeShariahStatus);
+}
+
+async function computeShariahStatus() {
+  const [summary, holdings, txs, mw] = await Promise.all([
+    getPortfolioSummary(),
+    getAllHoldings(),
+    getAllTransactions(),
+    fetchMarketWatch().catch(() => null),
+  ]);
+  const nameBySym = new Map(holdings.map((h: any) => [h.symbol, h.name]));
+  const purifBySym = new Map(holdings.map((h: any) => [h.symbol, h.purificationPctOfDividend ?? 0]));
+  const ty = taxYearOf(new Date().toISOString().slice(0, 10));
+  const divBySym = new Map<string, number>();
+  for (const t of txs) {
+    if (t.type !== "DIVIDEND") continue;
+    if (taxYearOf(new Date(t.date).toISOString().slice(0, 10)).endYear !== ty.endYear) continue;
+    divBySym.set(t.symbol, (divBySym.get(t.symbol) ?? 0) + (t.netAmount ?? 0));
+  }
+
+  const active = summary.positions.filter((p) => p.shares > 0);
+  const out: ShariahHolding[] = active.map((p) => {
+    const row = mw?.get(p.symbol);
+    const inKmi30 = row ? isInIndex(row, "KMI30") : false;
+    const inKmiAll = row ? isInIndex(row, "KMIALLSHR") : false;
+    const compliant = row ? inKmi30 || inKmiAll : null;
+    const purificationPct = purifBySym.get(p.symbol) ?? 0;
+    const dividendThisYear = divBySym.get(p.symbol) ?? 0;
+    return {
+      symbol: p.symbol,
+      name: nameBySym.get(p.symbol) ?? p.symbol,
+      sector: p.sector,
+      shares: p.shares,
+      marketValue: p.marketValue,
+      inKmi30,
+      inKmiAllShare: inKmiAll,
+      compliant,
+      dividendThisYear,
+      purificationPct,
+      purificationDue: (dividendThisYear * purificationPct) / 100,
+    };
+  });
+  const sumBy = (f: (h: ShariahHolding) => boolean) => out.filter(f).reduce((s, h) => s + h.marketValue, 0);
+  const compliantValue = sumBy((h) => h.compliant === true);
+  const nonCompliantValue = sumBy((h) => h.compliant === false);
+  const unknownValue = sumBy((h) => h.compliant === null);
+  return {
+    holdings: out.sort((a, b) => b.marketValue - a.marketValue),
+    compliantValue,
+    nonCompliantValue,
+    unknownValue,
+    totalValue: compliantValue + nonCompliantValue + unknownValue,
+    totalPurification: out.reduce((s, h) => s + h.purificationDue, 0),
+    taxYearLabel: ty.label,
+  };
+}
+
 export async function getMarketContext(symbol: string): Promise<MarketContext> {
   const sym = symbol.toUpperCase();
   const [eod, prices, mw] = await Promise.all([
@@ -387,13 +738,14 @@ export async function getMarketContext(symbol: string): Promise<MarketContext> {
 
 export async function getTargetAllocations() {
   if (!(await tryConnect())) return [];
-  const docs = await TargetAllocationModel.find().lean();
+  const docs = await TargetAllocationModel.find({ userId: await meId() }).lean();
   return plain<Array<{ _id: string; symbol: string; targetPercent: number; rebalanceBand: number; rationale: string }>>(docs);
 }
 
 export async function getDecisionLog(symbol?: string) {
   if (!(await tryConnect())) return [];
-  const filter = symbol ? { symbol: symbol.toUpperCase() } : {};
+  const filter: Record<string, unknown> = { userId: await meId() };
+  if (symbol) filter.symbol = symbol.toUpperCase();
   const docs = await DecisionLogModel.find(filter).sort({ date: -1 }).lean();
   return plain<Array<{ _id: string; symbol: string; date: string; trigger: string; interpretation: string; action: string; positionBefore: number; positionAfter: number }>>(docs);
 }
@@ -410,15 +762,15 @@ export async function getCashSummary(): Promise<CashSummary> {
     };
   }
   const [entries, txs] = await Promise.all([
-    CashEntryModel.find().lean(),
-    TransactionModel.find({ deletedAt: null }).lean(),
+    CashEntryModel.find({ userId: await meId() }).lean(),
+    TransactionModel.find({ userId: await meId(), deletedAt: null }).lean(),
   ]);
   return computeCashBalance(txs as any, entries as any);
 }
 
 export async function getCashEntries() {
   if (!(await tryConnect())) return [];
-  const docs = await CashEntryModel.find().sort({ date: -1, createdAt: -1 }).lean();
+  const docs = await CashEntryModel.find({ userId: await meId() }).sort({ date: -1, createdAt: -1 }).lean();
   return plain<Array<{ _id: string; date: string; type: "DEPOSIT" | "WITHDRAWAL"; amount: number; notes: string }>>(docs);
 }
 
@@ -445,8 +797,10 @@ export type ValuedFund = {
   name: string;
   mufapName: string;
   amc: string;
-  units: number;
   avgCost: number;
+  fundType: string;
+  annualYieldPct: number;
+  anchorDate: string;
   notes: string;
   nav: number; // 0 if NAV unavailable
   navFound: boolean;
@@ -454,7 +808,7 @@ export type ValuedFund = {
 
 export async function getMutualFundsValued(): Promise<ValuedFund[]> {
   if (!(await tryConnect())) return [];
-  const docs = await MutualFundModel.find().sort({ name: 1 }).lean();
+  const docs = await MutualFundModel.find({ userId: await meId() }).sort({ name: 1 }).lean();
   if (docs.length === 0) return [];
   const navs = await fetchAllNavs();
   const byName = new Map(navs.map((n) => [n.name.toLowerCase(), n.nav]));
@@ -465,14 +819,21 @@ export async function getMutualFundsValued(): Promise<ValuedFund[]> {
       const m = await findNav(f.mufapName);
       nav = m?.nav ?? 0;
     }
-    const v = valueFund({ units: f.units, avgCost: f.avgCost }, nav);
+    const dailyDividend = (f as any).fundType === "dailyDividend";
+    const v = valueFund(
+      { units: f.units, avgCost: f.avgCost, dailyDividend, annualYieldPct: (f as any).annualYieldPct ?? 0, anchorDate: (f as any).anchorDate ?? "" },
+      nav
+    );
     out.push({
-      ...v, // units, nav, value, cost, unrealizedPL, unrealizedPct
+      ...v, // units, nav, effectiveNav, dailyYieldPct, value, cost, unrealizedPL, unrealizedPct, dailyDividend
       _id: String(f._id),
       name: f.name,
       mufapName: f.mufapName,
       amc: f.amc,
       avgCost: f.avgCost,
+      fundType: (f as any).fundType ?? "growth",
+      annualYieldPct: (f as any).annualYieldPct ?? 0,
+      anchorDate: (f as any).anchorDate ?? "",
       notes: f.notes,
       navFound: nav > 0,
     });
@@ -493,7 +854,7 @@ export type ValuedSavings = {
 
 export async function getSavingsValued(): Promise<ValuedSavings[]> {
   if (!(await tryConnect())) return [];
-  const docs = await SavingsAccountModel.find().sort({ name: 1 }).lean();
+  const docs = await SavingsAccountModel.find({ userId: await meId() }).sort({ name: 1 }).lean();
   return docs.map((a) => {
     const v = valueSavings({
       ratePercent: a.ratePercent,
@@ -554,10 +915,11 @@ export async function getNetWorth(): Promise<NetWorth> {
 export type AppSettings = typeof DEFAULT_SETTINGS;
 
 export async function getAppSettings(): Promise<AppSettings> {
-  if (!(await tryConnect())) return { ...DEFAULT_SETTINGS };
+  const uid = await getCurrentUserId();
+  if (!uid || !(await tryConnect())) return { ...DEFAULT_SETTINGS };
   const doc = await AppSettingsModel.findOneAndUpdate(
-    { key: "global" },
-    {},
+    { userId: uid },
+    { userId: uid, key: uid },
     { new: true, upsert: true, setDefaultsOnInsert: true }
   ).lean();
   return {
@@ -682,12 +1044,104 @@ export async function getHarvestReport(): Promise<HarvestReport> {
   };
 }
 
+export type SellTodayRow = {
+  symbol: string;
+  shares: number;
+  avgCost: number;
+  price: number;
+  marketValue: number;
+  cost: number;
+  gain: number;
+  gainPct: number;
+  weightedDays: number; // share-weighted holding period
+  longTermShares: number; // held > 365 days
+  cgtIfSold: number;
+};
+
+// "If you sold everything today": per open position, the holding period and the
+// CGT you'd owe on the gain at your current rate — plus how many days are left
+// in the FBR tax year (ends 30 June) to harvest losses against this year's gains.
+export async function getSellTodayCgt(): Promise<{
+  rows: SellTodayRow[];
+  totalGain: number;
+  totalCgt: number;
+  rate: number;
+  daysToYearEnd: number;
+  yearEnd: string;
+}> {
+  const [txs, settings] = await Promise.all([getAllTransactions(), getAppSettings()]);
+  const rate = settings.filerStatus === "filer" ? settings.cgtRateFiler : settings.cgtRateNonFiler;
+  const bySymbol = new Map<string, Transaction[]>();
+  for (const t of txs) {
+    if (!bySymbol.has(t.symbol)) bySymbol.set(t.symbol, []);
+    bySymbol.get(t.symbol)!.push(t);
+  }
+  const prices = await getCurrentPrices([...bySymbol.keys()]);
+  const todayIso = new Date().toISOString().slice(0, 10);
+  const dayMs = 86400000;
+  const daysHeld = (acq: string) => Math.max(0, Math.round((new Date(todayIso).getTime() - new Date(acq).getTime()) / dayMs));
+
+  const rows: SellTodayRow[] = [];
+  for (const [sym, list] of bySymbol) {
+    const { openLots } = buildLots(sym, list);
+    const shares = openLots.reduce((s, l) => s + l.shares, 0);
+    if (shares <= 1e-6) continue;
+    const price = prices.get(sym) ?? 0;
+    if (price <= 0) continue;
+    const cost = openLots.reduce((s, l) => s + l.shares * l.costPerShare, 0);
+    const marketValue = shares * price;
+    const gain = marketValue - cost;
+    const weightedDays = openLots.reduce((s, l) => s + l.shares * daysHeld(l.acquired), 0) / shares;
+    const longTermShares = openLots.filter((l) => daysHeld(l.acquired) > 365).reduce((s, l) => s + l.shares, 0);
+    rows.push({
+      symbol: sym,
+      shares,
+      avgCost: cost / shares,
+      price,
+      marketValue,
+      cost,
+      gain,
+      gainPct: cost > 0 ? gain / cost : 0,
+      weightedDays,
+      longTermShares,
+      cgtIfSold: gain > 0 ? (gain * rate) / 100 : 0,
+    });
+  }
+  rows.sort((a, b) => b.marketValue - a.marketValue);
+
+  // Days to the FBR tax-year end (30 June).
+  const now = new Date(todayIso);
+  let ye = new Date(Date.UTC(now.getUTCFullYear(), 5, 30)); // 30 June this year
+  if (now.getTime() > ye.getTime()) ye = new Date(Date.UTC(now.getUTCFullYear() + 1, 5, 30));
+  const daysToYearEnd = Math.max(0, Math.round((ye.getTime() - now.getTime()) / dayMs));
+
+  return {
+    rows,
+    totalGain: rows.reduce((s, r) => s + r.gain, 0),
+    totalCgt: rows.reduce((s, r) => s + r.cgtIfSold, 0),
+    rate,
+    daysToYearEnd,
+    yearEnd: ye.toISOString().slice(0, 10),
+  };
+}
+
 export async function getRiskMetrics(): Promise<RiskMetrics | null> {
-  const [txs, { steps }] = await Promise.all([getAllTransactions(), getSbpRateSteps()]);
-  const series = await buildBenchmarkSeries({ transactions: txs, rangeKey: "1Y", rateSteps: steps });
+  return cachedSnapshot("page:riskMetrics", 90 * 60 * 1000, computeRiskMetrics);
+}
+
+async function computeRiskMetrics(): Promise<RiskMetrics | null> {
+  const { steps } = await getSbpRateSteps();
+  // Reuse the cached 1Y benchmark series (warmed by the cron) instead of
+  // rebuilding it live — that rebuild was the dashboard's main slowdown.
+  const snap = await getFeedSnapshot<any>(`benchmark:1Y:${await meId()}`);
+  let series: any = snap.data;
+  if (!series || !Array.isArray(series.points)) {
+    const txs = await getAllTransactions();
+    series = await buildBenchmarkSeries({ transactions: txs, rangeKey: "1Y", rateSteps: steps });
+  }
   if (!series) return null;
-  const portfolio = series.points.map((p) => p.portfolio).filter((x): x is number => x != null);
-  const benchmark = series.points.map((p) => p.kse100).filter((x): x is number => x != null);
+  const portfolio = series.points.map((p: any) => p.portfolio).filter((x: any): x is number => x != null);
+  const benchmark = series.points.map((p: any) => p.kse100).filter((x: any): x is number => x != null);
   const rf = policyRateOn(new Date().toISOString().slice(0, 10), steps) / 100;
   return computeRisk({ portfolio, benchmark, riskFreeAnnual: rf });
 }
@@ -711,7 +1165,7 @@ export type ValuedTrade = {
 export async function getCommodityTradesValued(): Promise<{ trades: ValuedTrade[]; settings: AppSettings }> {
   const settings = await getAppSettings();
   if (!(await tryConnect())) return { trades: [], settings };
-  const docs = await CommodityTradeModel.find().sort({ entryDate: -1 }).lean();
+  const docs = await CommodityTradeModel.find({ userId: await meId() }).sort({ entryDate: -1 }).lean();
   const trades = docs.map((t) => {
     const v = valueTrade(
       {
@@ -749,22 +1203,28 @@ export async function getCommodityTradesValued(): Promise<{ trades: ValuedTrade[
 export type Mover = { symbol: string; price: number; prevClose: number; changePct: number };
 
 export async function getTodaysMovers(): Promise<{ gainers: Mover[]; losers: Mover[] }> {
+  return cachedSnapshot("page:todaysMovers", 90 * 60 * 1000, computeTodaysMovers);
+}
+
+async function computeTodaysMovers(): Promise<{ gainers: Mover[]; losers: Mover[] }> {
   const holdings = await getAllHoldings();
   const active = holdings.filter((h) => (h.currentShares ?? 0) > 0);
-  const movers: Mover[] = [];
-  for (const h of active) {
-    try {
-      const eod = await fetchEodSeries(h.symbol);
-      if (eod.length < 2) continue;
-      const price = eod[eod.length - 1].close;
-      const prevClose = eod[eod.length - 2].close;
-      if (prevClose > 0) {
-        movers.push({ symbol: h.symbol, price, prevClose, changePct: price / prevClose - 1 });
+  // Fetch every symbol's EOD in PARALLEL (was a sequential await-loop).
+  const results = await Promise.all(
+    active.map(async (h) => {
+      try {
+        const eod = await fetchEodSeries(h.symbol);
+        if (eod.length < 2) return null;
+        const price = eod[eod.length - 1].close;
+        const prevClose = eod[eod.length - 2].close;
+        if (prevClose > 0) return { symbol: h.symbol, price, prevClose, changePct: price / prevClose - 1 };
+      } catch {
+        /* skip */
       }
-    } catch {
-      /* skip */
-    }
-  }
+      return null;
+    })
+  );
+  const movers = results.filter((m): m is Mover => m != null);
   const sorted = [...movers].sort((a, b) => b.changePct - a.changePct);
   return {
     gainers: sorted.filter((m) => m.changePct > 0).slice(0, 3),
@@ -774,12 +1234,12 @@ export async function getTodaysMovers(): Promise<{ gainers: Mover[]; losers: Mov
 
 export async function getWatchlist() {
   if (!(await tryConnect())) return [];
-  const docs = await WatchlistEntryModel.find().sort({ createdAt: -1 }).lean();
+  const docs = await WatchlistEntryModel.find({ userId: await meId() }).sort({ createdAt: -1 }).lean();
   return plain<Array<{ _id: string; symbol: string; name: string; sector: string; notes: string; targetBuyPrice: number | null; targetSellPrice: number | null; createdAt: string }>>(docs);
 }
 
 export async function getScenariosForSymbol(symbol: string | null) {
   if (!(await tryConnect())) return [];
-  const docs = await ScenarioProjectionModel.find({ symbol }).lean();
+  const docs = await ScenarioProjectionModel.find({ userId: await meId(), symbol }).lean();
   return plain<Array<{ _id: string; name: string; symbol: string | null; assumptions: { annualGrowthRate: number; endingPE: number; payoutRatio: number; horizonYears: number; useDRIP: boolean; customNotes: string } }>>(docs);
 }

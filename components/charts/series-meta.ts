@@ -2,9 +2,12 @@ import { CHART_THEME } from "./theme";
 
 export type SeriesKey =
   | "portfolio"
+  | "portfolioTR"
+  | "portfolioReal"
   | "netWorth"
   | "kse100"
   | "kmi30"
+  | "gold"
   | "portfolioUsd"
   | "sp500"
   | "usdpkr"
@@ -23,14 +26,44 @@ export type SeriesMeta = {
 
 // Distinct strokes/dashes so up to seven lines stay legible on the dark panel.
 export const SERIES_META: Record<SeriesKey, SeriesMeta> = {
+  portfolioTR: {
+    key: "portfolioTR",
+    label: "Portfolio + dividends",
+    short: "Total return",
+    stroke: CHART_THEME.accent,
+    width: 2.5,
+    defaultOn: true,
+    hint: "Your real result: price moves PLUS dividends reinvested. The gap above the price line is your dividends working.",
+  },
   portfolio: {
     key: "portfolio",
-    label: "Your portfolio (PKR)",
-    short: "Portfolio",
-    stroke: CHART_THEME.accent,
-    width: 2.25,
+    label: "Portfolio (price only)",
+    short: "Price only",
+    stroke: "#9a8e7a",
+    width: 1.5,
+    dash: "3 3",
     defaultOn: true,
-    hint: "Your stock holdings, valued at daily close, indexed to 100.",
+    hint: "Share price moves only — excludes dividends. Shown so you can see what dividends add.",
+  },
+  portfolioReal: {
+    key: "portfolioReal",
+    label: "Real (after inflation)",
+    short: "Real",
+    stroke: "#b5683f",
+    width: 1.75,
+    dash: "5 2",
+    defaultOn: false,
+    hint: "Your total return adjusted for Pakistan's inflation — growth in real purchasing power. Set the inflation rate in Settings.",
+  },
+  gold: {
+    key: "gold",
+    label: "Gold (PKR)",
+    short: "Gold",
+    stroke: "#caa53d",
+    width: 1.5,
+    dash: "4 2",
+    defaultOn: false,
+    hint: "Gold's return in rupees over the same window — the classic inflation/devaluation hedge to beat.",
   },
   netWorth: {
     key: "netWorth",
@@ -105,10 +138,13 @@ export const SERIES_META: Record<SeriesKey, SeriesMeta> = {
 };
 
 export const SERIES_ORDER: SeriesKey[] = [
+  "portfolioTR",
   "portfolio",
+  "portfolioReal",
   "netWorth",
   "kse100",
   "kmi30",
+  "gold",
   "portfolioUsd",
   "sp500",
   "usdpkr",

@@ -6,7 +6,16 @@
 const URL = "https://dps.psx.com.pk/market-watch";
 const UA = "Mozilla/5.0 (compatible; psx-tracker/0.1)";
 
-export type MarketRow = { symbol: string; sectorCode: string; listedIn: string[] };
+// Columns (observed live): SYMBOL | SECTOR(code) | LISTED IN | LDCP | OPEN |
+// HIGH | LOW | CURRENT | CHANGE | CHANGE% | VOLUME. We keep the membership +
+// the CURRENT price (LDCP as fallback) so sector market-cap weights can be
+// computed without a second request per symbol.
+export type MarketRow = {
+  symbol: string;
+  sectorCode: string;
+  listedIn: string[];
+  price: number; // CURRENT, falling back to LDCP; 0 when unavailable
+};
 
 function strip(s: string): string {
   return s
@@ -17,6 +26,12 @@ function strip(s: string): string {
     .trim();
 }
 
+function num(s: string | undefined): number {
+  if (!s) return 0;
+  const n = Number(s.replace(/,/g, "").trim());
+  return Number.isFinite(n) ? n : 0;
+}
+
 export function parseMarketWatch(html: string): Map<string, MarketRow> {
   const out = new Map<string, MarketRow>();
   const rows = html.match(/<tr[^>]*>[\s\S]*?<\/tr>/gi) ?? [];
@@ -25,13 +40,23 @@ export function parseMarketWatch(html: string): Map<string, MarketRow> {
     if (cells.length < 3) continue;
     const symbol = cells[0].toUpperCase();
     if (!/^[A-Z0-9.&-]{1,12}$/.test(symbol)) continue; // skip header/pager rows
+    const current = num(cells[7]);
+    const ldcp = num(cells[3]);
     out.set(symbol, {
       symbol,
       sectorCode: cells[1],
       listedIn: cells[2].split(",").map((s) => s.trim()).filter(Boolean),
+      price: current > 0 ? current : ldcp,
     });
   }
   return out;
+}
+
+// Whether a market-watch row belongs to a given index, tolerant of the token's
+// punctuation/casing ("KSE100", "kse-100", ...).
+export function isInIndex(row: MarketRow, indexCode: string): boolean {
+  const want = indexCode.toUpperCase().replace(/[^A-Z0-9]/g, "");
+  return row.listedIn.some((t) => t.toUpperCase().replace(/[^A-Z0-9]/g, "") === want);
 }
 
 let cache: { at: number; data: Map<string, MarketRow> } | null = null;

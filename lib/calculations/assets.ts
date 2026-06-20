@@ -55,26 +55,60 @@ export function valueSavings(
 
 export type FundValuation = {
   units: number;
-  nav: number;
+  nav: number; // the published (par) NAV
+  effectiveNav: number; // total-return NAV: par compounded by the daily yield
+  dailyYieldPct: number; // the daily rate the effective NAV grows by
   value: number;
-  cost: number; // units * avgCost
+  cost: number;
   unrealizedPL: number;
   unrealizedPct: number;
+  dailyDividend: boolean;
 };
 
+// Daily-dividend / money-market funds (e.g. Alhamra Daily Dividend) keep their
+// PUBLISHED NAV pinned at par and pay income as daily dividends. Their profit is
+// real but invisible if you just look at NAV. So for these we compute an
+// EFFECTIVE NAV that ticks up every day at the fund's annualised yield (par
+// compounded daily) — the value and return then reflect the daily income. The
+// published par NAV is kept for reference. Growth funds are unchanged.
 export function valueFund(
-  fund: { units: number; avgCost: number },
-  nav: number
+  fund: {
+    units: number;
+    avgCost: number;
+    dailyDividend?: boolean;
+    annualYieldPct?: number;
+    anchorDate?: string;
+  },
+  nav: number,
+  asOf: string = new Date().toISOString().slice(0, 10)
 ): FundValuation {
-  const value = fund.units * nav;
-  const cost = fund.units * fund.avgCost;
+  const units = fund.units;
+  const isDaily = !!fund.dailyDividend;
+  const par = nav > 0 ? nav : fund.avgCost > 0 ? fund.avgCost : 100;
+
+  let effectiveNav = isDaily ? par : nav;
+  let dailyYieldPct = 0;
+  if (isDaily && fund.anchorDate && (fund.annualYieldPct ?? 0) > 0) {
+    const days = daysBetween(fund.anchorDate, asOf);
+    // Effective-annual convention (same as savings): 17% means +17% over a year.
+    const dailyFactor = Math.pow(1 + (fund.annualYieldPct as number) / 100, 1 / 365);
+    effectiveNav = par * Math.pow(dailyFactor, days);
+    dailyYieldPct = (dailyFactor - 1) * 100;
+  }
+
+  const usedNav = isDaily ? effectiveNav : nav;
+  const value = units * usedNav;
+  const cost = units * fund.avgCost;
   const unrealizedPL = value - cost;
   return {
-    units: fund.units,
+    units,
     nav,
+    effectiveNav,
+    dailyYieldPct,
     value,
     cost,
     unrealizedPL,
     unrealizedPct: cost > 0 ? unrealizedPL / cost : 0,
+    dailyDividend: isDaily,
   };
 }

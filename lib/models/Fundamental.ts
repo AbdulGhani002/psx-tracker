@@ -27,6 +27,7 @@ const FundamentalSchema = new Schema(
   {
     symbol: { type: String, required: true, uppercase: true, trim: true, unique: true },
     faceValue: { type: Number, default: 10 },
+    sector: { type: String, default: "" }, // PSX sector name (for market sector weights)
     annual: { type: [AnnualSchema], default: [] },
     latestEps: { type: Number, default: null },
     epsGrowthPct: { type: Number, default: null },

@@ -1,26 +1,40 @@
 import { NextResponse } from "next/server";
 import { connectDb } from "@/lib/db";
 import { AlertLogModel } from "@/lib/models";
-import { getAppSettings, getWatchlist, getCurrentPrices, getPortfolioSummary, getAllHoldings, getUpcomingExDates } from "@/lib/data";
+import { getAppSettings, getWatchlist, getCurrentPrices, getPortfolioSummary, getAllHoldings, getUpcomingExDates, getAllUserIds } from "@/lib/data";
+import { runAsUser } from "@/lib/auth/current-user";
+import { uid } from "@/lib/auth/uid";
 import { sendTelegram } from "@/lib/notify/telegram";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
-export const maxDuration = 60;
+export const maxDuration = 120;
 
 type Candidate = { key: string; message: string };
 
-// Scheduled timer hits this. Checks watchlist target hits + rebalance drift and
-// pushes deduped Telegram alerts (each key fires at most once per day).
+// Scheduled timer hits this. Runs the alert check for EVERY user (each with
+// their own Telegram config, watchlist, holdings) and pushes deduped alerts.
 export async function POST() {
+  await connectDb();
+  const userIds = await getAllUserIds();
+  const perUser: Record<string, unknown> = {};
+  for (const uid of userIds) {
+    perUser[uid] = await runAsUser(uid, () => runAlertsForCurrentUser());
+  }
+  return NextResponse.json({ ok: true, users: userIds.length, perUser });
+}
+
+// Checks watchlist target hits + rebalance drift + upcoming ex-dates for the
+// CURRENT user, pushing deduped Telegram alerts (each key fires at most once
+// per day, per user).
+async function runAlertsForCurrentUser() {
   const settings: any = await getAppSettings();
   const token = settings.telegramBotToken ?? "";
   const chatId = settings.telegramChatId ?? "";
   if (!settings.alertsEnabled || !token || !chatId) {
-    return NextResponse.json({ skipped: true, reason: "alerts_disabled_or_unconfigured" });
+    return { skipped: true, reason: "alerts_disabled_or_unconfigured" };
   }
 
-  await connectDb();
   const today = new Date().toISOString().slice(0, 10);
   const candidates: Candidate[] = [];
 
@@ -66,10 +80,12 @@ export async function POST() {
   }
 
   // Insert-only dedup: a successful insert means this key is fresh today.
+  // Scoped by userId so each user has their own daily dedupe slots.
+  const myId = await uid();
   const fresh: string[] = [];
   for (const c of candidates) {
     try {
-      await AlertLogModel.create({ dedupeKey: c.key, kind: c.key.split(":")[0], message: c.message });
+      await AlertLogModel.create({ userId: myId, dedupeKey: c.key, kind: c.key.split(":")[0], message: c.message });
       fresh.push(c.message);
     } catch {
       /* duplicate — already alerted today */
@@ -77,10 +93,10 @@ export async function POST() {
   }
 
   if (fresh.length === 0) {
-    return NextResponse.json({ sent: 0, checked: candidates.length });
+    return { sent: 0, checked: candidates.length };
   }
 
   const text = `<b>PSX Portfolio alerts</b>\n${fresh.join("\n")}`;
   const result = await sendTelegram(token, chatId, text);
-  return NextResponse.json({ sent: result.ok ? fresh.length : 0, ok: result.ok, detail: result.detail, checked: candidates.length });
+  return { sent: result.ok ? fresh.length : 0, ok: result.ok, detail: result.detail, checked: candidates.length };
 }

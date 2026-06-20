@@ -2,7 +2,8 @@ import { Schema, model, models, type InferSchemaType, type Model } from "mongoos
 
 const TargetAllocationSchema = new Schema(
   {
-    symbol: { type: String, required: true, unique: true, uppercase: true, trim: true, index: true },
+    userId: { type: String, default: "", index: true },
+    symbol: { type: String, required: true, uppercase: true, trim: true, index: true },
     targetPercent: { type: Number, required: true, min: 0, max: 100 },
     rebalanceBand: { type: Number, default: 3, min: 0, max: 50 },
     rationale: { type: String, default: "" },

@@ -18,6 +18,7 @@ type Settings = {
   pmexCommissionPerLot: number;
   pmexCgtPercent: number;
   concentrationCap: number;
+  inflationPct: number;
   equityRiskPremiumPct: number;
   defaultFairPE: number;
   targetMonthlyIncome: number;
@@ -83,6 +84,7 @@ export function AppSettingsManager({ initial, telegramConfigured }: { initial: S
           hint="Drives the tax report and the filer/non-filer meter."
         />
         <NumberInput label="Concentration cap (%)" value={s.concentrationCap} onChange={(v) => set("concentrationCap", v)} min={0} max={100} step={1} suffix="%" />
+        <NumberInput label="Inflation (CPI) %" value={s.inflationPct} onChange={(v) => set("inflationPct", v)} min={0} max={100} step={0.5} suffix="%" hint="Pakistan's annual CPI — powers the inflation-adjusted 'Real' return line on the benchmark chart." />
         <div />
 
         <NumberInput label="Dividend WHT — filer (%)" value={s.dividendWhtFiler} onChange={(v) => set("dividendWhtFiler", v)} min={0} max={100} step={0.5} suffix="%" />

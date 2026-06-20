@@ -205,6 +205,7 @@ export default async function HoldingDetail({ params }: Props) {
           initial={{
             enabled: h.lookThrough?.enabled ?? false,
             constituents: h.lookThrough?.constituents ?? [],
+            unlistedHoldings: h.lookThrough?.unlistedHoldings ?? [],
             unlistedValuePkr: h.lookThrough?.unlistedValuePkr ?? 0,
             netDebtPkr: h.lookThrough?.netDebtPkr ?? 0,
             sharesOutstanding: h.lookThrough?.sharesOutstanding ?? 0,

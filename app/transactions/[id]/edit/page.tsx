@@ -7,6 +7,7 @@ import { EditTransactionForm } from "./EditTransactionForm";
 import { connectDb } from "@/lib/db";
 import { TransactionModel } from "@/lib/models";
 import { checkDataAvailability } from "@/lib/data";
+import { getCurrentUserId } from "@/lib/auth/current-user";
 
 export const dynamic = "force-dynamic";
 
@@ -22,7 +23,8 @@ export default async function EditTransactionPage({ params }: { params: { id: st
   }
 
   await connectDb();
-  const doc = await TransactionModel.findById(params.id).lean();
+  const userId = await getCurrentUserId();
+  const doc = userId ? await TransactionModel.findOne({ _id: params.id, userId }).lean() : null;
   if (!doc) notFound();
   const plain = JSON.parse(JSON.stringify(doc));
 

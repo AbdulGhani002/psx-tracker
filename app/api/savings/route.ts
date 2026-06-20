@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { uid } from "@/lib/auth/uid";
 import { z } from "zod";
 import { connectDb } from "@/lib/db";
 import { SavingsAccountModel } from "@/lib/models";
@@ -16,7 +17,7 @@ const postSchema = z.object({
 
 export async function GET() {
   await connectDb();
-  const docs = await SavingsAccountModel.find().sort({ name: 1 }).lean();
+  const docs = await SavingsAccountModel.find({ userId: await uid() }).sort({ name: 1 }).lean();
   return NextResponse.json({ accounts: docs });
 }
 
@@ -24,7 +25,7 @@ export async function POST(req: NextRequest) {
   try {
     const parsed = postSchema.parse(await req.json());
     await connectDb();
-    const created = await SavingsAccountModel.create(parsed);
+    const created = await SavingsAccountModel.create({ ...parsed, userId: await uid() });
     return NextResponse.json(created.toObject(), { status: 201 });
   } catch (err) {
     if (err instanceof z.ZodError) {

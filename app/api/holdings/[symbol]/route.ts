@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { uid } from "@/lib/auth/uid";
 import { z } from "zod";
 import { connectDb } from "@/lib/db";
 import { HoldingModel, TransactionModel } from "@/lib/models";
@@ -51,11 +52,16 @@ const patchSchema = z.object({
     })
     .optional(),
   bookValuePerShare: z.number().min(0).optional(),
+  purificationPctOfDividend: z.number().min(0).max(100).optional(),
   lookThrough: z
     .object({
       enabled: z.boolean().optional(),
       constituents: z
         .array(z.object({ label: z.string().default(""), symbol: z.string().default(""), shares: z.number().min(0).default(0), ownershipPct: z.number().min(0).max(100).default(0) }))
+        .max(60)
+        .optional(),
+      unlistedHoldings: z
+        .array(z.object({ label: z.string().default(""), valuePkr: z.number().default(0), ownershipPct: z.number().min(0).max(100).default(0), note: z.string().default("") }))
         .max(60)
         .optional(),
       unlistedValuePkr: z.number().optional(),
@@ -69,7 +75,7 @@ type Params = { params: { symbol: string } };
 
 export async function GET(_req: NextRequest, { params }: Params) {
   await connectDb();
-  const doc = await HoldingModel.findOne({ symbol: params.symbol.toUpperCase() }).lean();
+  const doc = await HoldingModel.findOne({ userId: await uid(), symbol: params.symbol.toUpperCase() }).lean();
   if (!doc) return NextResponse.json({ error: "not_found" }, { status: 404 });
   return NextResponse.json(doc);
 }
@@ -92,7 +98,7 @@ export async function PATCH(req: NextRequest, { params }: Params) {
       }
     }
 
-    const updated = await HoldingModel.findOneAndUpdate({ symbol }, update, { new: true }).lean();
+    const updated = await HoldingModel.findOneAndUpdate({ userId: await uid(), symbol }, update, { new: true }).lean();
     if (!updated) return NextResponse.json({ error: "not_found" }, { status: 404 });
     return NextResponse.json(updated);
   } catch (err) {
@@ -106,14 +112,14 @@ export async function PATCH(req: NextRequest, { params }: Params) {
 export async function DELETE(_req: NextRequest, { params }: Params) {
   await connectDb();
   const symbol = params.symbol.toUpperCase();
-  const txCount = await TransactionModel.countDocuments({ symbol, deletedAt: null });
+  const txCount = await TransactionModel.countDocuments({ userId: await uid(), symbol, deletedAt: null });
   if (txCount > 0) {
     return NextResponse.json(
       { error: "has_transactions", count: txCount, message: "Delete this holding's transactions first." },
       { status: 400 }
     );
   }
-  const deleted = await HoldingModel.findOneAndDelete({ symbol }).lean();
+  const deleted = await HoldingModel.findOneAndDelete({ userId: await uid(), symbol }).lean();
   if (!deleted) return NextResponse.json({ error: "not_found" }, { status: 404 });
   return NextResponse.json({ deleted: true, symbol });
 }

@@ -2,7 +2,8 @@ import { Schema, model, models, type InferSchemaType, type Model } from "mongoos
 
 const WatchlistEntrySchema = new Schema(
   {
-    symbol: { type: String, required: true, unique: true, uppercase: true, trim: true, index: true },
+    userId: { type: String, default: "", index: true },
+    symbol: { type: String, required: true, uppercase: true, trim: true, index: true },
     name: { type: String, default: "" },
     sector: { type: String, default: "" },
     notes: { type: String, default: "" },

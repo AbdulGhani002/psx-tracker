@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { uid } from "@/lib/auth/uid";
 import { z } from "zod";
 import { connectDb } from "@/lib/db";
 import { AppSettingsModel } from "@/lib/models";
@@ -14,6 +15,7 @@ const patchSchema = z.object({
   pmexCommissionPerLot: z.number().min(0).optional(),
   pmexCgtPercent: z.number().min(0).max(100).optional(),
   concentrationCap: z.number().min(0).max(100).optional(),
+  inflationPct: z.number().min(0).max(100).optional(),
   equityRiskPremiumPct: z.number().min(0).max(30).optional(),
   defaultFairPE: z.number().min(1).max(40).optional(),
   targetMonthlyIncome: z.number().min(0).optional(),
@@ -31,9 +33,10 @@ function sanitize(doc: any) {
 
 export async function GET() {
   await connectDb();
+  const u = await uid();
   const doc = await AppSettingsModel.findOneAndUpdate(
-    { key: "global" },
-    {},
+    { userId: u },
+    { userId: u, key: u },
     { new: true, upsert: true, setDefaultsOnInsert: true }
   ).lean();
   return NextResponse.json(sanitize(doc));
@@ -48,7 +51,8 @@ export async function PATCH(req: NextRequest) {
     if (!update.telegramBotToken) delete update.telegramBotToken;
     if (!update.telegramChatId) delete update.telegramChatId;
     await connectDb();
-    const doc = await AppSettingsModel.findOneAndUpdate({ key: "global" }, update, {
+    const u = await uid();
+    const doc = await AppSettingsModel.findOneAndUpdate({ userId: u }, { ...update, userId: u, key: u }, {
       new: true,
       upsert: true,
       setDefaultsOnInsert: true,

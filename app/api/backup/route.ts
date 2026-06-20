@@ -1,23 +1,20 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { connectDb } from "@/lib/db";
+import { uid } from "@/lib/auth/uid";
 import { APP_VERSION } from "@/lib/version";
 import {
   HoldingModel,
   TransactionModel,
-  PriceSnapshotModel,
   ScenarioProjectionModel,
   TargetAllocationModel,
   DecisionLogModel,
   CashEntryModel,
   WatchlistEntryModel,
-  SbpRateModel,
   MutualFundModel,
   SavingsAccountModel,
   AppSettingsModel,
   CommodityTradeModel,
-  AlertLogModel,
-  FundamentalModel,
 } from "@/lib/models";
 
 export const dynamic = "force-dynamic";
@@ -25,9 +22,10 @@ export const dynamic = "force-dynamic";
 // Every collection in the app, in a restore-safe order (settings + reference
 // data first). Each entry maps a stable name (used in the backup file) to its
 // Mongoose model.
+// Only the signed-in user's own collections — global/market data (prices,
+// fundamentals, SBP rates, alerts) is shared and never part of a user's backup.
 const COLLECTIONS: Array<{ name: string; model: any }> = [
   { name: "AppSettings", model: AppSettingsModel },
-  { name: "SbpRate", model: SbpRateModel },
   { name: "TargetAllocation", model: TargetAllocationModel },
   { name: "WatchlistEntry", model: WatchlistEntryModel },
   { name: "Holding", model: HoldingModel },
@@ -38,9 +36,6 @@ const COLLECTIONS: Array<{ name: string; model: any }> = [
   { name: "SavingsAccount", model: SavingsAccountModel },
   { name: "CommodityTrade", model: CommodityTradeModel },
   { name: "ScenarioProjection", model: ScenarioProjectionModel },
-  { name: "PriceSnapshot", model: PriceSnapshotModel },
-  { name: "AlertLog", model: AlertLogModel },
-  { name: "Fundamental", model: FundamentalModel },
 ];
 
 const MAX_RESTORE_BYTES = 50 * 1024 * 1024; // 50 MB
@@ -49,10 +44,11 @@ const MAX_RESTORE_BYTES = 50 * 1024 * 1024; // 50 MB
 // Includes soft-deleted transactions so the backup is lossless.
 export async function GET() {
   await connectDb();
+  const u = await uid();
   const collections: Record<string, unknown[]> = {};
   let totalDocs = 0;
   for (const c of COLLECTIONS) {
-    const docs = await c.model.find().lean();
+    const docs = await c.model.find({ userId: u }).lean();
     collections[c.name] = docs;
     totalDocs += docs.length;
   }
@@ -165,6 +161,11 @@ export async function POST(req: NextRequest) {
     }
 
     await connectDb();
+    const u = await uid();
+    // Stamp every incoming row with the current user so a backup can never be
+    // imported into someone else's account (and an older, pre-multi-tenant
+    // backup gets correctly claimed on restore).
+    const own = (doc: Record<string, unknown>) => ({ ...doc, userId: u });
     const report: Record<string, { restored: number; cleared?: number; failed?: number; error?: string; rolledBack?: boolean }> = {};
     let anyError = false;
 
@@ -173,17 +174,18 @@ export async function POST(req: NextRequest) {
       if (!Array.isArray(rows)) continue; // collection absent from this backup
 
       if (parsed.mode === "replace") {
-        // Snapshot the current contents so we can roll back on failure.
-        const snapshot = await c.model.find().lean();
+        // Snapshot only THIS user's contents so we can roll back on failure —
+        // never touch other users' rows.
+        const snapshot = await c.model.find({ userId: u }).lean();
         try {
-          const del = await c.model.deleteMany({});
-          if (rows.length) await c.model.insertMany(rows, { ordered: false, timestamps: false });
+          const del = await c.model.deleteMany({ userId: u });
+          if (rows.length) await c.model.insertMany(rows.map(own), { ordered: false, timestamps: false });
           report[c.name] = { cleared: del.deletedCount ?? 0, restored: rows.length };
         } catch (e) {
           // Restore the snapshot so the collection is never left empty.
           let rolledBack = false;
           try {
-            await c.model.deleteMany({});
+            await c.model.deleteMany({ userId: u });
             if (snapshot.length) await c.model.insertMany(snapshot, { ordered: false, timestamps: false });
             rolledBack = true;
           } catch {
@@ -201,9 +203,11 @@ export async function POST(req: NextRequest) {
           try {
             const _id = (doc as Record<string, unknown>)._id;
             if (_id == null) {
-              await c.model.insertMany([doc], { timestamps: false });
+              await c.model.insertMany([own(doc)], { timestamps: false });
             } else {
-              await c.model.replaceOne({ _id }, doc, { upsert: true, timestamps: false });
+              // Scope the match by userId too, so a backup _id can never
+              // overwrite another user's document.
+              await c.model.replaceOne({ _id, userId: u }, own(doc), { upsert: true, timestamps: false });
             }
             restored++;
           } catch (e) {

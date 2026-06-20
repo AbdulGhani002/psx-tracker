@@ -60,20 +60,28 @@ export function fmtCompact(v: number | null | undefined): string {
   return PKR.format(v);
 }
 
+// This is a Pakistan Stock Exchange app, so all timestamps are shown in
+// Pakistan Standard Time (Asia/Karachi) regardless of where the server runs.
+// The VPS clock is CEST (UTC+2); without pinning the zone, a price fetched at
+// 2 PM PKT would display as ~11 AM and look hours stale.
+const PK_TZ = "Asia/Karachi";
+
 export function fmtDate(d: Date | string | null | undefined): string {
   if (!d) return "—";
   const date = typeof d === "string" ? new Date(d) : d;
-  return date.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
+  return date.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric", timeZone: PK_TZ });
 }
 
 export function fmtDateTime(d: Date | string | null | undefined): string {
   if (!d) return "—";
   const date = typeof d === "string" ? new Date(d) : d;
-  return date.toLocaleString("en-GB", {
+  const s = date.toLocaleString("en-GB", {
     day: "2-digit",
     month: "short",
     year: "numeric",
     hour: "2-digit",
     minute: "2-digit",
+    timeZone: PK_TZ,
   });
+  return `${s} PKT`;
 }

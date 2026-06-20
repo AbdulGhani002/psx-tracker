@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { uid } from "@/lib/auth/uid";
 import { z } from "zod";
 import { connectDb } from "@/lib/db";
 import { WatchlistEntryModel } from "@/lib/models";
@@ -17,7 +18,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { symbol: st
     const parsed = patchSchema.parse(body);
     await connectDb();
     const doc = await WatchlistEntryModel.findOneAndUpdate(
-      { symbol: params.symbol.toUpperCase() },
+      { userId: await uid(), symbol: params.symbol.toUpperCase() },
       parsed,
       { new: true }
     ).lean();
@@ -33,7 +34,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { symbol: st
 
 export async function DELETE(_req: NextRequest, { params }: { params: { symbol: string } }) {
   await connectDb();
-  const doc = await WatchlistEntryModel.findOneAndDelete({ symbol: params.symbol.toUpperCase() }).lean();
+  const doc = await WatchlistEntryModel.findOneAndDelete({ userId: await uid(), symbol: params.symbol.toUpperCase() }).lean();
   if (!doc) return NextResponse.json({ error: "not_found" }, { status: 404 });
   return NextResponse.json({ deleted: true });
 }

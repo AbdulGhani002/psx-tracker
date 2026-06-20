@@ -18,3 +18,5 @@ export { AppSettingsModel, type AppSettings, DEFAULT_SETTINGS } from "./AppSetti
 export { CommodityTradeModel, type CommodityTrade, COMMODITY_SIDES } from "./CommodityTrade";
 export { AlertLogModel, type AlertLog } from "./AlertLog";
 export { FundamentalModel, type Fundamental } from "./Fundamental";
+export { FeedSnapshotModel, type FeedSnapshot } from "./FeedSnapshot";
+export { UserModel, type User } from "./User";

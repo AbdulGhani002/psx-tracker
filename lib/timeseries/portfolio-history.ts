@@ -93,9 +93,12 @@ function closeOnOrBefore(
 
 export type SeriesKey =
   | "portfolio"
+  | "portfolioTR"
+  | "portfolioReal"
   | "netWorth"
   | "kse100"
   | "kmi30"
+  | "gold"
   | "portfolioUsd"
   | "sp500"
   | "usdpkr"
@@ -114,10 +117,13 @@ export type NetWorthExtras = {
 export type BenchmarkPoint = {
   date: string;
   portfolioValue: number;
-  portfolio: number | null; // indexed to 100
+  portfolio: number | null; // indexed to 100 (price only)
+  portfolioTR: number | null; // total return: price + dividends reinvested
+  portfolioReal: number | null; // total return adjusted for inflation (real)
   netWorth: number | null;
   kse100: number | null;
   kmi30: number | null;
+  gold: number | null; // gold price in PKR, indexed
   portfolioUsd: number | null;
   sp500: number | null;
   usdpkr: number | null;
@@ -147,11 +153,13 @@ export async function buildBenchmarkSeries({
   rangeKey = "90D",
   rateSteps,
   netWorthExtras,
+  inflationPct = 0,
 }: {
   transactions: Transaction[];
   rangeKey?: string;
   rateSteps?: RateStep[];
   netWorthExtras?: NetWorthExtras;
+  inflationPct?: number;
 }): Promise<BenchmarkSeries | null> {
   const days = RANGE_TO_DAYS[rangeKey] ?? 90;
   const yahooRange = RANGE_TO_YAHOO[rangeKey] ?? "3mo";
@@ -167,12 +175,13 @@ export async function buildBenchmarkSeries({
   );
 
   // Fetch everything in parallel. Each failure degrades to an empty series.
-  const [kseSeries, kmiSeries, usdpkrSeries, sp500Series, symbolMap] =
+  const [kseSeries, kmiSeries, usdpkrSeries, sp500Series, goldSeries, symbolMap] =
     await Promise.all([
       fetchEodSeries("KSE100"),
       fetchEodSeries("KMI30"),
       fetchYahooDaily("USDPKR=X", yahooRange),
       fetchYahooDaily("^GSPC", yahooRange),
+      fetchYahooDaily("GC=F", yahooRange), // gold, USD per troy ounce
       fetchManyEod(symbols),
     ]);
 
@@ -197,6 +206,8 @@ export async function buildBenchmarkSeries({
   const usdDates = usdpkrSeries.map((p) => p.date);
   const spIdx = indexBySeries(sp500Series);
   const spDates = sp500Series.map((p) => p.date);
+  const goldIdx = indexBySeries(goldSeries);
+  const goldDates = goldSeries.map((p) => p.date);
 
   // Raw (un-indexed) per-date values.
   type Raw = {
@@ -206,6 +217,7 @@ export async function buildBenchmarkSeries({
     kmi: number | null;
     usd: number | null;
     sp: number | null;
+    goldPkr: number | null; // gold price converted to PKR
   };
   const raws: Raw[] = datesInRange.map((date) => {
     const shares = sharesHeldAt(date, transactions);
@@ -218,13 +230,16 @@ export async function buildBenchmarkSeries({
       if (close == null) continue;
       pVal += count * close;
     }
+    const usdHere = closeOnOrBefore(usdIdx, usdDates, date);
+    const goldUsd = closeOnOrBefore(goldIdx, goldDates, date);
     return {
       date,
       portfolioValue: pVal,
       kse: kseIdx.get(date) ?? null,
       kmi: closeOnOrBefore(kmiIdx, kmiDates, date),
-      usd: closeOnOrBefore(usdIdx, usdDates, date),
+      usd: usdHere,
       sp: closeOnOrBefore(spIdx, spDates, date),
+      goldPkr: goldUsd != null && usdHere != null ? goldUsd * usdHere : null,
     };
   });
 
@@ -239,6 +254,7 @@ export async function buildBenchmarkSeries({
     kmi: trimmed.find((r) => r.kmi != null)?.kmi ?? 0,
     sp: trimmed.find((r) => r.sp != null)?.sp ?? 0,
     usd: trimmed.find((r) => r.usd != null)?.usd ?? 0,
+    gold: trimmed.find((r) => r.goldPkr != null)?.goldPkr ?? 0,
   };
 
   // Value a given share map at a given date (carry-forward close).
@@ -282,6 +298,45 @@ export async function buildBenchmarkSeries({
       tUsdIdx *= emv / usdCurr / (bmv / usdPrev);
     }
     twrUsd.push(tUsdIdx);
+  }
+
+  // TOTAL-RETURN portfolio line: same price path as the TWR line, but dividends
+  // RECEIVED are reinvested on their pay date — so the gap between this line and
+  // the price-only line is exactly the contribution of your dividends. High-
+  // dividend stocks lag on price but this line captures what they really return.
+  const divByDate = new Map<string, number>();
+  for (const tx of transactions) {
+    if (tx.type !== "DIVIDEND") continue;
+    const d = new Date(tx.date).toISOString().slice(0, 10);
+    divByDate.set(d, (divByDate.get(d) ?? 0) + (tx.netAmount ?? 0));
+  }
+  const tr: number[] = [];
+  let trIdx = 100;
+  for (let i = 0; i < trimmed.length; i++) {
+    if (i === 0) {
+      tr.push(100);
+      continue;
+    }
+    const prevDate = trimmed[i - 1].date;
+    const currDate = trimmed[i].date;
+    const prevShares = sharesHeldAt(prevDate, transactions);
+    const bmv = valueOfSharesAt(prevShares, prevDate);
+    const emv = valueOfSharesAt(prevShares, currDate);
+    let div = 0;
+    for (const [d, amt] of divByDate) if (d > prevDate && d <= currDate) div += amt;
+    if (bmv > 0 && emv > 0) trIdx *= (emv + div) / bmv;
+    tr.push(trIdx);
+  }
+
+  // Inflation-adjusted (real) total return: deflate the total-return index by the
+  // annual inflation rate compounded over elapsed time — growth in real,
+  // purchasing-power terms (so high PKR inflation eats into the nominal gain).
+  const real: number[] = [];
+  const startDate = trimmed[0].date;
+  for (let i = 0; i < trimmed.length; i++) {
+    const years = daysBetween(startDate, trimmed[i].date) / 365;
+    const deflate = inflationPct > 0 ? Math.pow(1 + inflationPct / 100, years) : 1;
+    real.push((tr[i] ?? 100) / deflate);
   }
 
   const riskFree = riskFreeIndex(trimmed.map((r) => r.date), rateSteps, 100);
@@ -346,9 +401,12 @@ export async function buildBenchmarkSeries({
     date: r.date,
     portfolioValue: r.portfolioValue,
     portfolio: twr[i] ?? null,
+    portfolioTR: tr[i] ?? null,
+    portfolioReal: real[i] ?? null,
     netWorth: netWorthExtras ? netWorthIdx[i] ?? null : null,
     kse100: idx100(r.kse, base.kse),
     kmi30: idx100(r.kmi, base.kmi),
+    gold: idx100(r.goldPkr, base.gold),
     portfolioUsd: hasUsd ? twrUsd[i] ?? null : null,
     sp500: idx100(r.sp, base.sp),
     usdpkr: idx100(r.usd, base.usd),
@@ -363,7 +421,7 @@ export async function buildBenchmarkSeries({
 
   const returns: Partial<Record<SeriesKey, number>> = {};
   const available: SeriesKey[] = [];
-  for (const k of ["portfolio", "netWorth", "kse100", "kmi30", "portfolioUsd", "sp500", "usdpkr", "riskFree"] as SeriesKey[]) {
+  for (const k of ["portfolio", "portfolioTR", "portfolioReal", "netWorth", "kse100", "kmi30", "gold", "portfolioUsd", "sp500", "usdpkr", "riskFree"] as SeriesKey[]) {
     const r = ret(k);
     if (r !== undefined) {
       returns[k] = r;

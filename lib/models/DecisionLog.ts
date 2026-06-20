@@ -2,6 +2,7 @@ import { Schema, model, models, type InferSchemaType, type Model } from "mongoos
 
 const DecisionLogSchema = new Schema(
   {
+    userId: { type: String, default: "", index: true },
     symbol: { type: String, required: true, uppercase: true, trim: true, index: true },
     date: { type: Date, required: true, default: () => new Date() },
     trigger: { type: String, required: true },

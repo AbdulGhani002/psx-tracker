@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { uid } from "@/lib/auth/uid";
 import { z } from "zod";
 import { connectDb } from "@/lib/db";
 import { DecisionLogModel } from "@/lib/models";
@@ -19,7 +20,7 @@ export async function GET(req: NextRequest) {
   await connectDb();
   const symbol = req.nextUrl.searchParams.get("symbol");
   const filter = symbol ? { symbol: symbol.toUpperCase() } : {};
-  const docs = await DecisionLogModel.find(filter).sort({ date: -1 }).lean();
+  const docs = await DecisionLogModel.find({ ...filter, userId: await uid() }).sort({ date: -1 }).lean();
   return NextResponse.json({ entries: docs });
 }
 
@@ -29,6 +30,7 @@ export async function POST(req: NextRequest) {
     const parsed = entrySchema.parse(body);
     await connectDb();
     const created = await DecisionLogModel.create({
+      userId: await uid(),
       ...parsed,
       date: new Date(parsed.date),
     });

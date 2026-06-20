@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { uid } from "@/lib/auth/uid";
 import { z } from "zod";
 import { connectDb } from "@/lib/db";
 import { HoldingModel } from "@/lib/models";
@@ -17,7 +18,7 @@ const holdingSchema = z.object({
 
 export async function GET() {
   await connectDb();
-  const docs = await HoldingModel.find().sort({ symbol: 1 }).lean();
+  const docs = await HoldingModel.find({ userId: await uid() }).sort({ symbol: 1 }).lean();
   return NextResponse.json({ holdings: docs });
 }
 
@@ -26,12 +27,13 @@ export async function POST(req: NextRequest) {
     const body = await req.json();
     const parsed = holdingSchema.parse(body);
     await connectDb();
-    const exists = await HoldingModel.findOne({ symbol: parsed.symbol });
+    const exists = await HoldingModel.findOne({ userId: await uid(), symbol: parsed.symbol });
     if (exists) {
       return NextResponse.json({ error: "exists", symbol: parsed.symbol }, { status: 409 });
     }
     const info = getSectorInfo(parsed.symbol);
     const created = await HoldingModel.create({
+      userId: await uid(),
       symbol: parsed.symbol,
       name: parsed.name ?? info.name,
       sector: parsed.sector ?? info.sector,

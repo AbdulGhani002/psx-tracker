@@ -18,12 +18,22 @@ export type AnnualFinancial = {
 export type CompanyFundamentals = {
   symbol: string;
   faceValue: number; // par value; PSX standard is Rs 10
+  sector: string; // PSX sector name
   annual: AnnualFinancial[]; // newest first
   latestEps: number | null; // most recent annual EPS
   epsGrowthPct: number | null; // latest vs prior annual EPS, in %
   fetchedAt: string; // ISO
   source: string;
 };
+
+function parseSector(html: string): string {
+  const m = html.match(/class="quote__sector"[^>]*>\s*<span[^>]*>([^<]+)<|class="quote__sector"[^>]*>([^<]+)</i);
+  const raw = (m?.[1] ?? m?.[2] ?? "").trim();
+  if (!raw) return "";
+  // Title Case (lowercase first so all-caps PSX strings normalise consistently).
+  const s = raw.replace(/&amp;/gi, "&").replace(/\s+/g, " ").toLowerCase();
+  return s.replace(/(^|\s|-|\/|&)([a-z])/g, (_m, sep, ch) => sep + ch.toUpperCase());
+}
 
 // "(972,361)" -> -972361 ; "5.64" -> 5.64 ; "" / "-" -> null
 function parseNum(raw: string | null | undefined): number | null {
@@ -88,6 +98,7 @@ export function parseFinancials(html: string, symbol: string): CompanyFundamenta
   return {
     symbol: symbol.toUpperCase(),
     faceValue: 10,
+    sector: parseSector(html),
     annual,
     latestEps,
     epsGrowthPct,
@@ -101,6 +112,7 @@ export async function fetchFundamentals(symbol: string): Promise<CompanyFundamen
     const res = await fetch(PSX_URL(symbol.toUpperCase()), {
       headers: { "user-agent": UA, accept: "text/html" },
       cache: "no-store",
+      signal: AbortSignal.timeout(15000), // don't let one hung request stall a bulk run
     });
     if (!res.ok) return null;
     const html = await res.text();

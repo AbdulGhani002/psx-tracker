@@ -17,6 +17,7 @@ const MovementSchema = new Schema(
 
 const SavingsAccountSchema = new Schema(
   {
+    userId: { type: String, default: "", index: true },
     name: { type: String, required: true, trim: true }, // e.g. "Bank Alfalah Alfa"
     bank: { type: String, default: "" },
     ratePercent: { type: Number, required: true, default: 0 }, // annual profit rate

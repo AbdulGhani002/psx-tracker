@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { uid } from "@/lib/auth/uid";
 import { z } from "zod";
 import { connectDb } from "@/lib/db";
 import { HoldingModel, TransactionModel, TRANSACTION_TYPES } from "@/lib/models";
@@ -22,10 +23,10 @@ const txSchema = z.object({
 );
 
 async function recomputeHolding(symbol: string) {
-  const txs = await TransactionModel.find({ symbol, deletedAt: null }).sort({ date: 1, createdAt: 1 }).lean();
+  const txs = await TransactionModel.find({ userId: await uid(), symbol, deletedAt: null }).sort({ date: 1, createdAt: 1 }).lean();
   const derived = deriveFromTransactions(txs as any);
   await HoldingModel.findOneAndUpdate(
-    { symbol },
+    { userId: await uid(), symbol },
     {
       currentShares: derived.shares,
       avgCostBasis: derived.avgCost,
@@ -43,7 +44,7 @@ export async function GET(req: NextRequest) {
   const filter: Record<string, unknown> = { deletedAt: null };
   if (symbol) filter.symbol = symbol.toUpperCase();
   if (type) filter.type = type;
-  const docs = await TransactionModel.find(filter).sort({ date: -1, createdAt: -1 }).lean();
+  const docs = await TransactionModel.find({ ...filter, userId: await uid() }).sort({ date: -1, createdAt: -1 }).lean();
   return NextResponse.json({ transactions: docs });
 }
 
@@ -53,11 +54,11 @@ export async function POST(req: NextRequest) {
     const parsed = txSchema.parse(body);
     await connectDb();
 
-    let holding = await HoldingModel.findOne({ symbol: parsed.symbol });
+    let holding = await HoldingModel.findOne({ userId: await uid(), symbol: parsed.symbol });
 
     // Guard: can't sell more than you hold (would create negative shares).
     if (parsed.type === "SELL") {
-      const existing = await TransactionModel.find({ symbol: parsed.symbol, deletedAt: null }).lean();
+      const existing = await TransactionModel.find({ userId: await uid(), symbol: parsed.symbol, deletedAt: null }).lean();
       const held = deriveFromTransactions(existing as any).shares;
       if (Math.abs(parsed.shares) > held + 1e-6) {
         return NextResponse.json(
@@ -71,6 +72,7 @@ export async function POST(req: NextRequest) {
       // Brand new symbol — look it up on PSX so we don't store garbage metadata.
       const info = await getCompanyInfo(parsed.symbol);
       holding = await HoldingModel.create({
+      userId: await uid(),
         symbol: parsed.symbol,
         name: info?.name ?? parsed.symbol,
         sector: info?.sector ?? "Unknown",
@@ -94,6 +96,7 @@ export async function POST(req: NextRequest) {
     }
 
     const created = await TransactionModel.create({
+      userId: await uid(),
       symbol: parsed.symbol,
       type: parsed.type,
       date: new Date(parsed.date),

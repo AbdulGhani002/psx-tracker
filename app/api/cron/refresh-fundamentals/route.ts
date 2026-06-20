@@ -31,6 +31,7 @@ export async function POST() {
         {
           symbol: s,
           faceValue: fund?.faceValue ?? prev?.faceValue ?? 10,
+          sector: fund?.sector || prev?.sector || "",
           annual: fund?.annual ?? prev?.annual ?? [],
           latestEps: fund?.latestEps ?? prev?.latestEps ?? null,
           epsGrowthPct: fund?.epsGrowthPct ?? prev?.epsGrowthPct ?? null,

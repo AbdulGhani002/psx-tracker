@@ -6,6 +6,7 @@ export const COMMODITY_SIDES = ["LONG", "SHORT"] as const;
 // (what the user actually trades). P/L, commission and CGT are derived.
 const CommodityTradeSchema = new Schema(
   {
+    userId: { type: String, default: "", index: true },
     symbol: { type: String, required: true, uppercase: true, trim: true }, // GOLD, SILVER, CRUDE, KSE100...
     name: { type: String, default: "" },
     side: { type: String, required: true, enum: COMMODITY_SIDES, default: "LONG" },

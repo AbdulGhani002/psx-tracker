@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { uid } from "@/lib/auth/uid";
 import { connectDb } from "@/lib/db";
 import { HoldingModel, TransactionModel, TRANSACTION_TYPES } from "@/lib/models";
 import { getCompanyInfo } from "@/lib/prices";
@@ -74,9 +75,9 @@ function num(s: string): number {
 }
 
 async function recompute(symbol: string) {
-  const txs = await TransactionModel.find({ symbol, deletedAt: null }).sort({ date: 1, createdAt: 1 }).lean();
+  const txs = await TransactionModel.find({ userId: await uid(), symbol, deletedAt: null }).sort({ date: 1, createdAt: 1 }).lean();
   const d = deriveFromTransactions(txs as any);
-  await HoldingModel.findOneAndUpdate({ symbol }, {
+  await HoldingModel.findOneAndUpdate({ userId: await uid(), symbol }, {
     currentShares: d.shares, avgCostBasis: d.avgCost, totalCost: d.totalCost,
     realizedPL: d.realizedPL, totalDividendsReceived: d.dividendsReceived,
   });
@@ -139,10 +140,11 @@ export async function POST(req: NextRequest) {
     let imported = 0;
     const touchedSymbols = new Set<string>();
     for (const row of parsed) {
-      let holding = await HoldingModel.findOne({ symbol: row.symbol });
+      let holding = await HoldingModel.findOne({ userId: await uid(), symbol: row.symbol });
       if (!holding) {
         const info = await getCompanyInfo(row.symbol);
         holding = await HoldingModel.create({
+      userId: await uid(),
           symbol: row.symbol, name: info?.name ?? row.symbol, sector: info?.sector ?? "Unknown", shariaCompliant: false,
         });
       }
@@ -157,6 +159,7 @@ export async function POST(req: NextRequest) {
       else netAmount = 0;
 
       await TransactionModel.create({
+      userId: await uid(),
         symbol: row.symbol, type: row.type, date: new Date(row.date),
         shares: signedShares, pricePerShare: row.pricePerShare, totalAmount,
         fees: row.fees, netAmount, notes: row.notes, ratio: "",

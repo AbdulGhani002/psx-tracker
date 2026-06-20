@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { uid } from "@/lib/auth/uid";
 import { z } from "zod";
 import { connectDb } from "@/lib/db";
 import { HoldingModel, TransactionModel } from "@/lib/models";
@@ -26,10 +27,10 @@ const itemSchema = z.object({
 const bodySchema = z.object({ items: z.array(itemSchema) });
 
 async function recompute(symbol: string) {
-  const txs = await TransactionModel.find({ symbol, deletedAt: null }).sort({ date: 1, createdAt: 1 }).lean();
+  const txs = await TransactionModel.find({ userId: await uid(), symbol, deletedAt: null }).sort({ date: 1, createdAt: 1 }).lean();
   const derived = deriveFromTransactions(txs as any);
   await HoldingModel.findOneAndUpdate(
-    { symbol },
+    { userId: await uid(), symbol },
     {
       currentShares: derived.shares,
       avgCostBasis: derived.avgCost,
@@ -53,7 +54,7 @@ export async function POST(req: NextRequest) {
     for (const it of items) {
       try {
         // Dedup by warrant number — index is sparse-unique on the schema.
-        const existing = await TransactionModel.findOne({ warrantNo: it.warrantNo }).lean();
+        const existing = await TransactionModel.findOne({ userId: await uid(), warrantNo: it.warrantNo }).lean();
         if (existing) {
           duplicates.push({
             warrantNo: it.warrantNo,
@@ -64,10 +65,11 @@ export async function POST(req: NextRequest) {
         }
 
         // Auto-create Holding if missing, scraping PSX for real metadata.
-        let holding = await HoldingModel.findOne({ symbol: it.symbol });
+        let holding = await HoldingModel.findOne({ userId: await uid(), symbol: it.symbol });
         if (!holding) {
           const info = await getCompanyInfo(it.symbol);
           holding = await HoldingModel.create({
+      userId: await uid(),
             symbol: it.symbol,
             name: info?.name ?? it.companyName ?? it.symbol,
             sector: info?.sector ?? "Unknown",
@@ -77,6 +79,7 @@ export async function POST(req: NextRequest) {
 
         const fees = it.taxDeducted + it.zakatDeducted;
         const created = await TransactionModel.create({
+      userId: await uid(),
           symbol: it.symbol,
           type: "DIVIDEND",
           date: new Date(it.paymentDate),

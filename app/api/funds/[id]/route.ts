@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { uid } from "@/lib/auth/uid";
 import { z } from "zod";
 import { connectDb } from "@/lib/db";
 import { MutualFundModel } from "@/lib/models";
@@ -9,6 +10,9 @@ const patchSchema = z.object({
   name: z.string().optional(),
   units: z.number().min(0).optional(),
   avgCost: z.number().min(0).optional(),
+  fundType: z.enum(["growth", "dailyDividend"]).optional(),
+  annualYieldPct: z.number().min(0).max(100).optional(),
+  anchorDate: z.string().optional(),
   notes: z.string().optional(),
 });
 
@@ -16,7 +20,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
   try {
     const parsed = patchSchema.parse(await req.json());
     await connectDb();
-    const doc = await MutualFundModel.findByIdAndUpdate(params.id, parsed, { new: true }).lean();
+    const doc = await MutualFundModel.findOneAndUpdate({ _id: params.id, userId: await uid() }, parsed, { new: true }).lean();
     if (!doc) return NextResponse.json({ error: "not_found" }, { status: 404 });
     return NextResponse.json(doc);
   } catch (err) {
@@ -29,7 +33,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
 
 export async function DELETE(_req: NextRequest, { params }: { params: { id: string } }) {
   await connectDb();
-  const doc = await MutualFundModel.findByIdAndDelete(params.id).lean();
+  const doc = await MutualFundModel.findOneAndDelete({ _id: params.id, userId: await uid() }).lean();
   if (!doc) return NextResponse.json({ error: "not_found" }, { status: 404 });
   return NextResponse.json({ deleted: true });
 }

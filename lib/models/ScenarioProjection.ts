@@ -14,6 +14,7 @@ const AssumptionsSchema = new Schema(
 
 const ScenarioProjectionSchema = new Schema(
   {
+    userId: { type: String, default: "", index: true },
     name: { type: String, required: true, trim: true },
     symbol: { type: String, default: null, uppercase: true, trim: true },
     assumptions: { type: AssumptionsSchema, required: true },

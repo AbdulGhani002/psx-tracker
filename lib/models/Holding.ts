@@ -2,7 +2,8 @@ import { Schema, model, models, type InferSchemaType, type Model } from "mongoos
 
 const HoldingSchema = new Schema(
   {
-    symbol: { type: String, required: true, unique: true, uppercase: true, trim: true, index: true },
+    userId: { type: String, default: "", index: true },
+    symbol: { type: String, required: true, uppercase: true, trim: true, index: true },
     name: { type: String, required: true, trim: true },
     sector: { type: String, required: true, trim: true },
     shariaCompliant: { type: Boolean, default: false },
@@ -59,7 +60,14 @@ const HoldingSchema = new Schema(
             type: [new Schema({ label: { type: String, default: "" }, symbol: { type: String, default: "" }, shares: { type: Number, default: 0 }, ownershipPct: { type: Number, default: 0 } }, { _id: false })],
             default: [],
           },
-          unlistedValuePkr: { type: Number, default: 0 },
+          // Named private/unlisted holdings (no PSX price) — e.g. PIA, Sachal
+          // Energy for AHCL; CPHGC, Thar Energy for HUBCO. Each carries a value
+          // (from the annual report / your estimate), not a fake live price.
+          unlistedHoldings: {
+            type: [new Schema({ label: { type: String, default: "" }, valuePkr: { type: Number, default: 0 }, ownershipPct: { type: Number, default: 0 }, note: { type: String, default: "" } }, { _id: false })],
+            default: [],
+          },
+          unlistedValuePkr: { type: Number, default: 0 }, // legacy single lump (still summed)
           netDebtPkr: { type: Number, default: 0 },
           sharesOutstanding: { type: Number, default: 0 }, // 0 = derive from profit/EPS
         },
@@ -68,6 +76,10 @@ const HoldingSchema = new Schema(
       default: () => ({}),
     },
     bookValuePerShare: { type: Number, default: 0 }, // optional, enables P/B + ROE
+    // Shariah purification: % of this company's dividend that comes from
+    // non-permissible income (from Meezan/AlMeezan's annual report) — used to
+    // compute the charity amount to give away.
+    purificationPctOfDividend: { type: Number, default: 0 },
     // Saved per-stock compounding-model assumptions (overrides generic defaults).
     modelAssumptions: {
       type: new Schema(

@@ -7,7 +7,7 @@ import { Badge } from "@/components/ui/Badge";
 import { Table, type Column } from "@/components/ui/Table";
 import { SetupBanner } from "@/components/layout/SetupBanner";
 import { StressTester } from "./StressTester";
-import { getRiskAnalysis, checkDataAvailability } from "@/lib/data";
+import { getRiskAnalysis, getSectorComparison, checkDataAvailability } from "@/lib/data";
 import { fmtRs, fmtCompact } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
@@ -15,9 +15,21 @@ export const dynamic = "force-dynamic";
 type PosRow = { symbol: string; sector: string; value: number; pct: number; overCap: boolean };
 type SectorRow = { sector: string; value: number; pct: number };
 
+function ago(iso: string | null): string {
+  if (!iso) return "never";
+  const ms = Date.now() - new Date(iso).getTime();
+  const h = Math.round(ms / 3_600_000);
+  if (h < 1) return "just now";
+  if (h < 24) return `${h}h ago`;
+  return `${Math.round(h / 24)}d ago`;
+}
+
 export default async function RiskPage() {
   const avail = await checkDataAvailability();
-  const { concentration: c, correlation: corr, stressBase, safeRatePct, concentrationCap } = await getRiskAnalysis();
+  const [{ concentration: c, correlation: corr, stressBase, safeRatePct, concentrationCap }, sec] = await Promise.all([
+    getRiskAnalysis(),
+    getSectorComparison(),
+  ]);
 
   const concVerdictTone = c.verdict === "well diversified" ? "positive" : c.verdict === "moderately concentrated" ? "amber" : "negative";
 
@@ -97,7 +109,65 @@ export default async function RiskPage() {
         </div>
       </Section>
 
-      <Section number="03" title="Correlation" display="Do they move together?" description="Pearson correlation of daily returns over the available price history. Two names near +1 give little diversification; lower or negative is better.">
+      <Section
+        number="03"
+        title="Sector tilt vs KSE-100"
+        display="Where you lean against the market."
+        description="Your sector mix next to the KSE-100's own market-cap weighting (built from PSX data in the background and stored, so this loads instantly). Positive tilt = over-weight that sector versus the index."
+      >
+        {sec.comparison.length === 0 ? (
+          <Card>
+            <p className="text-[13px] text-muted">
+              {sec.status === "missing" || sec.status === "building"
+                ? "The KSE-100 sector snapshot is being prepared by the scheduled job. It will appear here on the next refresh."
+                : sec.status === "error"
+                ? `Couldn't build the index snapshot last run (${sec.note || "unknown error"}). The last good data, if any, is shown when available.`
+                : "Add some equity holdings to compare your sector mix to the index."}
+            </p>
+          </Card>
+        ) : (
+          <Card>
+            <p className="text-[12px] text-muted mb-3">
+              Index side: {sec.index} · {sec.membersPriced}/{sec.membersTotal} members priced · snapshot {ago(sec.updatedAt)}
+              {sec.status === "error" ? " · last refresh failed, showing previous data" : ""}.
+            </p>
+            <div className="space-y-2.5">
+              {sec.comparison.map((s) => {
+                const over = s.diffPct >= 0;
+                const tone = Math.abs(s.diffPct) < 2 ? "var(--muted)" : over ? "var(--negative)" : "var(--positive)";
+                return (
+                  <div key={s.sector}>
+                    <div className="flex justify-between items-baseline text-[12px] mb-1">
+                      <span className="truncate pr-2">{s.sector}</span>
+                      <span className="font-mono mono-num shrink-0" style={{ color: tone }}>
+                        {over ? "+" : ""}{s.diffPct.toFixed(1)}%
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      {/* your weight */}
+                      <div className="flex-1 h-[6px]" style={{ background: "var(--rule)" }}>
+                        <div className="h-full" style={{ width: `${Math.min(100, s.yourPct)}%`, background: "var(--accent)" }} />
+                      </div>
+                      <span className="font-mono mono-num text-[11px] w-12 text-right text-muted">{s.yourPct.toFixed(1)}%</span>
+                      {/* index weight */}
+                      <div className="flex-1 h-[6px]" style={{ background: "var(--rule)" }}>
+                        <div className="h-full" style={{ width: `${Math.min(100, s.indexPct)}%`, background: "var(--ink)", opacity: 0.45 }} />
+                      </div>
+                      <span className="font-mono mono-num text-[11px] w-12 text-right text-muted">{s.indexPct.toFixed(1)}%</span>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+            <div className="flex gap-4 mt-3 text-[11px] text-muted">
+              <span className="inline-flex items-center gap-1"><span className="inline-block w-3 h-[6px]" style={{ background: "var(--accent)" }} /> You</span>
+              <span className="inline-flex items-center gap-1"><span className="inline-block w-3 h-[6px]" style={{ background: "var(--ink)", opacity: 0.45 }} /> KSE-100</span>
+            </div>
+          </Card>
+        )}
+      </Section>
+
+      <Section number="04" title="Correlation" display="Do they move together?" description="Pearson correlation of daily returns over the available price history. Two names near +1 give little diversification; lower or negative is better.">
         {corr.symbols.length < 2 ? (
           <Card><p className="text-[13px] text-muted">Need at least two holdings with price history to correlate.</p></Card>
         ) : (

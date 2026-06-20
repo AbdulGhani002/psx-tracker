@@ -2,6 +2,8 @@ import { PageHeader } from "@/components/layout/PageHeader";
 import { Section } from "@/components/layout/Section";
 import { SetupBanner } from "@/components/layout/SetupBanner";
 import { Stat, StatRow } from "@/components/ui/Stat";
+import { Card } from "@/components/ui/Card";
+import { AllocationDonut } from "@/components/charts/AllocationDonut";
 import { FundsManager } from "./FundsManager";
 import { SavingsManager } from "./SavingsManager";
 import {
@@ -43,6 +45,23 @@ export default async function AssetsPage() {
           tone="muted"
         />
       </StatRow>
+
+      {netWorth.total > 0 && (
+        <Card className="mt-6">
+          <div className="label-cap mb-4">Net worth composition</div>
+          <AllocationDonut
+            slices={[
+              { label: "PSX Equities", value: netWorth.equity },
+              { label: "Mutual Funds", value: netWorth.funds },
+              { label: "Savings", value: netWorth.savings },
+              { label: "Cash", value: netWorth.cash },
+            ]}
+            maxSlices={6}
+            centerValue={fmtRs(netWorth.total, true)}
+            centerLabel="Net worth"
+          />
+        </Card>
+      )}
 
       <Section
         number="01"

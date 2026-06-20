@@ -5,6 +5,7 @@ export type CashEntryType = (typeof CASH_ENTRY_TYPES)[number];
 
 const CashEntrySchema = new Schema(
   {
+    userId: { type: String, default: "", index: true },
     date: { type: Date, required: true, default: () => new Date(), index: true },
     type: { type: String, required: true, enum: CASH_ENTRY_TYPES },
     amount: { type: Number, required: true, min: 0 }, // always positive; sign comes from type

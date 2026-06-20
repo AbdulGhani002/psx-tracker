@@ -6,6 +6,7 @@ import { Card } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
 import { Table, type Column } from "@/components/ui/Table";
 import { SetupBanner } from "@/components/layout/SetupBanner";
+import { BarChart } from "@/components/charts/BarChart";
 import { getDividendForecast, checkDataAvailability } from "@/lib/data";
 import { fmtRs, fmtNum, fmtDate } from "@/lib/format";
 import type { ForecastEvent, SymbolDividendProfile } from "@/lib/calculations";
@@ -236,6 +237,15 @@ export default async function ForecastPage() {
             display="Month by month."
             description="The realistic annual dividend, spread across the months each company has historically paid. Blank months expect nothing."
           >
+            {f.months.some((m) => m.total > 0) && (
+              <Card className="mb-5">
+                <div className="label-cap mb-4">Expected dividend income by month</div>
+                <BarChart
+                  bars={f.months.map((m) => ({ label: m.label.slice(0, 3), value: m.total, title: `${m.label}: ${fmtRs(m.total)}` }))}
+                  height={170}
+                />
+              </Card>
+            )}
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
               {f.months.map((m) => (
                 <Card key={`${m.year}-${m.month}`}>

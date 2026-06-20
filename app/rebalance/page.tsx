@@ -3,6 +3,7 @@ import { Section } from "@/components/layout/Section";
 import { SetupBanner } from "@/components/layout/SetupBanner";
 import { RebalanceView } from "./RebalanceView";
 import { TargetsEditor } from "./TargetsEditor";
+import { AddCompany } from "./AddCompany";
 import { getPortfolioSummary, getAllHoldings, getCashSummary, checkDataAvailability } from "@/lib/data";
 
 export const dynamic = "force-dynamic";
@@ -41,14 +42,15 @@ export default async function RebalancePage() {
       />
       {!avail.available && <SetupBanner reason={avail.reason} />}
 
-      {targetRows.length > 0 && (
-        <Section number="01" title="Target allocations">
-          <TargetsEditor initial={targetRows} />
-        </Section>
-      )}
+      <Section number="01" title="Plan & targets" description="Add a company you intend to buy, then set target weights for everything.">
+        <div className="space-y-6">
+          <AddCompany />
+          {targetRows.length > 0 && <TargetsEditor initial={targetRows} />}
+        </div>
+      </Section>
 
       <Section
-        number={targetRows.length > 0 ? "02" : "01"}
+        number="02"
         title="Rebalance"
         display="Deploy cash. Buy integers."
         description={`Cash available in your brokerage balance: ${cashSummary.balance >= 0 ? "Rs " + cashSummary.balance.toLocaleString("en-PK", { maximumFractionDigits: 0 }) : "negative — you need to record a deposit"}. Share counts are integers, so the leftover rupees never get spent and stay as cash.`}

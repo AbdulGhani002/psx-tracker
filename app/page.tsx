@@ -2,11 +2,13 @@ import Link from "next/link";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { Section } from "@/components/layout/Section";
 import { Stat, StatRow } from "@/components/ui/Stat";
+import { Term } from "@/components/ui/Term";
 import { Table, type Column } from "@/components/ui/Table";
 import { Badge } from "@/components/ui/Badge";
 import { Card } from "@/components/ui/Card";
 import { SetupBanner } from "@/components/layout/SetupBanner";
 import { SectorBar } from "@/components/charts/SectorBar";
+import { AllocationDonut } from "@/components/charts/AllocationDonut";
 import { BenchmarkChartLoader } from "@/components/charts/BenchmarkChartLoader";
 import { RefreshPrices } from "@/components/layout/RefreshPrices";
 import {
@@ -294,6 +296,16 @@ export default async function Dashboard() {
         display="Where the money sits today."
         description="Current allocation vs. target. Deviations outside the rebalance band are flagged. Historical positions (0 shares) are hidden — see them on /holdings."
       >
+        {active.length > 0 && (
+          <Card className="mb-6">
+            <div className="label-cap mb-4">Equity allocation by holding</div>
+            <AllocationDonut
+              slices={active.map((p) => ({ label: p.symbol, value: p.marketValue }))}
+              centerValue={fmtRs(summary.totalValue, true)}
+              centerLabel="Equities"
+            />
+          </Card>
+        )}
         <Table
           columns={positionColumns}
           rows={summary.positions.filter((r) => r.shares > 0)}
@@ -321,7 +333,7 @@ export default async function Dashboard() {
         number="03"
         title="Benchmark"
         display="Portfolio vs. KSE-100."
-        description="Indexed to 100 at the start of the trailing 90 days. Both lines reflect daily close-to-close moves."
+        description="Indexed to 100 at the start of the window. 'Portfolio + dividends' is your real total return (dividends reinvested); the faint 'price only' line excludes them — the gap between the two is what your dividends add. KSE-100 is a price index, so the fair comparison is your total-return line vs the index."
       >
         <BenchmarkChartLoader />
       </Section>
@@ -335,11 +347,11 @@ export default async function Dashboard() {
         >
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
             <Stat label="Volatility" value={fmtPct(risk.annualVol ?? 0, 1)} tone="muted" hint="annualised σ" />
-            <Stat label="Sharpe" value={risk.sharpe != null ? risk.sharpe.toFixed(2) : "—"} tone={(risk.sharpe ?? 0) >= 1 ? "positive" : "default"} hint="return per unit risk" />
+            <Stat label={<Term k="sharpe">Sharpe</Term>} value={risk.sharpe != null ? risk.sharpe.toFixed(2) : "—"} tone={(risk.sharpe ?? 0) >= 1 ? "positive" : "default"} hint="return per unit risk" />
             <Stat label="Sortino" value={risk.sortino != null ? risk.sortino.toFixed(2) : "—"} tone={(risk.sortino ?? 0) >= 1 ? "positive" : "default"} hint="downside-adjusted" />
-            <Stat label="Max drawdown" value={fmtPct(risk.maxDrawdown ?? 0, 1)} tone="negative" hint="peak-to-trough" />
-            <Stat label="Beta vs KSE" value={risk.beta != null ? risk.beta.toFixed(2) : "—"} tone="muted" hint="market sensitivity" />
-            <Stat label="Alpha" value={risk.alpha != null ? fmtSignedPct(risk.alpha, 1) : "—"} tone={(risk.alpha ?? 0) >= 0 ? "positive" : "negative"} hint="vs CAPM expectation" />
+            <Stat label={<Term k="drawdown">Max drawdown</Term>} value={fmtPct(risk.maxDrawdown ?? 0, 1)} tone="negative" hint="peak-to-trough" />
+            <Stat label={<Term k="beta">Beta vs KSE</Term>} value={risk.beta != null ? risk.beta.toFixed(2) : "—"} tone="muted" hint="market sensitivity" />
+            <Stat label={<Term k="alpha">Alpha</Term>} value={risk.alpha != null ? fmtSignedPct(risk.alpha, 1) : "—"} tone={(risk.alpha ?? 0) >= 0 ? "positive" : "negative"} hint="vs CAPM expectation" />
           </div>
         </Section>
       )}

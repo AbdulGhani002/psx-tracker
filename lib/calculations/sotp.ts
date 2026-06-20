@@ -18,14 +18,32 @@ export type SotpConstituentInput = {
   shares: number; // shares the holding company owns
 };
 
+// A private/unlisted holding (no PSX price): value comes from the annual report
+// or your estimate, never a fabricated market price.
+export type SotpUnlistedInput = {
+  label: string;
+  valuePkr: number;
+  ownershipPct?: number;
+  note?: string;
+};
+
 export type SotpInputs = {
   constituents: SotpConstituentInput[];
   prices: Record<string, number>; // live price per constituent symbol
-  unlistedValuePkr: number;
+  unlistedHoldings?: SotpUnlistedInput[]; // named private holdings (each carries its own value)
+  unlistedValuePkr: number; // legacy single lump (added on top of the named list)
   netDebtPkr: number;
   sharesOutstanding: number; // of the holding company itself
   marketPrice: number; // holding company's own live price
   heldShares: number; // how many of the holding company YOU own
+};
+
+export type SotpUnlisted = {
+  label: string;
+  value: number;
+  ownershipPct: number;
+  note: string;
+  pctOfAssets: number;
 };
 
 export type SotpConstituent = {
@@ -40,8 +58,9 @@ export type SotpConstituent = {
 
 export type SotpResult = {
   constituents: SotpConstituent[];
+  unlistedHoldings: SotpUnlisted[]; // named private holdings, sized vs gross assets
   listedValue: number;
-  unlistedValue: number;
+  unlistedValue: number; // total of named unlisted + legacy lump
   netDebt: number;
   navTotal: number; // look-through net asset value
   sharesOutstanding: number;
@@ -62,17 +81,31 @@ export function computeSotp(i: SotpInputs): SotpResult {
   });
 
   const listedValue = constituents.reduce((s, c) => s + c.value, 0);
-  const grossAssets = listedValue + i.unlistedValuePkr;
+  const namedUnlisted = (i.unlistedHoldings ?? []).filter((u) => u.label || u.valuePkr);
+  const namedUnlistedTotal = namedUnlisted.reduce((s, u) => s + (u.valuePkr || 0), 0);
+  const unlistedTotal = namedUnlistedTotal + i.unlistedValuePkr;
+  const grossAssets = listedValue + unlistedTotal;
   const navTotal = grossAssets - i.netDebtPkr;
   for (const c of constituents) c.pctOfAssets = grossAssets > 0 ? (c.value / grossAssets) * 100 : 0;
+
+  const unlistedHoldings: SotpUnlisted[] = namedUnlisted
+    .map((u) => ({
+      label: u.label || "Unlisted",
+      value: u.valuePkr || 0,
+      ownershipPct: u.ownershipPct ?? 0,
+      note: u.note ?? "",
+      pctOfAssets: grossAssets > 0 ? ((u.valuePkr || 0) / grossAssets) * 100 : 0,
+    }))
+    .sort((a, b) => b.value - a.value);
 
   const navPerShare = i.sharesOutstanding > 0 ? navTotal / i.sharesOutstanding : 0;
   const discountPct = navPerShare > 0 ? ((navPerShare - i.marketPrice) / navPerShare) * 100 : null;
 
   return {
     constituents: constituents.sort((a, b) => b.value - a.value),
+    unlistedHoldings,
     listedValue,
-    unlistedValue: i.unlistedValuePkr,
+    unlistedValue: unlistedTotal,
     netDebt: i.netDebtPkr,
     navTotal,
     sharesOutstanding: i.sharesOutstanding,

@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { uid } from "@/lib/auth/uid";
 import { z } from "zod";
 import { connectDb } from "@/lib/db";
 import { CommodityTradeModel } from "@/lib/models";
@@ -17,7 +18,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
   try {
     const parsed = patchSchema.parse(await req.json());
     await connectDb();
-    const doc = await CommodityTradeModel.findById(params.id);
+    const doc = await CommodityTradeModel.findOne({ _id: params.id, userId: await uid() });
     if (!doc) return NextResponse.json({ error: "not_found" }, { status: 404 });
     if (parsed.currentPrice !== undefined) doc.currentPrice = parsed.currentPrice;
     if (parsed.notes !== undefined) doc.notes = parsed.notes;
@@ -38,7 +39,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
 
 export async function DELETE(_req: NextRequest, { params }: { params: { id: string } }) {
   await connectDb();
-  const doc = await CommodityTradeModel.findByIdAndDelete(params.id).lean();
+  const doc = await CommodityTradeModel.findOneAndDelete({ _id: params.id, userId: await uid() }).lean();
   if (!doc) return NextResponse.json({ error: "not_found" }, { status: 404 });
   return NextResponse.json({ deleted: true });
 }

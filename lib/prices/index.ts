@@ -17,17 +17,19 @@ export function getFetcher(): PriceFetcher {
   return activeFetcher;
 }
 
-async function readLatestFromCache(symbol: string): Promise<PriceQuote | null> {
-  const snap = await PriceSnapshotModel.findOne({ symbol: symbol.toUpperCase() })
-    .sort({ timestamp: -1 })
-    .lean();
-  if (!snap) return null;
-  return {
-    symbol: snap.symbol,
-    price: snap.price,
-    timestamp: new Date(snap.timestamp),
-    source: snap.source,
-  };
+// Latest snapshot per symbol in ONE aggregation, instead of a query per symbol
+// (every page that prices the portfolio used to fan out N round-trips).
+async function readLatestBatch(symbols: string[]): Promise<Map<string, PriceQuote>> {
+  const upper = [...new Set(symbols.map((s) => s.toUpperCase()))];
+  const m = new Map<string, PriceQuote>();
+  if (upper.length === 0) return m;
+  const rows: any[] = await PriceSnapshotModel.aggregate([
+    { $match: { symbol: { $in: upper } } },
+    { $sort: { timestamp: -1 } },
+    { $group: { _id: "$symbol", price: { $first: "$price" }, timestamp: { $first: "$timestamp" }, source: { $first: "$source" } } },
+  ]);
+  for (const r of rows) m.set(r._id, { symbol: r._id, price: r.price, timestamp: new Date(r.timestamp), source: r.source });
+  return m;
 }
 
 function isFresh(snap: PriceQuote): boolean {
@@ -48,15 +50,14 @@ export async function getPrices(symbols: string[]): Promise<Map<string, number>>
   await connectDb();
   const out = new Map<string, number>();
   const fetcher = getFetcher();
-  const stale: string[] = [];
+  const upper = symbols.map((s) => s.toUpperCase());
 
-  for (const sym of symbols.map((s) => s.toUpperCase())) {
-    const cached = await readLatestFromCache(sym);
-    if (cached && isFresh(cached)) {
-      out.set(sym, cached.price);
-    } else {
-      stale.push(sym);
-    }
+  const cache = await readLatestBatch(upper); // single round-trip
+  const stale: string[] = [];
+  for (const sym of upper) {
+    const cached = cache.get(sym);
+    if (cached && isFresh(cached)) out.set(sym, cached.price);
+    else stale.push(sym);
   }
 
   if (stale.length > 0) {
@@ -65,9 +66,10 @@ export async function getPrices(symbols: string[]): Promise<Map<string, number>>
       out.set(sym, quote.price);
       try { await writeSnapshot(quote); } catch { /* swallow */ }
     }
+    // Fall back to the last-known price for anything we couldn't refresh.
     for (const sym of stale) {
       if (!out.has(sym)) {
-        const cached = await readLatestFromCache(sym);
+        const cached = cache.get(sym);
         if (cached) out.set(sym, cached.price);
       }
     }

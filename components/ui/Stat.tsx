@@ -1,5 +1,5 @@
 type StatProps = {
-  label: string;
+  label: React.ReactNode;
   value: string | number;
   hint?: string;
   tone?: "default" | "positive" | "negative" | "accent" | "muted";

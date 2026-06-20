@@ -6,7 +6,7 @@ import { Card } from "@/components/ui/Card";
 import { Table, type Column } from "@/components/ui/Table";
 import { Badge } from "@/components/ui/Badge";
 import Link from "next/link";
-import { getTaxReport, getCgtReport, getHarvestReport, getAllTransactions, getAppSettings, checkDataAvailability } from "@/lib/data";
+import { getTaxReport, getCgtReport, getHarvestReport, getSellTodayCgt, getAllTransactions, getAppSettings, checkDataAvailability } from "@/lib/data";
 import { dividendWhtFlags } from "@/lib/calculations/tax";
 import { fmtRs, fmtPct, fmtDate, fmtSignedRs, fmtNum } from "@/lib/format";
 import type { DividendTaxRow } from "@/lib/calculations";
@@ -16,10 +16,11 @@ export const dynamic = "force-dynamic";
 
 export default async function TaxPage() {
   const avail = await checkDataAvailability();
-  const [report, cgt, harvest, txs, settings] = await Promise.all([
+  const [report, cgt, harvest, sellToday, txs, settings] = await Promise.all([
     getTaxReport(),
     getCgtReport(),
     getHarvestReport(),
+    getSellTodayCgt(),
     getAllTransactions(),
     getAppSettings(),
   ]);
@@ -146,6 +147,42 @@ export default async function TaxPage() {
 
       <Section
         number="03"
+        title="If you sold today"
+        display="Your CGT bill, right now."
+        description={`Per open position: the share-weighted holding period and the CGT you'd owe on the gain at your ${sellToday.rate}% rate. Long-term shares (held over a year) are flagged.`}
+      >
+        {harvest.offsetPotential > 0 && (
+          <div className="mb-4 p-3 border-l-[4px]" style={{ borderColor: "var(--accent)", background: "var(--paper-2)" }}>
+            <span className="font-mono text-[13px]">
+              ⏰ <strong>{sellToday.daysToYearEnd} days</strong> left in this tax year (closes {fmtDate(sellToday.yearEnd)}). You have{" "}
+              <span style={{ color: "var(--negative)" }}>{fmtRs(Math.abs(harvest.totalHarvestableLoss))}</span> of harvestable losses — selling
+              them before 30 June would offset gains and cut about{" "}
+              <span style={{ color: "var(--positive)" }}>{fmtRs(harvest.cgtSaved)}</span> off your CGT.
+            </span>
+          </div>
+        )}
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
+          <Stat label="Unrealised gain (open)" value={fmtSignedRs(sellToday.totalGain)} tone={sellToday.totalGain >= 0 ? "positive" : "negative"} />
+          <Stat label={`CGT if sold today @ ${sellToday.rate}%`} value={fmtRs(sellToday.totalCgt)} tone="accent" />
+          <Stat label="Tax-year ends" value={fmtDate(sellToday.yearEnd)} tone="muted" hint={`${sellToday.daysToYearEnd} days left`} />
+          <Stat label="Net after CGT" value={fmtRs(sellToday.totalGain - sellToday.totalCgt)} tone="muted" />
+        </div>
+        <Table
+          columns={[
+            { key: "sym", header: "Symbol", render: (r: any) => <span className="font-mono font-medium">{r.symbol}</span> },
+            { key: "held", header: "Held (avg)", align: "right", mono: true, render: (r: any) => <span>{fmtNum(Math.round(r.weightedDays))}d {r.longTermShares > 0 && <Badge tone="default">LT</Badge>}</span> },
+            { key: "val", header: "Value", align: "right", mono: true, render: (r: any) => fmtRs(r.marketValue) },
+            { key: "gain", header: "Unrealised", align: "right", mono: true, render: (r: any) => <span style={{ color: r.gain >= 0 ? "var(--positive)" : "var(--negative)" }}>{fmtSignedRs(r.gain)}</span> },
+            { key: "cgt", header: "CGT if sold", align: "right", mono: true, render: (r: any) => (r.gain > 0 ? fmtRs(r.cgtIfSold) : "—") },
+          ]}
+          rows={sellToday.rows}
+          rowKey={(r: any) => r.symbol}
+          empty="No open positions."
+        />
+      </Section>
+
+      <Section
+        number="04"
         title="Tax-loss harvesting"
         display="Losses you could bank to cut CGT."
         description="Open positions trading below cost. Selling them realises a loss that offsets your realised gains this tax year, lowering CGT. (You can re-buy later — Pakistan has no wash-sale rule, but mind your thesis.)"
@@ -177,7 +214,7 @@ export default async function TaxPage() {
       </Section>
 
       {flags.length > 0 && (
-        <Section number="04" title="WHT band check" display="Rates that look off.">
+        <Section number="05" title="WHT band check" display="Rates that look off.">
           <Card>
             <ul className="space-y-1.5 text-[13px]">
               {flags.map((f, i) => (

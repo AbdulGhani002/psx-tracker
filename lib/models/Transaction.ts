@@ -5,6 +5,7 @@ export { TRANSACTION_TYPES, type TransactionType };
 
 const TransactionSchema = new Schema(
   {
+    userId: { type: String, default: "", index: true },
     symbol: { type: String, required: true, uppercase: true, trim: true, index: true },
     type: { type: String, required: true, enum: TRANSACTION_TYPES },
     date: { type: Date, required: true, index: true },
@@ -32,8 +33,9 @@ TransactionSchema.index({ deletedAt: 1 });
 // Partial unique index: only enforces uniqueness on docs that have a real
 // string warrantNo. Sparse alone wouldn't work because Mongoose's `default:
 // null` was storing explicit nulls — and null collides with null.
+TransactionSchema.index({ userId: 1, symbol: 1, date: 1 });
 TransactionSchema.index(
-  { warrantNo: 1 },
+  { userId: 1, warrantNo: 1 },
   { unique: true, partialFilterExpression: { warrantNo: { $type: "string" } } }
 );
 

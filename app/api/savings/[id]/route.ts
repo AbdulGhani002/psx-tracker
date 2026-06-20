@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { uid } from "@/lib/auth/uid";
 import { z } from "zod";
 import { connectDb } from "@/lib/db";
 import { SavingsAccountModel } from "@/lib/models";
@@ -27,7 +28,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
   try {
     const parsed = patchSchema.parse(await req.json());
     await connectDb();
-    const doc = await SavingsAccountModel.findById(params.id);
+    const doc = await SavingsAccountModel.findOne({ _id: params.id, userId: await uid() });
     if (!doc) return NextResponse.json({ error: "not_found" }, { status: 404 });
 
     if (parsed.name !== undefined) doc.name = parsed.name;
@@ -50,7 +51,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
 
 export async function DELETE(_req: NextRequest, { params }: { params: { id: string } }) {
   await connectDb();
-  const doc = await SavingsAccountModel.findByIdAndDelete(params.id).lean();
+  const doc = await SavingsAccountModel.findOneAndDelete({ _id: params.id, userId: await uid() }).lean();
   if (!doc) return NextResponse.json({ error: "not_found" }, { status: 404 });
   return NextResponse.json({ deleted: true });
 }

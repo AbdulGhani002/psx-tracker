@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { uid } from "@/lib/auth/uid";
 import { z } from "zod";
 import { connectDb } from "@/lib/db";
 import { HoldingModel, TransactionModel, TRANSACTION_TYPES } from "@/lib/models";
@@ -25,10 +26,10 @@ const patchSchema = z.object({
 });
 
 async function recomputeHolding(symbol: string) {
-  const txs = await TransactionModel.find({ symbol, deletedAt: null }).sort({ date: 1, createdAt: 1 }).lean();
+  const txs = await TransactionModel.find({ userId: await uid(), symbol, deletedAt: null }).sort({ date: 1, createdAt: 1 }).lean();
   const derived = deriveFromTransactions(txs as any);
   await HoldingModel.findOneAndUpdate(
-    { symbol },
+    { userId: await uid(), symbol },
     {
       currentShares: derived.shares,
       avgCostBasis: derived.avgCost,
@@ -41,7 +42,7 @@ async function recomputeHolding(symbol: string) {
 
 export async function GET(_req: NextRequest, { params }: Params) {
   await connectDb();
-  const doc = await TransactionModel.findById(params.id).lean();
+  const doc = await TransactionModel.findOne({ _id: params.id, userId: await uid() }).lean();
   if (!doc) return NextResponse.json({ error: "not_found" }, { status: 404 });
   return NextResponse.json(doc);
 }
@@ -51,7 +52,7 @@ export async function PATCH(req: NextRequest, { params }: Params) {
     const body = await req.json();
     const parsed = patchSchema.parse(body);
     await connectDb();
-    const existing = await TransactionModel.findById(params.id);
+    const existing = await TransactionModel.findOne({ _id: params.id, userId: await uid() });
     if (!existing) return NextResponse.json({ error: "not_found" }, { status: 404 });
 
     // Recompute derived monetary fields from the new inputs, preserving
@@ -85,7 +86,7 @@ export async function PATCH(req: NextRequest, { params }: Params) {
     // ever drives the holding negative (e.g. enlarging a SELL past what's held).
     {
       const candidateDate = parsed.date ? new Date(parsed.date as any) : existing.date;
-      const siblings = await TransactionModel.find({ symbol: existing.symbol, deletedAt: null }).lean();
+      const siblings = await TransactionModel.find({ userId: await uid(), symbol: existing.symbol, deletedAt: null }).lean();
       const replayed = siblings
         .map((t: any) =>
           String(t._id) === String(existing._id)
@@ -138,14 +139,14 @@ export async function DELETE(req: NextRequest, { params }: Params) {
 
   if (hard) {
     // Permanent removal (used by the Trash "delete forever" action).
-    const doc = await TransactionModel.findByIdAndDelete(params.id).lean();
+    const doc = await TransactionModel.findOneAndDelete({ _id: params.id, userId: await uid() }).lean();
     if (!doc) return NextResponse.json({ error: "not_found" }, { status: 404 });
     await recomputeHolding(doc.symbol);
     return NextResponse.json({ deleted: true, hard: true, id: params.id });
   }
 
   // Soft delete: mark and recompute so the holding ignores it immediately.
-  const doc = await TransactionModel.findById(params.id);
+  const doc = await TransactionModel.findOne({ _id: params.id, userId: await uid() });
   if (!doc) return NextResponse.json({ error: "not_found" }, { status: 404 });
   doc.set("deletedAt", new Date());
   await doc.save();

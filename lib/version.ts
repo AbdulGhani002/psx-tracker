@@ -1,7 +1,7 @@
 // Single source of truth for the app version + changelog.
 // Bump APP_VERSION and prepend a CHANGELOG entry on every release.
 
-export const APP_VERSION = "2.13.0";
+export const APP_VERSION = "3.0.0";
 
 export const BUILD_DATE =
   process.env.NEXT_PUBLIC_BUILD_DATE ?? "";
@@ -17,6 +17,171 @@ export type ChangelogEntry = {
 
 // Reverse-chronological. Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: "3.0.0",
+    date: "2026-06-20",
+    title: "Multi-tenant accounts — real sign-up, your data is now private to you",
+    changes: [
+      "The tracker is now a proper multi-account app. Sign up with an email and password, verify the email, and you get your own private portfolio — separate from everyone else's. Forgot-password and email-verification flows are built in.",
+      "Complete data isolation: every holding, transaction, fund, savings account, cash entry, commodity trade, watchlist item, decision log, target, and setting is tied to your account. Every page and every query only ever reads or writes your own data — no one else can see it, and you can't see theirs.",
+      "Backup & restore is now per-account: your export contains only your data, and importing can never touch another account's records.",
+      "Alerts run per account: each user's Telegram config, watchlist targets, drift, and ex-dividend reminders are checked and deduplicated independently.",
+      "Background data warming runs for every account on schedule, so each person's dashboard, valuation, and benchmark stay instant.",
+    ],
+  },
+  {
+    version: "2.25.0",
+    date: "2026-06-20",
+    title: "Tax timing, Shariah, gold/inflation, Urdu glossary",
+    changes: [
+      "Tax: a new 'If you sold today' view shows each open position's holding period and the CGT you'd owe right now, plus a 30-June deadline banner telling you how much CGT you could cut by harvesting losses before the tax year closes.",
+      "Shariah: a new page tags every holding by KMI index membership (Meezan-screened) and computes the purification (charity) due from your dividends once you enter each company's non-permissible income %.",
+      "Benchmark chart: two new toggle lines — 'Gold (PKR)' to compare against the classic inflation hedge, and 'Real (after inflation)' which adjusts your return for Pakistan's CPI (set it in Settings).",
+      "Learn: a plain-words glossary in English + Roman Urdu, with hover tooltips on key terms (Sharpe, Beta, Alpha…).",
+    ],
+  },
+  {
+    version: "2.24.0",
+    date: "2026-06-20",
+    title: "Much faster pages (dashboard + valuation)",
+    changes: [
+      "The dashboard and valuation pages were slow on a cold load (9–16s) because they recomputed heavy data — risk metrics, today's movers, valuations, the look-through — live on every visit. These are now computed in the background, cached, and served instantly (~0.2s), refreshed hourly and on a short cycle.",
+      "Today's movers now fetch all symbols in parallel (was one-by-one), and the valuation page no longer re-runs the deep look-through drill-down it didn't need.",
+    ],
+  },
+  {
+    version: "2.23.0",
+    date: "2026-06-15",
+    title: "Daily-dividend funds: NAV ticks up daily",
+    changes: [
+      "Daily-dividend funds now show an effective NAV that rises every day at the fund's yield — with the daily % next to it — so the fund's daily income shows as a growing NAV and is counted in your return (instead of a flat 0%).",
+      "Set the fund's yield and your purchase (anchor) date on Edit; the published par NAV is still shown for reference.",
+    ],
+  },
+  {
+    version: "2.22.1",
+    date: "2026-06-15",
+    title: "Benchmark chart: instant + never blank",
+    changes: [
+      "The benchmark chart was recomputed live on every load (2–6s of external PSX/Yahoo fetches), and if one of those blipped it showed 'unavailable'. It's now cached and served instantly, refreshed in the background, and if a refresh fails it keeps showing the last good chart instead of going blank.",
+    ],
+  },
+  {
+    version: "2.22.0",
+    date: "2026-06-15",
+    title: "Benchmark now shows your dividends working",
+    changes: [
+      "The benchmark chart used to plot only share-price moves — so for a high-dividend portfolio it understated your real result. Added a 'Portfolio + dividends' total-return line that reinvests every dividend you received; the faint 'price only' line is still there, and the gap between them is exactly what your dividends add.",
+      "Since KSE-100 is itself a price index, the fairest comparison is your total-return line against it. Your Total Return and XIRR figures already counted dividends — now the chart does too.",
+    ],
+  },
+  {
+    version: "2.21.0",
+    date: "2026-06-15",
+    title: "Daily-dividend funds: units grow, not NAV",
+    changes: [
+      "Money-market / daily-dividend funds (like Alhamra Daily Dividend) now model the return correctly. Their NAV stays pinned at par and the income comes as daily dividends reinvested into MORE units — so the app now grows your units over time instead of showing a flat 0% return.",
+      "Mark any fund as daily-dividend (Edit → tick the box), set its annual yield and an anchor date, and units accrue daily just like a savings account. The table shows the reinvested units and a real return.",
+      "Ordinary growth funds (valued at units × live NAV) are unchanged.",
+    ],
+  },
+  {
+    version: "2.20.0",
+    date: "2026-06-15",
+    title: "Drill into Fatima — deeper look-through tree",
+    changes: [
+      "AHCL's look-through now drills into Fatima Fertilizer, listing the ~19 companies Fatima itself owns (Pakarab, Fatimafert, Fatima Cement, National Resources, the REITs, etc.) from Fatima's FY2025 report.",
+      "Honest framing: Fatima is an operating fertilizer business, not a pure holding company, so its stakes are shown as a portfolio inside it (book values), not as a misleading NAV/discount.",
+      "The engine can now drill into any company in the known-companies library, even ones you don't hold — no phantom positions needed.",
+    ],
+  },
+  {
+    version: "2.19.0",
+    date: "2026-06-15",
+    title: "Deeper look-through: unlisted holdings, drill-down, HUBCO",
+    changes: [
+      "Look-through now lists named private/unlisted holdings (e.g. AHCL's Sachal Energy, Black Gold, PIA) each with its own value — entered from the annual report, never a fake price. They show in the table and the composition bar.",
+      "Recursive drill-down: any listed stake that is itself a holding company is expanded to show what it owns underneath.",
+      "AHCL updated from its FY2024/FY2025 annual reports: added Safe Mix Concrete (32.4%), corrected the AHL stake to 74.32%, pinned the post-split 4.22bn shares, and added the unlisted holdings (Sachal 85.83%, Black Gold 100%, PIA consortium). Note: AHL is a brokerage with no strategic listed stakes, so it has no deeper tree.",
+      "HUBCO added to the known-companies library. All its assets (CPHGC, Thar Energy, ThalNova, etc.) are unlisted, so its look-through is a book-value sum-of-the-parts — open HUBC, click \"Load known stakes\", then add its net debt for a true NAV.",
+    ],
+  },
+  {
+    version: "2.18.0",
+    date: "2026-06-15",
+    title: "Look-through: what one share actually owns",
+    changes: [
+      "On a holding company's look-through, two new columns: how many shares of each underlying company a single share owns (e.g. one AHCL share owns ~0.076 of Fatima), and the rupees-per-share each stake contributes — which add up to the NAV per share.",
+      "Added an asset-composition bar so you can see the mix at a glance.",
+    ],
+  },
+  {
+    version: "2.17.2",
+    date: "2026-06-15",
+    title: "Fix login redirect bouncing to localhost",
+    changes: [
+      "Visiting the site while signed out redirected to localhost instead of the real address (a reverse-proxy quirk). The login redirect now always stays on your domain.",
+    ],
+  },
+  {
+    version: "2.17.1",
+    date: "2026-06-15",
+    title: "More visualizations",
+    changes: [
+      "Dividend forecast: a bar chart of expected income month by month, so you can see your income calendar at a glance.",
+      "Assets: a net-worth composition donut (equities, funds, savings, cash).",
+    ],
+  },
+  {
+    version: "2.17.0",
+    date: "2026-06-15",
+    title: "Add-to-rebalance, valuation methodology, more charts",
+    changes: [
+      "Rebalance: you can now add a company you don't own yet. Type the symbol and a target weight — it's verified on PSX, priced live, and shows up in the plan as a BUY sized to hit your target.",
+      "New \"How it's valued\" page: explains exactly where every number comes from, and breaks each holding company down — barrel-style — into the underlying companies it owns, with the live discount to net asset value.",
+      "Dashboard: added an allocation donut showing your equity mix at a glance.",
+      "Faster: the portfolio price lookup now reads all symbols in one database query instead of one per stock, so every page loads quicker.",
+    ],
+  },
+  {
+    version: "2.16.0",
+    date: "2026-06-15",
+    title: "Secure login + HTTPS",
+    changes: [
+      "Replaced the browser username/password popup with a proper login page. Sign in once and a secure encrypted session keeps you logged in for 30 days — no more re-entering credentials every visit.",
+      "The site now runs over HTTPS on its own address. The old plain-HTTP port is closed.",
+      "Added a Sign out option in the menu.",
+    ],
+  },
+  {
+    version: "2.15.1",
+    date: "2026-06-15",
+    title: "Timestamps now shown in Pakistan time (PKT)",
+    changes: [
+      "All dates and times now display in Pakistan Standard Time and are labelled PKT. The server runs in a European timezone, so timestamps were showing ~3 hours behind your wall clock and made fresh prices look hours old — they weren't. Prices refresh on the same schedule as before; only the displayed time was off.",
+    ],
+  },
+  {
+    version: "2.15.0",
+    date: "2026-06-15",
+    title: "Holding companies valued on NAV, not P/E",
+    changes: [
+      "Holding companies (anything with a look-through configured, e.g. AHCL) are now valued on net asset value — the live sum-of-the-parts of what they own — instead of P/E. Their reported EPS is mostly the change in value of the shares they hold, so a P/E reads misleadingly cheap (AHCL was showing +66% 'cheap' on a P/E of 2.7×; on NAV it trades near fair value).",
+      "On the Valuation page these rows are tagged NAV: fair value is NAV per share, margin of safety is the discount to NAV, and the P/E / EPS / earnings-yield are dimmed as reference-only.",
+      "Regular operating companies are unchanged — still valued on the blended dividend-discount + earnings multiple.",
+    ],
+  },
+  {
+    version: "2.14.0",
+    date: "2026-06-15",
+    title: "Sector tilt vs KSE-100 — precomputed in the background, served instantly",
+    changes: [
+      "The Risk page now shows your sector mix next to the KSE-100's own market-cap weighting, so you can see exactly where you're over- or under-weight versus the index.",
+      "The index weighting is built from free PSX data (market-watch prices + each member's shares derived from its financials) by a scheduled background job and stored as a single snapshot — the page reads it instantly and never recomputes on load, so it stays fast.",
+      "New snapshot store (FeedSnapshot) + a refresh-snapshots cron; a failed refresh keeps showing the last good data rather than going blank.",
+      "Note: PSX announcements and NCCPL FIPI/LIPI remain bot-protected and aren't scraped; corporate actions (cash dividends/book-closure) are still tracked via the payouts feed and ex-dividend alerts.",
+    ],
+  },
   {
     version: "2.13.0",
     date: "2026-06-15",

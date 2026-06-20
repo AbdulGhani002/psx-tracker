@@ -19,6 +19,8 @@ const MORE = [
   { href: "/dividends", label: "Dividends" },
   { href: "/forecast", label: "Dividend forecast" },
   { href: "/valuation", label: "Valuation" },
+  { href: "/methodology", label: "How it's valued" },
+  { href: "/shariah", label: "Shariah" },
   { href: "/risk", label: "Risk" },
   { href: "/income", label: "Income planner" },
   { href: "/cash", label: "Cash" },
@@ -27,6 +29,7 @@ const MORE = [
   { href: "/model", label: "Model" },
   { href: "/wealth", label: "Wealth" },
   { href: "/log", label: "Decision log" },
+  { href: "/glossary", label: "Glossary (Urdu)" },
   { href: "/settings", label: "Settings" },
 ];
 
@@ -51,6 +54,18 @@ export function SiteNav() {
     document.addEventListener("mousedown", onClick);
     return () => document.removeEventListener("mousedown", onClick);
   }, []);
+
+  async function signOut() {
+    try {
+      await fetch("/api/auth/logout", { method: "POST" });
+    } catch {
+      /* ignore */
+    }
+    window.location.href = "/login";
+  }
+
+  // Auth screens are chrome-free — no navbar.
+  if (pathname === "/login" || pathname === "/reset-password" || pathname === "/verify") return null;
 
   return (
     <header className="border-b border-ink sticky top-0 z-30" style={{ background: "var(--paper)" }}>
@@ -104,6 +119,12 @@ export function SiteNav() {
                     </Link>
                   );
                 })}
+                <button
+                  onClick={signOut}
+                  className="block w-full text-left px-4 py-2 label-cap hover:bg-[var(--paper-2)] border-t border-rule mt-1"
+                >
+                  Sign out
+                </button>
               </div>
             )}
           </div>
@@ -137,6 +158,15 @@ export function SiteNav() {
               );
             })}
             <div className="py-2.5 col-span-2"><ThemeToggle /></div>
+            <button
+              onClick={() => {
+                setMobileOpen(false);
+                signOut();
+              }}
+              className="label-cap py-2.5 border-b border-rule text-left col-span-2"
+            >
+              Sign out
+            </button>
           </div>
         </nav>
       )}

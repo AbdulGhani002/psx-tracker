@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { uid } from "@/lib/auth/uid";
 import { z } from "zod";
 import { connectDb } from "@/lib/db";
 import { WatchlistEntryModel } from "@/lib/models";
@@ -15,7 +16,7 @@ const postSchema = z.object({
 
 export async function GET() {
   await connectDb();
-  const docs = await WatchlistEntryModel.find().sort({ createdAt: -1 }).lean();
+  const docs = await WatchlistEntryModel.find({ userId: await uid() }).sort({ createdAt: -1 }).lean();
   return NextResponse.json({ entries: docs });
 }
 
@@ -25,7 +26,7 @@ export async function POST(req: NextRequest) {
     const parsed = postSchema.parse(body);
     await connectDb();
 
-    const exists = await WatchlistEntryModel.findOne({ symbol: parsed.symbol });
+    const exists = await WatchlistEntryModel.findOne({ userId: await uid(), symbol: parsed.symbol });
     if (exists) {
       return NextResponse.json({ error: "exists", symbol: parsed.symbol }, { status: 409 });
     }
@@ -34,6 +35,7 @@ export async function POST(req: NextRequest) {
     const info = await getCompanyInfo(parsed.symbol);
 
     const created = await WatchlistEntryModel.create({
+      userId: await uid(),
       symbol: parsed.symbol,
       name: info?.name ?? parsed.symbol,
       sector: info?.sector ?? "Unknown",
