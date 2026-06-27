@@ -1,7 +1,7 @@
 // Single source of truth for the app version + changelog.
 // Bump APP_VERSION and prepend a CHANGELOG entry on every release.
 
-export const APP_VERSION = "3.1.0";
+export const APP_VERSION = "3.2.0";
 
 export const BUILD_DATE =
   process.env.NEXT_PUBLIC_BUILD_DATE ?? "";
@@ -17,6 +17,18 @@ export type ChangelogEntry = {
 
 // Reverse-chronological. Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: "3.2.0",
+    date: "2026-06-27",
+    title: "Smarter intrinsic value + live, interactive buying zones",
+    changes: [
+      "Fixed the valuation engine. It was letting one freak year and one broken model distort the answer (Meezan read ~Rs 225 because a single down-year zeroed out growth and a mis-estimated dividend dragged the average down). Now: earnings are normalised through the cycle (3-year average), growth is a multi-year trend not one year, the dividend model is down-weighted, and any model that disagrees with the rest by more than 50% is set aside as an outlier. The blend is the weighted middle of the models that actually agree.",
+      "Every method is now shown explicitly: each stock lists all six models with their value and whether it was blended in or set aside (and why) — no more guessing which models were used.",
+      "Interactive, live buying zones: drag the required return, the growth rate, or the fair P/E on any stock and the intrinsic value, the buy/strong-buy prices, the zone gauge, the method chart and the sensitivity all recompute instantly, with the headline value counting up to its new number.",
+      "Reasons spelled out: the 'why this zone' panel now explains the through-cycle growth, the outliers it set aside, and exactly how the buy price was derived.",
+      "More motion throughout — animated value counters, fade-in cards, and the zones update the moment any input changes.",
+    ],
+  },
   {
     version: "3.1.0",
     date: "2026-06-27",

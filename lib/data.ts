@@ -44,7 +44,7 @@ import {
 import { forecastDividends, type DividendForecast } from "./calculations/dividend-forecast";
 import { computeSotp, deriveSharesOutstanding, type SotpResult } from "./calculations/sotp";
 import { computeValuation, type Valuation } from "./calculations/valuation";
-import { computeIntrinsic, intrinsicSensitivity, type IntrinsicResult, type Sensitivity } from "./calculations/intrinsic";
+import { computeIntrinsic, intrinsicSensitivity, normalizedEps, robustGrowthPct, type IntrinsicInputs, type IntrinsicResult, type Sensitivity } from "./calculations/intrinsic";
 import { analyzeConcentration, analyzeCorrelation, type ConcentrationResult, type CorrelationResult } from "./calculations/risk-analysis";
 import { fetchManyEod } from "./timeseries/psx-eod";
 import { fetchMarketWatch, indexLabel, isInIndex } from "./prices/marketwatch";
@@ -329,8 +329,11 @@ export type IntrinsicView = IntrinsicResult & {
   shares: number;
   marketValue: number;
   annualVolPct: number | null;
+  epsLatest: number | null;
+  epsNormalized: number | null;
   sensitivity: Sensitivity[];
   history: { date: string; close: number }[]; // downsampled EOD for the zone chart
+  inputs: IntrinsicInputs; // raw inputs so the page can re-run the model live
 };
 
 export type IntrinsicPage = {
@@ -407,14 +410,27 @@ async function computeIntrinsicValuations(): Promise<IntrinsicPage> {
       const prof = profBySym.get(h.symbol);
       const series = (eod.get(h.symbol) as { date: string; close: number }[] | undefined) ?? [];
       const annualVolPct = annualisedVol(series);
-      const inputs = {
+
+      // Through-cycle earning power + multi-year growth from the EPS history, so
+      // one freak year can't distort the value (this was the MEBL problem).
+      const epsByYear = (funds[h.symbol]?.epsByYear ?? {}) as Record<number, number>;
+      const epsAsc = Object.keys(epsByYear)
+        .map(Number)
+        .sort((a, b) => a - b)
+        .map((y) => Number(epsByYear[y]))
+        .filter((e) => Number.isFinite(e));
+      const epsNorm = normalizedEps(epsAsc) ?? eps;
+      const growth = epsAsc.length >= 2 ? robustGrowthPct(epsAsc) : prof?.dividendGrowthPct ?? funds[h.symbol]?.epsGrowthPct ?? 0;
+
+      const inputs: IntrinsicInputs = {
         symbol: h.symbol,
         price,
         eps,
-        epsGrowthPct: prof?.dividendGrowthPct ?? funds[h.symbol]?.epsGrowthPct ?? 0,
+        normalizedEps: epsNorm,
+        epsGrowthPct: growth,
         bvps: (h as any).bookValuePerShare ?? 0,
         forwardDps: prof?.forwardDpsAnnual ?? 0,
-        dividendGrowthPct: prof?.dividendGrowthPct ?? funds[h.symbol]?.epsGrowthPct ?? 0,
+        dividendGrowthPct: growth,
         sbpRatePct,
         equityRiskPremiumPct,
         fairPE,
@@ -429,8 +445,11 @@ async function computeIntrinsicValuations(): Promise<IntrinsicPage> {
         shares: h.currentShares,
         marketValue: price * h.currentShares,
         annualVolPct,
+        epsLatest: eps,
+        epsNormalized: epsNorm,
         sensitivity: intrinsicSensitivity(inputs),
         history: downsample(series),
+        inputs,
       };
     })
     .sort((a, b) => b.marketValue - a.marketValue);

@@ -51,13 +51,18 @@ export function FootballField({
         const cy = top + i * rowH + rowH / 2;
         const cx = x(m.value as number);
         const cheap = (m.value as number) >= price; // method values it above price → undervalued
+        const excluded = m.included === false;
         return (
-          <g key={m.key}>
-            <text x={L - 10} y={cy + 3.5} textAnchor="end" fontSize="11" fill="var(--muted)" className="font-mono">
+          <g key={m.key} opacity={excluded ? 0.4 : 1}>
+            <text x={L - 10} y={cy + 3.5} textAnchor="end" fontSize="11" fill="var(--muted)" className="font-mono" style={excluded ? { textDecoration: "line-through" } : undefined}>
               {m.label}
             </text>
             <line x1={L} y1={cy} x2={cx} y2={cy} stroke="var(--rule)" strokeWidth="1" />
-            <circle cx={cx} cy={cy} r="4.5" fill={cheap ? "var(--positive)" : "var(--negative)"} />
+            {excluded ? (
+              <circle cx={cx} cy={cy} r="4" fill="none" stroke="var(--muted)" strokeWidth="1.5" />
+            ) : (
+              <circle cx={cx} cy={cy} r="4.5" fill={cheap ? "var(--positive)" : "var(--negative)"} />
+            )}
             <text x={cx + (cx > W - 70 ? -9 : 9)} y={cy + 3.5} textAnchor={cx > W - 70 ? "end" : "start"} fontSize="10.5" fill="var(--ink)" className="font-mono">
               {(m.value as number).toFixed(1)}
             </text>
