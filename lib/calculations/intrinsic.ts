@@ -26,6 +26,11 @@ export type IntrinsicInputs = {
   aboveEarnings: boolean; // dividend is paid from reserves (exceeds EPS)
   annualVolPct: number | null; // the stock's own annualised volatility (risk)
   navPerShare: number | null; // look-through NAV/share for holding companies
+  sector?: string; // PSX sector — drives the sector-appropriate fair P/E
+  netMarginPct?: number | null; // latest net profit margin (quality signal, display)
+  marginTrendPct?: number | null; // change in net margin vs prior year (pp)
+  revenueGrowthPct?: number | null; // top-line growth (display)
+  peTtm?: number | null; // PSX's reported trailing P/E (display / cross-check)
 };
 
 export type MethodKey = "nav" | "graham" | "justifiedPE" | "ddm" | "epv" | "dcf" | "earnings";
@@ -121,17 +126,54 @@ function ddm(forwardDps: number, requiredReturnPct: number, dividendGrowthPct: n
   return (forwardDps * (1 + g)) / (r - g);
 }
 
-// The fair P/E a Pakistani blue chip actually deserves: a baseline around an 11%
-// policy rate, lifted modestly by growth and compressed when rates are high
-// (and lifted when the SBP cuts), bounded to the 4.5–12× band PK equities trade
-// in. This is the realistic anchor — far better than "no-growth EPS ÷ rate",
-// which marks every PK stock expensive, or a flat US "fair P/E of 15".
-export function pkFairPE(growthPct: number, sbpRatePct: number): number {
-  let pe = 8; // KSE blue-chip baseline near an 11% policy rate
-  pe += clamp(growthPct, -5, 18) * 0.18; // growth premium / penalty
-  pe -= Math.max(0, sbpRatePct - 11) * 0.3; // high rates compress multiples
+// Realistic mid-cycle P/E by PSX sector — how the Pakistani market ACTUALLY
+// prices each business. A bank, a power utility and a brewery monopoly do not
+// deserve the same multiple, and pretending they do was the model's core flaw.
+// Matched on keywords against the PSX sector name (loosely, newest patterns
+// first wins). Ranges reflect long-run PSX sector multiples.
+const SECTOR_PE: Array<[RegExp, number]> = [
+  [/food|personal care|beverage|tobacco/i, 15], // defensive monopolies trade at a big premium (MUREB, Nestlé)
+  [/pharma/i, 14],
+  [/technolog|software|communication/i, 12],
+  [/glass|ceramic/i, 9],
+  [/chemical/i, 9],
+  [/cement/i, 8], // cyclical
+  [/fertiliz/i, 8],
+  [/automobile/i, 8],
+  [/insurance/i, 8],
+  [/bank|commercial bank/i, 7], // PK banks trade cheap despite high ROE
+  [/engineer/i, 7],
+  [/paper|board/i, 7],
+  [/oil & gas market|marketing/i, 7],
+  [/exploration|e&p/i, 6], // circular-debt discount (PPL, OGDC)
+  [/invest|securit|brokerage|modaraba|leasing/i, 6], // book-value driven
+  [/sugar/i, 6],
+  [/refinery|textile/i, 5],
+  [/power|electric/i, 5], // regulated returns + circular debt — low multiple, dividend plays
+];
+const DEFAULT_SECTOR_PE = 8;
+
+export function sectorBasePE(sector: string): number {
+  for (const [re, pe] of SECTOR_PE) if (re.test(sector)) return pe;
+  return DEFAULT_SECTOR_PE;
+}
+
+// The fair P/E a stock actually deserves: its SECTOR's mid-cycle multiple,
+// lifted by growth and a strong/rising net margin, compressed when the SBP rate
+// is high (and lifted when it cuts). Bounded to a wide PK band so a defensive
+// monopoly can reach the high teens while a power utility sits near 5×.
+export function sectorFairPE(sector: string, growthPct: number, sbpRatePct: number, marginTrendPct = 0): number {
+  let pe = sectorBasePE(sector);
+  pe += clamp(growthPct, -5, 18) * 0.15; // growth premium (sector base does most of the work)
+  pe += clamp(marginTrendPct, -5, 5) * 0.2; // rising margins earn a premium, falling ones a discount
+  pe -= Math.max(0, sbpRatePct - 11) * 0.25; // high rates compress multiples
   pe += Math.max(0, 11 - sbpRatePct) * 0.2; // rate cuts lift them
-  return clamp(pe, 4.5, 12);
+  return clamp(pe, 3.5, 22);
+}
+
+// Back-compat: a sector-less fair P/E (used where the sector is unknown).
+export function pkFairPE(growthPct: number, sbpRatePct: number): number {
+  return sectorFairPE("", growthPct, sbpRatePct);
 }
 
 // Earnings Power Value (Greenwald): V = EPS / r. Conservative, no growth.
@@ -304,8 +346,23 @@ export function computeIntrinsic(i: IntrinsicInputs): IntrinsicResult {
   if (basis === "nav") {
     drivers.push("Valued on look-through NAV — its earnings are mostly revaluation of the shares it owns, so P/E is misleading.");
   } else {
-    drivers.push(`Tuned for Pakistan: the value leans on earnings-power (EPS ÷ the high local rate) and a rate-aware justified P/E. The US Graham-growth formula is dropped; the Graham number is rebuilt from the local fair P/E.`);
-    drivers.push(`Through-cycle growth ${clamp(g, -10, 25).toFixed(1)}%/yr (a multi-year EPS trend, not one freak year) feeds the DCF and justified-P/E.`);
+    const sec = (i.sector ?? "").trim();
+    drivers.push(
+      `Valued like a ${sec ? sec.toLowerCase() : "Pakistani"} business: the lead is its SECTOR's fair P/E of ${i.fairPE.toFixed(1)}× — ${
+        i.fairPE >= 12 ? "a defensive premium" : i.fairPE <= 6 ? "a low multiple (circular debt / regulated returns)" : "a typical mid-cycle multiple"
+      } — on through-cycle earnings, not a one-size-fits-all number.`
+    );
+    drivers.push(`Through-cycle growth ${clamp(g, -10, 25).toFixed(1)}%/yr (a faded multi-year EPS trend, not one freak year) and the discounted-earnings + dividend models cross-check it.`);
+    if (i.netMarginPct != null) {
+      drivers.push(
+        `Net profit margin ${i.netMarginPct.toFixed(1)}%${
+          i.marginTrendPct != null ? ` (${i.marginTrendPct >= 0 ? "+" : ""}${i.marginTrendPct.toFixed(1)}pp vs last year — ${i.marginTrendPct >= 0 ? "improving, earns a premium" : "slipping, a discount"})` : ""
+        }${i.revenueGrowthPct != null ? `; revenue ${i.revenueGrowthPct >= 0 ? "+" : ""}${i.revenueGrowthPct.toFixed(0)}% YoY` : ""}.`
+      );
+    }
+    if (i.peTtm != null) {
+      drivers.push(`Trades on a trailing P/E of ${i.peTtm.toFixed(1)}× (PSX) vs the ${i.fairPE.toFixed(1)}× we think the sector deserves — ${i.peTtm <= i.fairPE ? "cheaper than fair" : "richer than fair"}.`);
+    }
     if (earningsYieldPct != null) {
       const spread = earningsYieldPct - i.sbpRatePct;
       drivers.push(

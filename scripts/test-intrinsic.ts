@@ -1,4 +1,4 @@
-import { computeIntrinsic, compositeIntrinsic, requiredMarginOfSafety, intrinsicSensitivity, normalizedEps, robustGrowthPct, pkFairPE, type IntrinsicInputs } from "../lib/calculations/intrinsic";
+import { computeIntrinsic, compositeIntrinsic, requiredMarginOfSafety, intrinsicSensitivity, normalizedEps, robustGrowthPct, pkFairPE, sectorFairPE, sectorBasePE, type IntrinsicInputs } from "../lib/calculations/intrinsic";
 
 let pass = 0, fail = 0;
 const ok = (n: string, c: boolean, d = "") => { c ? pass++ : fail++; console.log(`${c ? "PASS" : "FAIL"}  ${n}  ${d}`); };
@@ -109,7 +109,16 @@ ok("pkFairPE baseline ~8 at 11% rate, 0 growth", near(pkFairPE(0, 11), 8, 0.01),
 ok("pkFairPE rises with growth", pkFairPE(15, 11) > pkFairPE(0, 11));
 ok("pkFairPE compresses at high rates", pkFairPE(0, 20) < pkFairPE(0, 11));
 ok("pkFairPE lifts when the SBP cuts", pkFairPE(0, 7) > pkFairPE(0, 11));
-ok("pkFairPE stays in the realistic 4.5–12 band", pkFairPE(40, 5) <= 12 && pkFairPE(-20, 25) >= 4.5, `${pkFairPE(40,5).toFixed(1)} / ${pkFairPE(-20,25).toFixed(1)}`);
+ok("fair P/E stays in the 3.5–22 band", pkFairPE(40, 5) <= 22 && pkFairPE(-20, 25) >= 3.5, `${pkFairPE(40,5).toFixed(1)} / ${pkFairPE(-20,25).toFixed(1)}`);
+
+// Sector-aware fair P/E: a brewery monopoly ≠ a bank ≠ a power utility.
+ok("sector base P/E: bank ~7", sectorBasePE("Commercial Banks") === 7, `${sectorBasePE("Commercial Banks")}`);
+ok("sector base P/E: food/FMCG ~15", sectorBasePE("Food & Personal Care Products") === 15);
+ok("sector base P/E: power ~5", sectorBasePE("Power Generation & Distribution") === 5);
+ok("sector base P/E: unknown -> default 8", sectorBasePE("Something Unlisted") === 8);
+ok("FMCG deserves a higher multiple than a bank", sectorFairPE("Food & Personal Care", 5, 11) > sectorFairPE("Commercial Banks", 5, 11));
+ok("a bank deserves a higher multiple than a power utility", sectorFairPE("Commercial Banks", 0, 11) > sectorFairPE("Power Generation", 0, 11));
+ok("rising margins lift the fair P/E", sectorFairPE("Cement", 5, 11, 4) > sectorFairPE("Cement", 5, 11, -4));
 
 console.log(`\n${pass} passed, ${fail} failed`);
 if (fail > 0) process.exit(1);

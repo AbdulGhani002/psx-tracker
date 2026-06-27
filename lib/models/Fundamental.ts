@@ -8,6 +8,8 @@ const AnnualSchema = new Schema(
     fiscalYear: { type: Number, required: true },
     eps: { type: Number, default: null },
     profitAfterTax: { type: Number, default: null },
+    netMarginPct: { type: Number, default: null },
+    revenue: { type: Number, default: null },
   },
   { _id: false }
 );
@@ -31,6 +33,14 @@ const FundamentalSchema = new Schema(
     annual: { type: [AnnualSchema], default: [] },
     latestEps: { type: Number, default: null },
     epsGrowthPct: { type: Number, default: null },
+    // Richer fundamentals for sector-aware valuation + display.
+    latestNetMarginPct: { type: Number, default: null },
+    marginTrendPct: { type: Number, default: null },
+    revenueGrowthPct: { type: Number, default: null },
+    peTtm: { type: Number, default: null },
+    pegTtm: { type: Number, default: null },
+    sharesOutstanding: { type: Number, default: null },
+    marketCapThousands: { type: Number, default: null },
     payouts: { type: [PayoutSchema], default: [] }, // authoritative PSX payout history
     source: { type: String, default: "psx-dps" },
     fetchedAt: { type: Date, default: () => new Date() },

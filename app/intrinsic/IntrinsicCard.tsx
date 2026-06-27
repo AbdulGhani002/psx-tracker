@@ -7,7 +7,7 @@ import { FootballField } from "@/components/charts/FootballField";
 import { ZoneBar } from "@/components/charts/ZoneBar";
 import { PriceZoneChart } from "@/components/charts/PriceZoneChart";
 import { Tornado } from "@/components/charts/Tornado";
-import { computeIntrinsic, intrinsicSensitivity, pkFairPE } from "@/lib/calculations/intrinsic";
+import { computeIntrinsic, intrinsicSensitivity, sectorFairPE } from "@/lib/calculations/intrinsic";
 import type { IntrinsicView } from "@/lib/data";
 import { fmtRs } from "@/lib/format";
 
@@ -52,14 +52,25 @@ function Slider({ label, value, min, max, step, onChange, fmt }: { label: string
 
 const zoneTone = (z: string): "positive" | "negative" | "default" => (z === "strong buy" || z === "buy" ? "positive" : z === "expensive" ? "negative" : "default");
 
+function Fund({ label, value, accent, tone }: { label: string; value: string; accent?: boolean; tone?: "pos" | "neg" }) {
+  return (
+    <div>
+      <div className="label-cap mb-0.5">{label}</div>
+      <div className="font-mono" style={{ color: accent ? "var(--accent-deep)" : tone === "pos" ? "var(--positive)" : tone === "neg" ? "var(--negative)" : "var(--ink)" }}>
+        {value}
+      </div>
+    </div>
+  );
+}
+
 export function IntrinsicCard({ v }: { v: IntrinsicView }) {
   const def = v.inputs;
   const [erp, setErp] = useState(def?.equityRiskPremiumPct ?? 0);
   const [growth, setGrowth] = useState(Math.round((def?.epsGrowthPct ?? 0) * 10) / 10);
 
-  // Fair P/E is DERIVED from growth + the rate (pkFairPE), not a free knob —
-  // that's how a real PK multiple is set, and it keeps the two coupled.
-  const fairPE = def ? pkFairPE(growth, def.sbpRatePct) : 8;
+  // Fair P/E is DERIVED from the stock's SECTOR + growth + margin trend + the
+  // rate, not a free knob — that's how a real PK multiple is set.
+  const fairPE = def ? sectorFairPE(def.sector ?? "", growth, def.sbpRatePct, def.marginTrendPct ?? 0) : 8;
   const touched = !!def && (erp !== def.equityRiskPremiumPct || growth !== Math.round((def.epsGrowthPct ?? 0) * 10) / 10);
 
   // Re-run the SAME model client-side with the user's assumptions. If the raw
@@ -119,6 +130,18 @@ export function IntrinsicCard({ v }: { v: IntrinsicView }) {
 
       {/* zone gauge */}
       <ZoneBar price={v.price} strongBuyBelow={r.strongBuyBelow} buyBelow={r.buyBelow} fairUpTo={r.fairUpTo} intrinsic={r.intrinsic} zone={r.zone} />
+
+      {/* fundamentals — what the valuation is reading */}
+      {def && (
+        <div className="mt-6 flex flex-wrap gap-x-7 gap-y-2 text-[12px]">
+          {def.sector && <Fund label="Sector" value={def.sector} />}
+          <Fund label="Trailing P/E" value={def.peTtm != null ? `${def.peTtm.toFixed(1)}×` : v.epsLatest && v.epsLatest > 0 ? `${(v.price / v.epsLatest).toFixed(1)}×` : "—"} />
+          <Fund label="Fair P/E (sector)" value={`${fairPE.toFixed(1)}×`} accent />
+          <Fund label="Net margin" value={def.netMarginPct != null ? `${def.netMarginPct.toFixed(1)}%${def.marginTrendPct != null ? ` (${def.marginTrendPct >= 0 ? "+" : ""}${def.marginTrendPct.toFixed(1)})` : ""}` : "—"} tone={def.marginTrendPct == null ? undefined : def.marginTrendPct >= 0 ? "pos" : "neg"} />
+          <Fund label="Revenue YoY" value={def.revenueGrowthPct != null ? `${def.revenueGrowthPct >= 0 ? "+" : ""}${def.revenueGrowthPct.toFixed(0)}%` : "—"} tone={def.revenueGrowthPct == null ? undefined : def.revenueGrowthPct >= 0 ? "pos" : "neg"} />
+          <Fund label="Through-cycle EPS" value={v.epsNormalized != null ? fmtRs(v.epsNormalized, true) : "—"} />
+        </div>
+      )}
 
       {/* interactive assumptions */}
       {def && (

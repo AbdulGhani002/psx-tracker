@@ -44,6 +44,12 @@ export type FundamentalsInput = {
   epsByYear: Record<number, number>; // fiscalYearEnd -> EPS
   epsGrowthPct: number | null;
   payouts?: PayoutLite[]; // authoritative PSX payouts (cash + non-cash)
+  // Richer fundamentals (sector-aware valuation + display).
+  latestNetMarginPct?: number | null;
+  marginTrendPct?: number | null;
+  revenueGrowthPct?: number | null;
+  peTtm?: number | null;
+  sharesOutstanding?: number | null;
 };
 
 export type FiscalYearDividend = {

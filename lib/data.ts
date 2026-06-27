@@ -44,7 +44,7 @@ import {
 import { forecastDividends, type DividendForecast } from "./calculations/dividend-forecast";
 import { computeSotp, deriveSharesOutstanding, type SotpResult } from "./calculations/sotp";
 import { computeValuation, type Valuation } from "./calculations/valuation";
-import { computeIntrinsic, intrinsicSensitivity, normalizedEps, robustGrowthPct, pkFairPE, type IntrinsicInputs, type IntrinsicResult, type Sensitivity } from "./calculations/intrinsic";
+import { computeIntrinsic, intrinsicSensitivity, normalizedEps, robustGrowthPct, sectorFairPE, type IntrinsicInputs, type IntrinsicResult, type Sensitivity } from "./calculations/intrinsic";
 import { analyzeConcentration, analyzeCorrelation, type ConcentrationResult, type CorrelationResult } from "./calculations/risk-analysis";
 import { fetchManyEod } from "./timeseries/psx-eod";
 import { fetchMarketWatch, indexLabel, isInIndex } from "./prices/marketwatch";
@@ -175,6 +175,13 @@ export async function getFundamentals(symbols: string[]): Promise<Record<string,
             annual: fresh?.annual ?? prev?.annual ?? [],
             latestEps: fresh?.latestEps ?? prev?.latestEps ?? null,
             epsGrowthPct: fresh?.epsGrowthPct ?? prev?.epsGrowthPct ?? null,
+            latestNetMarginPct: fresh?.latestNetMarginPct ?? prev?.latestNetMarginPct ?? null,
+            marginTrendPct: fresh?.marginTrendPct ?? prev?.marginTrendPct ?? null,
+            revenueGrowthPct: fresh?.revenueGrowthPct ?? prev?.revenueGrowthPct ?? null,
+            peTtm: fresh?.peTtm ?? prev?.peTtm ?? null,
+            pegTtm: fresh?.pegTtm ?? prev?.pegTtm ?? null,
+            sharesOutstanding: fresh?.sharesOutstanding ?? prev?.sharesOutstanding ?? null,
+            marketCapThousands: fresh?.marketCapThousands ?? prev?.marketCapThousands ?? null,
             payouts: payouts != null
               ? payouts.map((p) => ({ date: p.announceDate ?? p.bookClosureStart, bookClosure: p.bookClosureStart, pctOfFace: p.pctOfFace, cycle: p.cycle, payoutType: p.payoutType }))
               : prev?.payouts ?? [],
@@ -198,6 +205,11 @@ export async function getFundamentals(symbols: string[]): Promise<Record<string,
       latestEps: c.latestEps ?? null,
       epsByYear,
       epsGrowthPct: c.epsGrowthPct ?? null,
+      latestNetMarginPct: c.latestNetMarginPct ?? null,
+      marginTrendPct: c.marginTrendPct ?? null,
+      revenueGrowthPct: c.revenueGrowthPct ?? null,
+      peTtm: c.peTtm ?? null,
+      sharesOutstanding: c.sharesOutstanding ?? null,
       payouts: (c.payouts ?? []).map((p: any) => ({
         date: p.date ?? null,
         pctOfFace: p.pctOfFace,
@@ -419,13 +431,30 @@ async function computeIntrinsicValuations(): Promise<IntrinsicPage> {
         .sort((a, b) => a - b)
         .map((y) => Number(epsByYear[y]))
         .filter((e) => Number.isFinite(e));
-      const epsNorm = normalizedEps(epsAsc) ?? eps;
+      const sector = (h as any).sector ?? "";
+      const fdata = funds[h.symbol];
+      const marginTrend = fdata?.marginTrendPct ?? null;
+
+      // Earning power = a blend of CURRENT (TTM) earnings and the through-cycle
+      // 3-yr average. The 3-yr average alone lags reality — it missed LUCK's
+      // earnings collapse and PTL's recovery. PSX's trailing P/E gives the TTM
+      // EPS (price ÷ P/E); we lean on it (60%) but floor it to the through-cycle
+      // number (40%, clamped to 0.4–2× of it) so a one-off spike can't dominate.
+      const throughCycle = normalizedEps(epsAsc) ?? eps;
+      const ttmEps = fdata?.peTtm != null && fdata.peTtm > 0 && price > 0 ? price / fdata.peTtm : null;
+      let epsNorm = throughCycle;
+      if (ttmEps != null && throughCycle != null && throughCycle > 0) {
+        const cappedTtm = Math.max(0.4 * throughCycle, Math.min(2.0 * throughCycle, ttmEps));
+        epsNorm = 0.6 * cappedTtm + 0.4 * throughCycle;
+      }
       const rawGrowth = epsAsc.length >= 2 ? robustGrowthPct(epsAsc) : prof?.dividendGrowthPct ?? funds[h.symbol]?.epsGrowthPct ?? 0;
       // Fade the trailing growth: windfall years (e.g. banks at 22% rates) don't
       // persist, so we credit ~60% of it, capped — standard "growth fades" practice.
       const growth = Math.max(-8, Math.min(15, rawGrowth * 0.6));
-      // Per-stock fair P/E from a realistic PK baseline + this stock's growth + the rate.
-      const holdingFairPE = pkFairPE(growth, sbpRatePct);
+      // Sector-aware fair P/E: a brewery monopoly, a bank and a power utility get
+      // very different multiples. Uses this stock's PSX sector + growth + margin
+      // trend + the rate.
+      const holdingFairPE = sectorFairPE(sector, growth, sbpRatePct, marginTrend ?? 0);
 
       const inputs: IntrinsicInputs = {
         symbol: h.symbol,
@@ -442,6 +471,11 @@ async function computeIntrinsicValuations(): Promise<IntrinsicPage> {
         aboveEarnings: prof?.aboveEarnings ?? false,
         annualVolPct,
         navPerShare: lookThroughs.get(h.symbol)?.navPerShare ?? null,
+        sector,
+        netMarginPct: fdata?.latestNetMarginPct ?? null,
+        marginTrendPct: marginTrend,
+        revenueGrowthPct: fdata?.revenueGrowthPct ?? null,
+        peTtm: fdata?.peTtm ?? null,
       };
       const result = computeIntrinsic(inputs);
       return {

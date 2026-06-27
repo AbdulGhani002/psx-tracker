@@ -1,7 +1,7 @@
 // Single source of truth for the app version + changelog.
 // Bump APP_VERSION and prepend a CHANGELOG entry on every release.
 
-export const APP_VERSION = "3.4.0";
+export const APP_VERSION = "3.5.0";
 
 export const BUILD_DATE =
   process.env.NEXT_PUBLIC_BUILD_DATE ?? "";
@@ -17,6 +17,17 @@ export type ChangelogEntry = {
 
 // Reverse-chronological. Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: "3.5.0",
+    date: "2026-06-27",
+    title: "Sector-aware valuation — it now reads each business properly",
+    changes: [
+      "The biggest flaw was valuing every company on the same multiple. A brewery monopoly, a bank, a power utility and a cement maker are completely different businesses and the market prices them very differently. The fair P/E is now set by each stock's PSX SECTOR — defensive food/FMCG names get a big premium (~15×), banks a modest ~7×, power utilities ~5× (regulated returns + circular debt), E&P ~6×, cement ~8× — then nudged by growth, the rate, and the margin trend.",
+      "This changes the calls in the right direction: Murree Brewery now reads a strong buy (a monopoly FMCG at a P/E of ~10 is genuinely cheap), Meezan reads fair, and the power/cement/auto names stay expensive because on a sector-appropriate multiple they are.",
+      "Pulls in real fundamentals from PSX and shows them per stock: trailing P/E, net profit margin and its trend, revenue growth, and the through-cycle EPS. Improving margins earn a premium; falling ones a discount — so the model rewards quality.",
+      "Every reason now names the business: e.g. 'valued like a commercial bank at 7×', plus its earnings yield vs the T-bill rate and whether it's cheaper or richer than its trailing P/E.",
+    ],
+  },
   {
     version: "3.4.0",
     date: "2026-06-27",

@@ -13,6 +13,8 @@ export type AnnualFinancial = {
   fiscalYear: number; // the calendar year the fiscal year ends (PSX column header)
   eps: number | null; // rupees per share
   profitAfterTax: number | null; // in thousands of rupees, as PSX reports
+  netMarginPct: number | null; // net profit margin %
+  revenue: number | null; // sales / total income (thousands), as PSX reports
 };
 
 export type CompanyFundamentals = {
@@ -22,9 +24,24 @@ export type CompanyFundamentals = {
   annual: AnnualFinancial[]; // newest first
   latestEps: number | null; // most recent annual EPS
   epsGrowthPct: number | null; // latest vs prior annual EPS, in %
+  // Richer fundamentals (for better, sector-aware valuation + display):
+  latestNetMarginPct: number | null; // newest net profit margin
+  marginTrendPct: number | null; // newest − prior margin (pp); +ve = improving
+  revenueGrowthPct: number | null; // newest vs prior revenue, %
+  peTtm: number | null; // PSX's reported trailing P/E
+  pegTtm: number | null; // PSX's reported PEG
+  sharesOutstanding: number | null; // PSX "Shares" stat
+  marketCapThousands: number | null; // PSX "Market Cap (000's)"
   fetchedAt: string; // ISO
   source: string;
 };
+
+// Pull a single PSX header "stat": <div class="stats_label">LABEL ...</div>
+// <div class="stats_value">VALUE</div>.
+function parseStat(html: string, label: string): number | null {
+  const re = new RegExp(`stats_label">\\s*${label}[^<]*</div>\\s*<div class="stats_value">([^<]+)</div>`, "i");
+  return parseNum(html.match(re)?.[1] ?? null);
+}
 
 function parseSector(html: string): string {
   const m = html.match(/class="quote__sector"[^>]*>\s*<span[^>]*>([^<]+)<|class="quote__sector"[^>]*>([^<]+)</i);
@@ -81,11 +98,25 @@ export function parseFinancials(html: string, symbol: string): CompanyFundamenta
 
   const epsCells = extractRow(panel, "EPS").map(parseNum);
   const profitCells = extractRow(panel, "Profit after Taxation").map(parseNum);
+  const marginCells = extractRow(panel, "Net Profit Margin \\(%\\)").map(parseNum);
+  // Revenue is labelled differently by sector: Sales for manufacturers, Total
+  // Income / Mark-up Earned for banks. Use whichever row exists.
+  const revLabels = ["Sales", "Net Sales", "Total Income", "Mark-up Earned", "Revenue"];
+  let revCells: (number | null)[] = [];
+  for (const lbl of revLabels) {
+    const cells = extractRow(panel, lbl).map(parseNum);
+    if (cells.some((c) => c != null)) {
+      revCells = cells;
+      break;
+    }
+  }
 
   const annual: AnnualFinancial[] = years.map((fiscalYear, i) => ({
     fiscalYear,
     eps: epsCells[i] ?? null,
     profitAfterTax: profitCells[i] ?? null,
+    netMarginPct: marginCells[i] ?? null,
+    revenue: revCells[i] ?? null,
   }));
 
   const latestEps = annual[0]?.eps ?? null;
@@ -95,6 +126,13 @@ export function parseFinancials(html: string, symbol: string): CompanyFundamenta
       ? ((latestEps - priorEps) / Math.abs(priorEps)) * 100
       : null;
 
+  const latestNetMarginPct = annual[0]?.netMarginPct ?? null;
+  const priorMargin = annual[1]?.netMarginPct ?? null;
+  const marginTrendPct = latestNetMarginPct != null && priorMargin != null ? latestNetMarginPct - priorMargin : null;
+  const latestRev = annual[0]?.revenue ?? null;
+  const priorRev = annual[1]?.revenue ?? null;
+  const revenueGrowthPct = latestRev != null && priorRev != null && priorRev !== 0 ? ((latestRev - priorRev) / Math.abs(priorRev)) * 100 : null;
+
   return {
     symbol: symbol.toUpperCase(),
     faceValue: 10,
@@ -102,6 +140,13 @@ export function parseFinancials(html: string, symbol: string): CompanyFundamenta
     annual,
     latestEps,
     epsGrowthPct,
+    latestNetMarginPct,
+    marginTrendPct,
+    revenueGrowthPct,
+    peTtm: parseStat(html, "P/E Ratio \\(TTM\\)"),
+    pegTtm: parseStat(html, "PEG"),
+    sharesOutstanding: parseStat(html, "Shares"),
+    marketCapThousands: parseStat(html, "Market Cap"),
     fetchedAt: new Date().toISOString(),
     source: "psx-dps",
   };
