@@ -44,6 +44,7 @@ import {
 import { forecastDividends, type DividendForecast } from "./calculations/dividend-forecast";
 import { computeSotp, deriveSharesOutstanding, type SotpResult } from "./calculations/sotp";
 import { computeValuation, type Valuation } from "./calculations/valuation";
+import { computeIntrinsic, intrinsicSensitivity, type IntrinsicResult, type Sensitivity } from "./calculations/intrinsic";
 import { analyzeConcentration, analyzeCorrelation, type ConcentrationResult, type CorrelationResult } from "./calculations/risk-analysis";
 import { fetchManyEod } from "./timeseries/psx-eod";
 import { fetchMarketWatch, indexLabel, isInIndex } from "./prices/marketwatch";
@@ -321,6 +322,122 @@ async function computeValuations(): Promise<{ valuations: HoldingValuation[]; re
   return { valuations, requiredReturnPct, fairPE, sbpRatePct };
 }
 
+// --- Intrinsic value + buying zones ---------------------------------------
+
+export type IntrinsicView = IntrinsicResult & {
+  name: string;
+  shares: number;
+  marketValue: number;
+  annualVolPct: number | null;
+  sensitivity: Sensitivity[];
+  history: { date: string; close: number }[]; // downsampled EOD for the zone chart
+};
+
+export type IntrinsicPage = {
+  items: IntrinsicView[];
+  requiredReturnPct: number;
+  sbpRatePct: number;
+  equityRiskPremiumPct: number;
+  fairPE: number;
+};
+
+// Annualised volatility (%) from a daily close series — the stock's own risk,
+// used to scale how big a margin of safety we demand.
+function annualisedVol(series: { close: number }[]): number | null {
+  const closes = series.map((p) => p.close).filter((c) => c > 0);
+  if (closes.length < 30) return null;
+  const recent = closes.slice(-250); // ~1 trading year
+  const rets: number[] = [];
+  for (let i = 1; i < recent.length; i++) rets.push(recent[i] / recent[i - 1] - 1);
+  if (rets.length < 20) return null;
+  const mean = rets.reduce((s, r) => s + r, 0) / rets.length;
+  const variance = rets.reduce((s, r) => s + (r - mean) ** 2, 0) / rets.length;
+  return Math.sqrt(variance) * Math.sqrt(252) * 100;
+}
+
+// Keep the chart light: take ~1 year and stride down to <=140 points.
+function downsample(series: { date: string; close: number }[], target = 140): { date: string; close: number }[] {
+  const year = series.slice(-252);
+  if (year.length <= target) return year;
+  const stride = Math.ceil(year.length / target);
+  const out = year.filter((_, i) => i % stride === 0);
+  if (out[out.length - 1] !== year[year.length - 1]) out.push(year[year.length - 1]);
+  return out;
+}
+
+// Intrinsic value, valuation methods, buying zones, sensitivity and a price
+// history for every holding. Heavy (EOD per symbol) → cached + cron-warmed.
+export async function getIntrinsicValuations(): Promise<IntrinsicPage> {
+  return cachedSnapshot("page:intrinsic", 90 * 60 * 1000, computeIntrinsicValuations);
+}
+
+async function computeIntrinsicValuations(): Promise<IntrinsicPage> {
+  const [holdings, settings, sbp] = await Promise.all([getAllHoldings(), getAppSettings(), getSbpRateSteps()]);
+  const held = holdings.filter((h) => h.currentShares > 0);
+  const fairPE = (settings as any).defaultFairPE ?? 8;
+  const equityRiskPremiumPct = (settings as any).equityRiskPremiumPct ?? 6;
+  const sbpRatePct = policyRateOn(new Date().toISOString().slice(0, 10), sbp.steps) ?? 11;
+  const requiredReturnPct = sbpRatePct + equityRiskPremiumPct;
+  if (!held.length) return { items: [], requiredReturnPct, sbpRatePct, equityRiskPremiumPct, fairPE };
+
+  const syms = held.map((h) => h.symbol);
+  const [prices, funds, forecast, eod] = await Promise.all([
+    getCurrentPrices(syms),
+    getFundamentals(syms),
+    getDividendForecast(),
+    fetchManyEod(syms).catch(() => new Map()),
+  ]);
+  const profBySym = new Map(forecast.profiles.map((p) => [p.symbol, p]));
+
+  // Look-through NAV for holding companies (top-level only — fast).
+  const lookThroughs = new Map<string, LookThrough>();
+  await Promise.all(
+    held
+      .filter((h) => (h as any).lookThrough?.enabled)
+      .map(async (h) => {
+        const lt = await getLookThroughFor(h.symbol, { skipChildren: true }).catch(() => null);
+        if (lt && lt.navPerShare > 0) lookThroughs.set(h.symbol, lt);
+      })
+  );
+
+  const items: IntrinsicView[] = held
+    .map((h) => {
+      const price = prices.get(h.symbol) ?? 0;
+      const eps = funds[h.symbol]?.latestEps ?? null;
+      const prof = profBySym.get(h.symbol);
+      const series = (eod.get(h.symbol) as { date: string; close: number }[] | undefined) ?? [];
+      const annualVolPct = annualisedVol(series);
+      const inputs = {
+        symbol: h.symbol,
+        price,
+        eps,
+        epsGrowthPct: prof?.dividendGrowthPct ?? funds[h.symbol]?.epsGrowthPct ?? 0,
+        bvps: (h as any).bookValuePerShare ?? 0,
+        forwardDps: prof?.forwardDpsAnnual ?? 0,
+        dividendGrowthPct: prof?.dividendGrowthPct ?? funds[h.symbol]?.epsGrowthPct ?? 0,
+        sbpRatePct,
+        equityRiskPremiumPct,
+        fairPE,
+        aboveEarnings: prof?.aboveEarnings ?? false,
+        annualVolPct,
+        navPerShare: lookThroughs.get(h.symbol)?.navPerShare ?? null,
+      };
+      const result = computeIntrinsic(inputs);
+      return {
+        ...result,
+        name: h.name,
+        shares: h.currentShares,
+        marketValue: price * h.currentShares,
+        annualVolPct,
+        sensitivity: intrinsicSensitivity(inputs),
+        history: downsample(series),
+      };
+    })
+    .sort((a, b) => b.marketValue - a.marketValue);
+
+  return { items, requiredReturnPct, sbpRatePct, equityRiskPremiumPct, fairPE };
+}
+
 export type RiskAnalysis = {
   concentration: ConcentrationResult;
   correlation: CorrelationResult;
@@ -424,6 +541,7 @@ export async function cachedSnapshot<T>(key: string, ttlMs: number, compute: () 
 export async function warmPageCaches(): Promise<Record<string, string>> {
   const jobs: Array<[string, () => Promise<unknown>]> = [
     ["valuations", getValuations],
+    ["intrinsic", getIntrinsicValuations],
     ["riskMetrics", getRiskMetrics],
     ["riskAnalysis", getRiskAnalysis],
     ["todaysMovers", getTodaysMovers],

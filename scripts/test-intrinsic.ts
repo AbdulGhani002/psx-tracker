@@ -1,0 +1,72 @@
+import { computeIntrinsic, compositeIntrinsic, requiredMarginOfSafety, intrinsicSensitivity, type IntrinsicInputs } from "../lib/calculations/intrinsic";
+
+let pass = 0, fail = 0;
+const ok = (n: string, c: boolean, d = "") => { c ? pass++ : fail++; console.log(`${c ? "PASS" : "FAIL"}  ${n}  ${d}`); };
+const near = (a: number | null, b: number, tol = 0.5) => a != null && Math.abs(a - b) < tol;
+
+const base: IntrinsicInputs = {
+  symbol: "TEST",
+  price: 100,
+  eps: 10,
+  epsGrowthPct: 8,
+  bvps: 50,
+  forwardDps: 5,
+  dividendGrowthPct: 5,
+  sbpRatePct: 11,
+  equityRiskPremiumPct: 6, // required return 17
+  fairPE: 8,
+  aboveEarnings: false,
+  annualVolPct: 30,
+  navPerShare: null,
+};
+
+const c = compositeIntrinsic(base);
+const m = (k: string) => c.methods.find((x) => x.key === k)?.value ?? null;
+ok("Graham number ≈ 106.07", near(m("graham"), 106.07), `${m("graham")?.toFixed(2)}`);
+ok("Graham revised ≈ 63.41", near(m("grahamRevised"), 63.41), `${m("grahamRevised")?.toFixed(2)}`);
+ok("DDM ≈ 43.75", near(m("ddm"), 43.75), `${m("ddm")?.toFixed(2)}`);
+ok("EPV ≈ 58.82", near(m("epv"), 58.82), `${m("epv")?.toFixed(2)}`);
+ok("DCF ≈ 93.2", near(m("dcf"), 93.2, 1.0), `${m("dcf")?.toFixed(2)}`);
+ok("Earnings × fair P/E = 80", m("earnings") === 80, `${m("earnings")}`);
+ok("intrinsic sits inside [low, high]", c.intrinsic != null && c.low != null && c.high != null && c.intrinsic >= c.low && c.intrinsic <= c.high, `${c.low?.toFixed(1)}..${c.intrinsic?.toFixed(1)}..${c.high?.toFixed(1)}`);
+
+const r = computeIntrinsic(base);
+ok("required MoS = 22.5% (vol 30)", r.requiredMosPct === 22.5, `${r.requiredMosPct}`);
+ok("buy line = intrinsic × (1 − MoS)", r.buyBelow != null && r.intrinsic != null && near(r.buyBelow, r.intrinsic * 0.775, 0.01), `${r.buyBelow?.toFixed(2)}`);
+ok("strong-buy line is 10pp below buy line", r.strongBuyBelow != null && r.buyBelow != null && r.strongBuyBelow < r.buyBelow);
+ok("price 100 >> intrinsic ~74 → expensive", r.zone === "expensive", r.zone);
+ok("negative margin of safety when overpriced", r.marginOfSafetyPct != null && r.marginOfSafetyPct < 0, `${r.marginOfSafetyPct?.toFixed(1)}`);
+ok("drivers explain the required return", r.drivers.some((d) => d.includes("Required return")));
+
+// A cheap price lands in a buy zone.
+const cheap = computeIntrinsic({ ...base, price: 40 });
+ok("price 40 → strong buy", cheap.zone === "strong buy", cheap.zone);
+ok("positive margin of safety when cheap", cheap.marginOfSafetyPct != null && cheap.marginOfSafetyPct > 0);
+
+// Risk scaling of the margin of safety.
+ok("MoS floor 15% (calm, profitable)", requiredMarginOfSafety(10, false, true) === 20);
+ok("MoS widens with volatility", requiredMarginOfSafety(45, false, true) === 30);
+ok("MoS +5 when dividend > earnings", requiredMarginOfSafety(25, true, true) === 25);
+ok("MoS capped at 45%", requiredMarginOfSafety(80, true, false) === 45);
+
+// Holding company → NAV dominates, P/E methods become reference-only.
+const holdco = computeIntrinsic({ ...base, navPerShare: 120 });
+ok("holdco basis = nav", holdco.basis === "nav");
+ok("holdco intrinsic = NAV 120", near(holdco.intrinsic, 120, 0.01), `${holdco.intrinsic?.toFixed(2)}`);
+ok("holdco non-NAV methods carry weight 0", holdco.methods.filter((x) => x.key !== "nav").every((x) => x.weight === 0));
+
+// Sensitivity: a higher discount rate lowers value; faster growth raises it.
+const sens = intrinsicSensitivity(base);
+const rr = sens.find((s) => s.label.startsWith("Required return"))!;
+ok("higher required return → lower value", rr.low < rr.base, `${rr.low.toFixed(1)} < ${rr.base.toFixed(1)}`);
+ok("lower required return → higher value", rr.high > rr.base, `${rr.high.toFixed(1)} > ${rr.base.toFixed(1)}`);
+const gr = sens.find((s) => s.label.startsWith("Growth"))!;
+ok("faster growth → higher value", gr.high > gr.base && gr.low < gr.base);
+
+// No EPS and no NAV → no earnings methods; only dividend model can fire.
+const noEps = computeIntrinsic({ ...base, eps: null, bvps: 0 });
+ok("no EPS → Graham/EPV/DCF all N/A", ["graham", "epv", "dcf", "grahamRevised", "earnings"].every((k) => (noEps.methods.find((x) => x.key === k)?.value ?? null) === null));
+ok("no EPS → DDM still values it", (noEps.methods.find((x) => x.key === "ddm")?.value ?? null) != null);
+
+console.log(`\n${pass} passed, ${fail} failed`);
+if (fail > 0) process.exit(1);

@@ -19,6 +19,7 @@ const MORE = [
   { href: "/dividends", label: "Dividends" },
   { href: "/forecast", label: "Dividend forecast" },
   { href: "/valuation", label: "Valuation" },
+  { href: "/intrinsic", label: "Intrinsic & buy zones" },
   { href: "/methodology", label: "How it's valued" },
   { href: "/shariah", label: "Shariah" },
   { href: "/risk", label: "Risk" },

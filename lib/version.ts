@@ -1,7 +1,7 @@
 // Single source of truth for the app version + changelog.
 // Bump APP_VERSION and prepend a CHANGELOG entry on every release.
 
-export const APP_VERSION = "3.0.0";
+export const APP_VERSION = "3.1.0";
 
 export const BUILD_DATE =
   process.env.NEXT_PUBLIC_BUILD_DATE ?? "";
@@ -17,6 +17,19 @@ export type ChangelogEntry = {
 
 // Reverse-chronological. Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: "3.1.0",
+    date: "2026-06-27",
+    title: "Intrinsic value + buying zones for every share",
+    changes: [
+      "New 'Intrinsic & buy zones' page: for every holding we compute what the share is actually worth, blended from up to six independent models — a 2-stage discounted-earnings (DCF) model, the dividend-discount model, Graham's growth formula, the classic Graham number, earnings power value, and a fair P/E multiple. Holding companies are valued on their live look-through NAV instead.",
+      "Concrete buying zones: each stock gets a 'buy below' and 'strong buy below' price, with the margin of safety scaled to that stock's OWN volatility (a jumpier share has to be cheaper before it's a buy) and widened further if it pays dividends out of reserves. A colour gauge shows exactly where today's price sits.",
+      "Every number is explained: a 'why this zone' panel spells out the required return (SBP rate + your equity premium), the growth assumption, and how the safety margin was set — no black boxes.",
+      "Four new charts per stock: a football-field plot of all the methods on one scale against the price, the buying-zone gauge, a year of price history shaded by zone (so you can see every dip into a buying zone), and a sensitivity tornado showing what moves the value most.",
+      "Each holding's own page now carries a compact intrinsic-value and buying-zone block too.",
+      "Pages feel instant: every analysis page now shows a shimmering skeleton the moment you click, then fades the real (cached) content in — plus subtle fade-in animations throughout.",
+    ],
+  },
   {
     version: "3.0.0",
     date: "2026-06-20",

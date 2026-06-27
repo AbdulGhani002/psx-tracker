@@ -12,6 +12,8 @@ import { HoldingTransactions } from "./HoldingTransactions";
 import { DividendOverride } from "./DividendOverride";
 import { LookThroughPanel } from "./LookThroughPanel";
 import { knownHoldingCompany } from "@/lib/holding-companies";
+import { FootballField } from "@/components/charts/FootballField";
+import { ZoneBar } from "@/components/charts/ZoneBar";
 import {
   getHoldingBySymbol,
   getTransactionsBySymbol,
@@ -19,6 +21,7 @@ import {
   getPortfolioSummary,
   getLookThroughFor,
   getMarketContext,
+  getIntrinsicValuations,
 } from "@/lib/data";
 import { deriveFromTransactions } from "@/lib/calculations";
 import {
@@ -46,6 +49,7 @@ export default async function HoldingDetail({ params }: Props) {
   const derived = deriveFromTransactions(transactions);
   const summary = await getPortfolioSummary();
   const currentPercent = summary.positions.find((p) => p.symbol === symbol)?.currentPercent ?? 0;
+  const intrinsic = (await getIntrinsicValuations().catch(() => null))?.items.find((i) => i.symbol === symbol) ?? null;
 
   const marketValue = derived.shares * currentPrice;
   const unrealizedPL = marketValue - derived.totalCost;
@@ -137,8 +141,57 @@ export default async function HoldingDetail({ params }: Props) {
         <HoldingTransactions transactions={transactions} />
       </Section>
 
+      {intrinsic && intrinsic.intrinsic != null && (
+        <Section
+          number="02"
+          title="Intrinsic value & buying zone"
+          display={
+            intrinsic.zone === "strong buy" || intrinsic.zone === "buy"
+              ? "In a buying zone."
+              : intrinsic.zone === "expensive"
+              ? "Above fair value."
+              : "Around fair value."
+          }
+          description="What this share is worth, blended from up to six independent models, and the price below which it becomes a buy — with the margin of safety scaled to this stock's own volatility."
+          action={
+            <Link href={`/intrinsic#${symbol}`} className="font-mono text-[11px] uppercase tracking-stat text-muted hover:text-[var(--accent-deep)]">
+              Full analysis →
+            </Link>
+          }
+        >
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-5">
+            <Stat label="Live price" value={fmtRs(intrinsic.price, true)} />
+            <Stat label="Intrinsic value" value={fmtRs(intrinsic.intrinsic, true)} hint={intrinsic.low != null && intrinsic.high != null ? `range ${fmtRs(intrinsic.low, true)}–${fmtRs(intrinsic.high, true)}` : undefined} />
+            <Stat
+              label="Margin of safety"
+              value={intrinsic.marginOfSafetyPct == null ? "—" : `${intrinsic.marginOfSafetyPct >= 0 ? "+" : ""}${intrinsic.marginOfSafetyPct.toFixed(0)}%`}
+              tone={intrinsic.marginOfSafetyPct != null && intrinsic.marginOfSafetyPct >= 0 ? "positive" : "negative"}
+            />
+            <Stat label="Buy below" value={intrinsic.buyBelow == null ? "—" : fmtRs(intrinsic.buyBelow, true)} tone="positive" hint={intrinsic.strongBuyBelow != null ? `strong buy ≤ ${fmtRs(intrinsic.strongBuyBelow, true)}` : undefined} />
+          </div>
+          <ZoneBar price={intrinsic.price} strongBuyBelow={intrinsic.strongBuyBelow} buyBelow={intrinsic.buyBelow} fairUpTo={intrinsic.fairUpTo} intrinsic={intrinsic.intrinsic} zone={intrinsic.zone} />
+          <div className="grid md:grid-cols-2 gap-6 mt-6">
+            <div>
+              <div className="label-cap mb-2">Valuation methods</div>
+              <FootballField methods={intrinsic.methods} price={intrinsic.price} intrinsic={intrinsic.intrinsic} />
+            </div>
+            <div>
+              <div className="label-cap mb-2">Why</div>
+              <ul className="space-y-2 text-[13px] text-muted">
+                {intrinsic.drivers.map((d, i) => (
+                  <li key={i} className="flex gap-2">
+                    <span style={{ color: "var(--accent-deep)" }}>—</span>
+                    <span>{d}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          </div>
+        </Section>
+      )}
+
       <Section
-        number="02"
+        number="03"
         title="Playbook"
         display="Your thesis, tier, and the numbers to watch."
         description="Encode your sizing framework: which tier this belongs to, your conviction score, the job it does, and the quarterly numbers that tell you the thesis is healing or breaking."
@@ -157,7 +210,7 @@ export default async function HoldingDetail({ params }: Props) {
       </Section>
 
       <Section
-        number="03"
+        number="04"
         title="Settings"
         description="Edit target allocation, rebalance band, Sharia status, name/sector overrides, and notes. Refresh from PSX to re-scrape company info."
       >
@@ -177,7 +230,7 @@ export default async function HoldingDetail({ params }: Props) {
       </Section>
 
       <Section
-        number="04"
+        number="05"
         title="Dividend forecast override"
         display="Pin the dividend numbers."
         description="When the automatic forecast gets a stock wrong — unusual par value, incomplete recorded dividends, or a cadence it can't read — set the values here. Anything left at Auto stays automatic."
@@ -195,7 +248,7 @@ export default async function HoldingDetail({ params }: Props) {
       </Section>
 
       <Section
-        number="05"
+        number="06"
         title="Look-through value"
         display="What it really owns."
         description="For a holding company, sum the live value of the stakes it owns (and subtract its debt) to get a net asset value per share, then compare to the market price. The gap is the holding-company discount."
@@ -216,7 +269,7 @@ export default async function HoldingDetail({ params }: Props) {
       </Section>
 
       <Section
-        number="06"
+        number="07"
         title="Forward projection"
         description="A multi-scenario compounding model specific to this stock. Pick a preset, tune the sliders, then save them as this stock's defaults."
       >
