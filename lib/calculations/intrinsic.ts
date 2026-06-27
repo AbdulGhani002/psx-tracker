@@ -28,7 +28,7 @@ export type IntrinsicInputs = {
   navPerShare: number | null; // look-through NAV/share for holding companies
 };
 
-export type MethodKey = "nav" | "graham" | "grahamRevised" | "ddm" | "epv" | "dcf" | "earnings";
+export type MethodKey = "nav" | "graham" | "justifiedPE" | "ddm" | "epv" | "dcf" | "earnings";
 
 export type ValuationMethod = {
   key: MethodKey;
@@ -89,17 +89,27 @@ export function robustGrowthPct(epsAsc: number[]): number {
 
 // --- the individual methods ------------------------------------------------
 
-// Graham Number: sqrt(22.5 × EPS × BVPS). 22.5 = 15 (fair P/E) × 1.5 (fair P/B).
-function grahamNumber(eps: number | null, bvps: number): number | null {
+// Graham Number, RECALIBRATED for Pakistan. The classic √(22.5 × EPS × BVPS)
+// bakes in a US "fair P/E 15 × fair P/B 1.5" = 22.5. In a market with an 11%+
+// policy rate, multiples are far lower, so we rebuild the constant from the
+// LOCAL fair P/E (× a 1.2 fair P/B) instead of the US 22.5.
+function grahamNumber(eps: number | null, bvps: number, fairPE: number): number | null {
   if (eps == null || eps <= 0 || bvps <= 0) return null;
-  return Math.sqrt(22.5 * eps * bvps);
+  const k = clamp(fairPE, 4, 12) * 1.2;
+  return Math.sqrt(k * eps * bvps);
 }
 
-// Graham's revised formula: V = EPS × (8.5 + 2g) × 4.4 / Y.
-function grahamRevised(eps: number | null, growthPct: number, requiredReturnPct: number): number | null {
-  if (eps == null || eps <= 0 || requiredReturnPct <= 0) return null;
-  const g = clamp(growthPct, 0, 15);
-  return (eps * (8.5 + 2 * g) * 4.4) / requiredReturnPct;
+// Justified (Gordon) fair P/E — the rate-aware multiple that actually fits a
+// high-interest market: fair P/E = payout × (1+g) / (r − g). A flat "fair P/E"
+// can't see the discount rate; this one falls as the SBP rate rises. Needs a
+// real payout (dividend payer); capped to a sane Pakistani 3–18× band.
+function justifiedFairValue(eps: number | null, payoutRatio: number, growthPct: number, requiredReturnPct: number): number | null {
+  if (eps == null || eps <= 0 || payoutRatio <= 0.05 || requiredReturnPct <= 0) return null;
+  const r = requiredReturnPct / 100;
+  const g = clamp(growthPct, 0, 12) / 100; // Gordon needs g safely below r
+  if (r - g <= 0.02) return null;
+  const fairPE = clamp((payoutRatio * (1 + g)) / (r - g), 3, 18);
+  return fairPE * eps;
 }
 
 // Dividend-discount (Gordon growth): V = D1 / (r − g).
@@ -159,17 +169,21 @@ export function compositeIntrinsic(i: IntrinsicInputs): {
   const r = i.sbpRatePct + i.equityRiskPremiumPct; // required return = risk-free + equity premium
   const g = i.epsGrowthPct ?? 0;
   const e = i.normalizedEps ?? i.eps; // earning power the models run on
+  const payoutRatio = e != null && e > 0 && i.forwardDps > 0 ? i.forwardDps / e : 0;
 
   const isHoldco = i.navPerShare != null && i.navPerShare > 0;
 
+  // Pakistan-tuned method mix: earnings-power (EPS ÷ the high local rate) and a
+  // rate-aware justified P/E carry the most weight; the US-centric Graham models
+  // are dropped (growth) or recalibrated + down-weighted (number).
   const methods: ValuationMethod[] = [
     { key: "nav", label: "Look-through NAV", value: i.navPerShare, weight: isHoldco ? 1 : 0, included: false, note: "Live sum-of-the-parts value of the companies it owns, per share." },
-    { key: "dcf", label: "Discounted earnings (DCF)", value: dcf(e, g, r), weight: isHoldco ? 0 : 1.3, included: false, note: "5 years of earnings growth + a terminal value, discounted at your required return." },
-    { key: "epv", label: "Earnings power (no growth)", value: epv(e, r), weight: isHoldco ? 0 : 1.1, included: false, note: "Worth if earnings never grow again: normalised EPS ÷ required return." },
-    { key: "earnings", label: "Fair P/E × EPS", value: earningsMultiple(e, i.fairPE), weight: isHoldco ? 0 : 1.0, included: false, note: `A fair multiple (${i.fairPE}×) on normalised earnings.` },
-    { key: "grahamRevised", label: "Graham (growth)", value: grahamRevised(e, g, r), weight: isHoldco ? 0 : 1.0, included: false, note: "Graham's growth formula: EPS × (8.5 + 2g) × 4.4 / required return." },
-    { key: "graham", label: "Graham number", value: grahamNumber(e, i.bvps), weight: isHoldco ? 0 : 1.0, included: false, note: "Defensive floor: √(22.5 × EPS × book value). Needs a book value." },
-    { key: "ddm", label: "Dividend discount", value: ddm(i.forwardDps, r, i.dividendGrowthPct), weight: isHoldco ? 0 : 0.7, included: false, note: "Forward dividend grown forever, discounted (Gordon model). Sensitive — down-weighted." },
+    { key: "epv", label: "Earnings power (EPS ÷ rate)", value: epv(e, r), weight: isHoldco ? 0 : 1.3, included: false, note: "Worth if earnings never grow again: normalised EPS ÷ required return. The cleanest read in a high-rate market." },
+    { key: "justifiedPE", label: "Justified P/E (rate-aware)", value: justifiedFairValue(e, payoutRatio, g, r), weight: isHoldco ? 0 : 1.3, included: false, note: "Gordon fair multiple: payout × (1+g) / (r − g), times normalised EPS. Falls as the SBP rate rises — fits Pakistan." },
+    { key: "dcf", label: "Discounted earnings (DCF)", value: dcf(e, g, r), weight: isHoldco ? 0 : 1.2, included: false, note: "5 years of earnings growth + a terminal value, discounted at your required return." },
+    { key: "earnings", label: "Fair P/E × EPS", value: earningsMultiple(e, i.fairPE), weight: isHoldco ? 0 : 0.9, included: false, note: `Your fair multiple (${i.fairPE}×) on normalised earnings.` },
+    { key: "graham", label: "Graham number (local)", value: grahamNumber(e, i.bvps, i.fairPE), weight: isHoldco ? 0 : 0.6, included: false, note: "Asset-backed floor: √(fair P/E × 1.2 × EPS × book value), rebuilt from the LOCAL fair P/E. Needs a book value." },
+    { key: "ddm", label: "Dividend discount", value: ddm(i.forwardDps, r, i.dividendGrowthPct), weight: isHoldco ? 0 : 0.6, included: false, note: "Forward dividend grown forever, discounted (Gordon model). Sensitive — down-weighted." },
   ];
 
   const applicable = methods.filter((m) => m.value != null && m.value > 0 && m.weight > 0);
@@ -254,12 +268,23 @@ export function computeIntrinsic(i: IntrinsicInputs): IntrinsicResult {
     else confidence = "low";
   }
 
+  const e = i.normalizedEps ?? i.eps;
+  const earningsYieldPct = e != null && e > 0 && i.price > 0 ? (e / i.price) * 100 : null;
   const drivers: string[] = [];
   drivers.push(`Required return ${r.toFixed(1)}% = SBP ${i.sbpRatePct.toFixed(1)}% + ${i.equityRiskPremiumPct.toFixed(0)}% equity premium. A higher rate lowers every value.`);
   if (basis === "nav") {
     drivers.push("Valued on look-through NAV — its earnings are mostly revaluation of the shares it owns, so P/E is misleading.");
   } else {
-    drivers.push(`Through-cycle growth ${clamp(g, -10, 25).toFixed(1)}%/yr (a multi-year EPS trend, not one freak year) feeds the DCF and Graham models.`);
+    drivers.push(`Tuned for Pakistan: the value leans on earnings-power (EPS ÷ the high local rate) and a rate-aware justified P/E. The US Graham-growth formula is dropped; the Graham number is rebuilt from the local fair P/E.`);
+    drivers.push(`Through-cycle growth ${clamp(g, -10, 25).toFixed(1)}%/yr (a multi-year EPS trend, not one freak year) feeds the DCF and justified-P/E.`);
+    if (earningsYieldPct != null) {
+      const spread = earningsYieldPct - i.sbpRatePct;
+      drivers.push(
+        `Earnings yield ${earningsYieldPct.toFixed(1)}% vs the ${i.sbpRatePct.toFixed(1)}% risk-free rate — a ${spread >= 0 ? "+" : ""}${spread.toFixed(1)}pp spread. ${
+          spread >= 2 ? "Earnings comfortably beat T-bills." : spread >= 0 ? "Barely above T-bills — thin compensation for equity risk." : "Below T-bills: you'd earn more in a savings account at today's price."
+        }`
+      );
+    }
     drivers.push(`Blended from ${incl.length} of the methods below; the value is the weighted middle of those that agree.`);
   }
   if (excluded.length) {

@@ -1,7 +1,7 @@
 // Single source of truth for the app version + changelog.
 // Bump APP_VERSION and prepend a CHANGELOG entry on every release.
 
-export const APP_VERSION = "3.2.0";
+export const APP_VERSION = "3.3.0";
 
 export const BUILD_DATE =
   process.env.NEXT_PUBLIC_BUILD_DATE ?? "";
@@ -17,6 +17,16 @@ export type ChangelogEntry = {
 
 // Reverse-chronological. Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: "3.3.0",
+    date: "2026-06-27",
+    title: "Valuation re-tuned for Pakistan (Graham was too US-centric)",
+    changes: [
+      "The Graham models assumed US norms — a 'fair P/E of 15' and a fixed 22.5 constant — which don't hold in a market with an 11%+ policy rate and single-digit P/Es. Replaced the US Graham-growth formula with a rate-aware Justified P/E (the Gordon fair multiple: payout × (1+g) / (r − g)), which falls automatically as the SBP rate rises. The Graham number is kept only as an asset floor, rebuilt from the LOCAL fair P/E instead of the US 22.5, and down-weighted.",
+      "The value now leans on earnings-power (EPS ÷ the high local rate) and the justified P/E — the two reads that actually fit a high-interest market.",
+      "Added the key Pakistan value check to every stock's reasons: its earnings yield versus the risk-free T-bill rate, and whether the spread compensates you for equity risk.",
+    ],
+  },
   {
     version: "3.2.0",
     date: "2026-06-27",

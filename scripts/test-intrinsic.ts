@@ -22,8 +22,8 @@ const base: IntrinsicInputs = {
 
 const c = compositeIntrinsic(base);
 const m = (k: string) => c.methods.find((x) => x.key === k)?.value ?? null;
-ok("Graham number ≈ 106.07", near(m("graham"), 106.07), `${m("graham")?.toFixed(2)}`);
-ok("Graham revised ≈ 63.41", near(m("grahamRevised"), 63.41), `${m("grahamRevised")?.toFixed(2)}`);
+ok("Graham number (local) ≈ 69.28", near(m("graham"), 69.28), `${m("graham")?.toFixed(2)}`); // √(8×1.2 × 10 × 50), local fair P/E not US 22.5
+ok("Justified P/E value ≈ 60", near(m("justifiedPE"), 60), `${m("justifiedPE")?.toFixed(2)}`); // payout 0.5 × 1.08 / (0.17−0.08) = 6.0× × EPS 10
 ok("DDM ≈ 43.75", near(m("ddm"), 43.75), `${m("ddm")?.toFixed(2)}`);
 ok("EPV ≈ 58.82", near(m("epv"), 58.82), `${m("epv")?.toFixed(2)}`);
 ok("DCF ≈ 93.2", near(m("dcf"), 93.2, 1.0), `${m("dcf")?.toFixed(2)}`);
@@ -65,7 +65,7 @@ ok("faster growth → higher value", gr.high > gr.base && gr.low < gr.base);
 
 // No EPS and no NAV → no earnings methods; only dividend model can fire.
 const noEps = computeIntrinsic({ ...base, eps: null, bvps: 0 });
-ok("no EPS → Graham/EPV/DCF all N/A", ["graham", "epv", "dcf", "grahamRevised", "earnings"].every((k) => (noEps.methods.find((x) => x.key === k)?.value ?? null) === null));
+ok("no EPS → earnings methods all N/A", ["graham", "epv", "dcf", "justifiedPE", "earnings"].every((k) => (noEps.methods.find((x) => x.key === k)?.value ?? null) === null));
 ok("no EPS → DDM still values it", (noEps.methods.find((x) => x.key === "ddm")?.value ?? null) != null);
 
 // Normalisation helpers (take EPS in ascending year order).
@@ -82,13 +82,25 @@ const outlier = computeIntrinsic({ ...base, eps: 50, normalizedEps: 50, bvps: 0,
 const ddm = outlier.methods.find((m) => m.key === "ddm")!;
 ok("broken DDM is computed but tiny", ddm.value != null && ddm.value < 40, `${ddm.value?.toFixed(1)}`);
 ok("broken DDM is excluded as an outlier", ddm.included === false);
-ok("the agreeing methods stay included", outlier.methods.filter((m) => ["dcf", "epv", "earnings", "grahamRevised"].includes(m.key)).every((m) => m.included));
+ok("the agreeing methods stay included", outlier.methods.filter((m) => ["dcf", "epv", "earnings"].includes(m.key)).every((m) => m.included));
 ok("intrinsic isn't dragged down by the outlier (>300)", outlier.intrinsic != null && outlier.intrinsic > 300, `${outlier.intrinsic?.toFixed(0)}`);
 ok("drivers name the excluded method", outlier.drivers.some((d) => /outlier/i.test(d)));
 
 // Normalised EPS smooths a freak year (MEBL-like: a peak then a dip).
 const lumpy = computeIntrinsic({ ...base, eps: 49.5, normalizedEps: 51.1, epsGrowthPct: 7, dividendGrowthPct: 7, bvps: 0, forwardDps: 28 });
 ok("lumpy earner gets a sane intrinsic (not collapsed)", lumpy.intrinsic != null && lumpy.intrinsic > 200, `${lumpy.intrinsic?.toFixed(0)}`);
+
+// Pakistan tuning: the Graham number tracks the LOCAL fair P/E (not a fixed US
+// 22.5), and the justified P/E (and the whole value) falls as the SBP rate rises.
+const gLow = compositeIntrinsic({ ...base, fairPE: 6 }).methods.find((m) => m.key === "graham")!.value!;
+const gHigh = compositeIntrinsic({ ...base, fairPE: 11 }).methods.find((m) => m.key === "graham")!.value!;
+ok("Graham number scales with the local fair P/E", gHigh > gLow, `${gLow.toFixed(0)} < ${gHigh.toFixed(0)}`);
+const jpLowRate = compositeIntrinsic({ ...base, sbpRatePct: 7 }).methods.find((m) => m.key === "justifiedPE")!.value!;
+const jpHighRate = compositeIntrinsic({ ...base, sbpRatePct: 18 }).methods.find((m) => m.key === "justifiedPE")!.value!;
+ok("justified P/E falls as the SBP rate rises", jpHighRate < jpLowRate, `${jpHighRate.toFixed(0)} < ${jpLowRate.toFixed(0)}`);
+const ivLowRate = computeIntrinsic({ ...base, sbpRatePct: 7 }).intrinsic!;
+const ivHighRate = computeIntrinsic({ ...base, sbpRatePct: 18 }).intrinsic!;
+ok("intrinsic value is lower in a high-rate world", ivHighRate < ivLowRate, `${ivHighRate.toFixed(0)} < ${ivLowRate.toFixed(0)}`);
 
 console.log(`\n${pass} passed, ${fail} failed`);
 if (fail > 0) process.exit(1);
