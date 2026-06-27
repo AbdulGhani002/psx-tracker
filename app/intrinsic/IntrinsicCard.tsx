@@ -7,7 +7,7 @@ import { FootballField } from "@/components/charts/FootballField";
 import { ZoneBar } from "@/components/charts/ZoneBar";
 import { PriceZoneChart } from "@/components/charts/PriceZoneChart";
 import { Tornado } from "@/components/charts/Tornado";
-import { computeIntrinsic, intrinsicSensitivity } from "@/lib/calculations/intrinsic";
+import { computeIntrinsic, intrinsicSensitivity, pkFairPE } from "@/lib/calculations/intrinsic";
 import type { IntrinsicView } from "@/lib/data";
 import { fmtRs } from "@/lib/format";
 
@@ -56,9 +56,11 @@ export function IntrinsicCard({ v }: { v: IntrinsicView }) {
   const def = v.inputs;
   const [erp, setErp] = useState(def?.equityRiskPremiumPct ?? 0);
   const [growth, setGrowth] = useState(Math.round((def?.epsGrowthPct ?? 0) * 10) / 10);
-  const [fairPE, setFairPE] = useState(def?.fairPE ?? 8);
 
-  const touched = !!def && (erp !== def.equityRiskPremiumPct || growth !== Math.round((def.epsGrowthPct ?? 0) * 10) / 10 || fairPE !== def.fairPE);
+  // Fair P/E is DERIVED from growth + the rate (pkFairPE), not a free knob —
+  // that's how a real PK multiple is set, and it keeps the two coupled.
+  const fairPE = def ? pkFairPE(growth, def.sbpRatePct) : 8;
+  const touched = !!def && (erp !== def.equityRiskPremiumPct || growth !== Math.round((def.epsGrowthPct ?? 0) * 10) / 10);
 
   // Re-run the SAME model client-side with the user's assumptions. If the raw
   // inputs are missing (older cached data), fall back to the precomputed result.
@@ -73,7 +75,6 @@ export function IntrinsicCard({ v }: { v: IntrinsicView }) {
     if (!def) return;
     setErp(def.equityRiskPremiumPct);
     setGrowth(Math.round((def.epsGrowthPct ?? 0) * 10) / 10);
-    setFairPE(def.fairPE);
   };
 
   return (
@@ -126,10 +127,14 @@ export function IntrinsicCard({ v }: { v: IntrinsicView }) {
             <div className="label-cap">Test your own assumptions — everything updates live</div>
             {touched && <button onClick={reset} className="font-mono text-[11px] uppercase tracking-stat text-muted hover:text-[var(--accent-deep)]">Reset to model</button>}
           </div>
-          <div className="grid md:grid-cols-3 gap-5">
+          <div className="grid md:grid-cols-3 gap-5 items-end">
             <Slider label="Required return" value={erp} min={0} max={14} step={0.5} onChange={setErp} fmt={(x) => `${(def.sbpRatePct + x).toFixed(1)}% (SBP ${def.sbpRatePct.toFixed(1)} + ${x.toFixed(1)})`} />
             <Slider label="Through-cycle growth" value={growth} min={-10} max={25} step={0.5} onChange={setGrowth} fmt={(x) => `${x.toFixed(1)}%/yr`} />
-            <Slider label="Fair P/E" value={fairPE} min={3} max={20} step={0.5} onChange={setFairPE} fmt={(x) => `${x.toFixed(1)}×`} />
+            <div>
+              <div className="label-cap mb-1">Fair P/E (derived)</div>
+              <div className="font-mono text-[13px]" style={{ color: "var(--accent-deep)" }}>{fairPE.toFixed(1)}×</div>
+              <div className="text-[10px] text-muted mt-0.5">from growth + the SBP rate</div>
+            </div>
           </div>
         </div>
       )}

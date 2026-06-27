@@ -106,18 +106,32 @@ function grahamNumber(eps: number | null, bvps: number, fairPE: number): number 
 function justifiedFairValue(eps: number | null, payoutRatio: number, growthPct: number, requiredReturnPct: number): number | null {
   if (eps == null || eps <= 0 || payoutRatio <= 0.05 || requiredReturnPct <= 0) return null;
   const r = requiredReturnPct / 100;
-  const g = clamp(growthPct, 0, 12) / 100; // Gordon needs g safely below r
-  if (r - g <= 0.02) return null;
-  const fairPE = clamp((payoutRatio * (1 + g)) / (r - g), 3, 18);
+  const g = clamp(growthPct, 0, 8) / 100; // Gordon is unstable near r — keep g well below it
+  if (r - g <= 0.04) return null;
+  const fairPE = clamp((payoutRatio * (1 + g)) / (r - g), 3, 13);
   return fairPE * eps;
 }
 
-// Dividend-discount (Gordon growth): V = D1 / (r − g).
+// Dividend-discount (Gordon growth): V = D1 / (r − g). Growth is capped low —
+// the model explodes as g approaches r, so we keep a safe gap.
 function ddm(forwardDps: number, requiredReturnPct: number, dividendGrowthPct: number): number | null {
   const r = requiredReturnPct / 100;
-  const g = dividendGrowthPct / 100;
-  if (forwardDps <= 0 || r - g <= 0.005) return null;
+  const g = clamp(dividendGrowthPct, -5, 6) / 100;
+  if (forwardDps <= 0 || r - g <= 0.04) return null;
   return (forwardDps * (1 + g)) / (r - g);
+}
+
+// The fair P/E a Pakistani blue chip actually deserves: a baseline around an 11%
+// policy rate, lifted modestly by growth and compressed when rates are high
+// (and lifted when the SBP cuts), bounded to the 4.5–12× band PK equities trade
+// in. This is the realistic anchor — far better than "no-growth EPS ÷ rate",
+// which marks every PK stock expensive, or a flat US "fair P/E of 15".
+export function pkFairPE(growthPct: number, sbpRatePct: number): number {
+  let pe = 8; // KSE blue-chip baseline near an 11% policy rate
+  pe += clamp(growthPct, -5, 18) * 0.18; // growth premium / penalty
+  pe -= Math.max(0, sbpRatePct - 11) * 0.3; // high rates compress multiples
+  pe += Math.max(0, 11 - sbpRatePct) * 0.2; // rate cuts lift them
+  return clamp(pe, 4.5, 12);
 }
 
 // Earnings Power Value (Greenwald): V = EPS / r. Conservative, no growth.
@@ -152,12 +166,6 @@ function earningsMultiple(eps: number | null, fairPE: number): number | null {
 
 // --- compose all methods into one intrinsic value --------------------------
 
-function median(xs: number[]): number {
-  const s = [...xs].sort((a, b) => a - b);
-  const m = Math.floor(s.length / 2);
-  return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2;
-}
-
 // Pure composite so sensitivity can re-run it with tweaked inputs.
 export function compositeIntrinsic(i: IntrinsicInputs): {
   methods: ValuationMethod[];
@@ -173,43 +181,61 @@ export function compositeIntrinsic(i: IntrinsicInputs): {
 
   const isHoldco = i.navPerShare != null && i.navPerShare > 0;
 
-  // Pakistan-tuned method mix: earnings-power (EPS ÷ the high local rate) and a
-  // rate-aware justified P/E carry the most weight; the US-centric Graham models
-  // are dropped (growth) or recalibrated + down-weighted (number).
+  // Pakistan-tuned method mix. The LEAD is a realistic fair P/E (a blue-chip
+  // multiple lifted by growth, set on the page via pkFairPE) × normalised EPS —
+  // the read that matches how PK equities actually price. The no-growth EPS÷rate
+  // is kept only as a low-weight downside floor, because on its own it marks
+  // every PK stock "expensive".
   const methods: ValuationMethod[] = [
     { key: "nav", label: "Look-through NAV", value: i.navPerShare, weight: isHoldco ? 1 : 0, included: false, note: "Live sum-of-the-parts value of the companies it owns, per share." },
-    { key: "epv", label: "Earnings power (EPS ÷ rate)", value: epv(e, r), weight: isHoldco ? 0 : 1.3, included: false, note: "Worth if earnings never grow again: normalised EPS ÷ required return. The cleanest read in a high-rate market." },
-    { key: "justifiedPE", label: "Justified P/E (rate-aware)", value: justifiedFairValue(e, payoutRatio, g, r), weight: isHoldco ? 0 : 1.3, included: false, note: "Gordon fair multiple: payout × (1+g) / (r − g), times normalised EPS. Falls as the SBP rate rises — fits Pakistan." },
-    { key: "dcf", label: "Discounted earnings (DCF)", value: dcf(e, g, r), weight: isHoldco ? 0 : 1.2, included: false, note: "5 years of earnings growth + a terminal value, discounted at your required return." },
-    { key: "earnings", label: "Fair P/E × EPS", value: earningsMultiple(e, i.fairPE), weight: isHoldco ? 0 : 0.9, included: false, note: `Your fair multiple (${i.fairPE}×) on normalised earnings.` },
-    { key: "graham", label: "Graham number (local)", value: grahamNumber(e, i.bvps, i.fairPE), weight: isHoldco ? 0 : 0.6, included: false, note: "Asset-backed floor: √(fair P/E × 1.2 × EPS × book value), rebuilt from the LOCAL fair P/E. Needs a book value." },
-    { key: "ddm", label: "Dividend discount", value: ddm(i.forwardDps, r, i.dividendGrowthPct), weight: isHoldco ? 0 : 0.6, included: false, note: "Forward dividend grown forever, discounted (Gordon model). Sensitive — down-weighted." },
+    { key: "earnings", label: "Fair P/E × EPS", value: earningsMultiple(e, i.fairPE), weight: isHoldco ? 0 : 3.0, included: false, note: `A realistic Pakistani fair multiple (${i.fairPE.toFixed(1)}×, from growth + the SBP rate) on normalised earnings.` },
+    { key: "dcf", label: "Discounted earnings (DCF)", value: dcf(e, g, r), weight: isHoldco ? 0 : 0.8, included: false, note: "5 years of (faded) earnings growth + a terminal value, discounted at your required return." },
+    { key: "justifiedPE", label: "Justified P/E (Gordon)", value: justifiedFairValue(e, payoutRatio, g, r), weight: isHoldco ? 0 : 0.6, included: false, note: "Fundamental fair multiple from payout, growth and the discount rate: payout × (1+g) / (r − g) × EPS." },
+    { key: "ddm", label: "Dividend discount", value: ddm(i.forwardDps, r, i.dividendGrowthPct), weight: isHoldco ? 0 : 0.5, included: false, note: "Forward dividend grown forever, discounted (Gordon model)." },
+    { key: "epv", label: "Earnings floor (no growth)", value: epv(e, r), weight: isHoldco ? 0 : 0.3, included: false, note: "Worst-case floor: normalised EPS ÷ required return, assuming zero growth. A downside anchor, not fair value." },
+    { key: "graham", label: "Graham number (local)", value: grahamNumber(e, i.bvps, i.fairPE), weight: isHoldco ? 0 : 0.3, included: false, note: "Asset-backed floor: √(fair P/E × 1.2 × EPS × book value), from the LOCAL fair P/E. Needs a book value." },
   ];
 
   const applicable = methods.filter((m) => m.value != null && m.value > 0 && m.weight > 0);
 
-  // Outlier rejection: when 4+ methods agree, drop any that sit more than 50%
-  // away from the median of the group — that's how a single broken model (a
-  // mis-estimated dividend, say) is stopped from dragging the blend off.
-  let usable = applicable;
+  // Anchor on the LEAD method (the realistic fair-P/E read, or NAV for a holding
+  // company — the highest-weight applicable one), then WINSORISE: a method that
+  // disagrees with the anchor by more than 50% still contributes, but capped to
+  // the ±50% band. This stops a broken model (a mis-estimated dividend) or an
+  // over-conservative floor from hijacking the value, WITHOUT ever dropping a
+  // method — so the blend is stable and moves smoothly as inputs change (hard
+  // exclusion flipped membership and made the value jump around).
   const excluded: MethodKey[] = [];
-  if (applicable.length >= 4) {
-    const med = median(applicable.map((m) => m.value as number));
-    const trimmed = applicable.filter((m) => Math.abs((m.value as number) - med) / med <= 0.5);
-    if (trimmed.length >= 2) {
-      usable = trimmed;
-      for (const m of applicable) if (!trimmed.includes(m)) excluded.push(m.key);
+  let intrinsic: number | null = null;
+  let low: number | null = null;
+  let high: number | null = null;
+
+  if (applicable.length) {
+    const anchor = [...applicable].sort((a, b) => b.weight - a.weight)[0];
+    const av = anchor.value as number;
+    const loB = av * 0.5;
+    const hiB = av * 1.5;
+    const contributions: number[] = [];
+    let wSum = 0;
+    let acc = 0;
+    for (const m of methods) {
+      if (m.value == null || m.value <= 0 || m.weight <= 0) {
+        m.included = false;
+        continue;
+      }
+      const v = m.value as number;
+      const clipped = Math.max(loB, Math.min(hiB, v));
+      const isOutlier = applicable.length >= 3 && (v < loB || v > hiB);
+      m.included = !isOutlier;
+      if (isOutlier) excluded.push(m.key);
+      acc += m.weight * clipped;
+      wSum += m.weight;
+      contributions.push(clipped);
     }
+    intrinsic = wSum > 0 ? acc / wSum : null;
+    low = contributions.length ? Math.min(...contributions) : null;
+    high = contributions.length ? Math.max(...contributions) : null;
   }
-
-  const usableSet = new Set(usable);
-  for (const m of methods) m.included = usableSet.has(m);
-
-  const wSum = usable.reduce((s, m) => s + m.weight, 0);
-  const intrinsic = wSum > 0 ? usable.reduce((s, m) => s + m.weight * (m.value as number), 0) / wSum : null;
-  const vals = usable.map((m) => m.value as number);
-  const low = vals.length ? Math.min(...vals) : null;
-  const high = vals.length ? Math.max(...vals) : null;
 
   return { methods, intrinsic, low, high, excluded };
 }
@@ -218,11 +244,14 @@ export function compositeIntrinsic(i: IntrinsicInputs): {
 // riskier stocks (high volatility) and for companies paying dividends they
 // can't cover from earnings.
 export function requiredMarginOfSafety(annualVolPct: number | null, aboveEarnings: boolean, epsPositive: boolean): number {
-  let mos = 20;
-  if (annualVolPct != null) mos += Math.max(0, annualVolPct - 25) * 0.5;
-  if (aboveEarnings) mos += 5;
+  // PK equities are volatile, so demanding a 20%+ discount on everything means
+  // you never buy. A ~12% base (a normal dip) on a steady blue chip, widening
+  // only for genuinely jumpy or loss-making names, keeps the buy line reachable.
+  let mos = 12;
+  if (annualVolPct != null) mos += Math.max(0, annualVolPct - 30) * 0.4;
+  if (aboveEarnings) mos += 4;
   if (!epsPositive) mos += 5;
-  return clamp(mos, 15, 45);
+  return clamp(mos, 10, 35);
 }
 
 export function computeIntrinsic(i: IntrinsicInputs): IntrinsicResult {
@@ -244,8 +273,8 @@ export function computeIntrinsic(i: IntrinsicInputs): IntrinsicResult {
   if (intrinsic != null && intrinsic > 0 && i.price > 0) {
     marginOfSafetyPct = ((intrinsic - i.price) / intrinsic) * 100;
     buyBelow = intrinsic * (1 - requiredMosPct / 100);
-    strongBuyBelow = intrinsic * (1 - requiredMosPct / 100 - 0.1);
-    fairUpTo = intrinsic * 1.05;
+    strongBuyBelow = intrinsic * (1 - requiredMosPct / 100 - 0.08);
+    fairUpTo = intrinsic * 1.15; // valuation is uncertain — within ~15% of fair value still reads "fair", not "expensive"
 
     if (i.price <= strongBuyBelow) zone = "strong buy";
     else if (i.price <= buyBelow) zone = "buy";
@@ -289,7 +318,7 @@ export function computeIntrinsic(i: IntrinsicInputs): IntrinsicResult {
   }
   if (excluded.length) {
     const names = excluded.map((k) => methods.find((m) => m.key === k)?.label ?? k).join(", ");
-    drivers.push(`Set aside as an outlier (more than 50% from the others): ${names}.`);
+    drivers.push(`Capped as an outlier (more than 50% from the lead estimate, so it can't distort the blend): ${names}.`);
   }
   if (intrinsic != null && buyBelow != null) {
     drivers.push(
@@ -337,8 +366,10 @@ export function intrinsicSensitivity(i: IntrinsicInputs): Sensitivity[] {
     {
       label: "Growth ±3pp",
       base,
-      low: at({ epsGrowthPct: g - 3, dividendGrowthPct: i.dividendGrowthPct - 3 }),
-      high: at({ epsGrowthPct: g + 3, dividendGrowthPct: i.dividendGrowthPct + 3 }),
+      // growth also lifts the fair P/E (via pkFairPE on the page), so move both
+      // together for a realistic swing — clamp keeps it within the model's band.
+      low: at({ epsGrowthPct: g - 3, dividendGrowthPct: i.dividendGrowthPct - 3, fairPE: pkFairPE(g - 3, i.sbpRatePct) }),
+      high: at({ epsGrowthPct: g + 3, dividendGrowthPct: i.dividendGrowthPct + 3, fairPE: pkFairPE(g + 3, i.sbpRatePct) }),
       loLabel: `${(g - 3).toFixed(0)}%`,
       hiLabel: `${(g + 3).toFixed(0)}%`,
     },

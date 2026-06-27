@@ -44,7 +44,7 @@ import {
 import { forecastDividends, type DividendForecast } from "./calculations/dividend-forecast";
 import { computeSotp, deriveSharesOutstanding, type SotpResult } from "./calculations/sotp";
 import { computeValuation, type Valuation } from "./calculations/valuation";
-import { computeIntrinsic, intrinsicSensitivity, normalizedEps, robustGrowthPct, type IntrinsicInputs, type IntrinsicResult, type Sensitivity } from "./calculations/intrinsic";
+import { computeIntrinsic, intrinsicSensitivity, normalizedEps, robustGrowthPct, pkFairPE, type IntrinsicInputs, type IntrinsicResult, type Sensitivity } from "./calculations/intrinsic";
 import { analyzeConcentration, analyzeCorrelation, type ConcentrationResult, type CorrelationResult } from "./calculations/risk-analysis";
 import { fetchManyEod } from "./timeseries/psx-eod";
 import { fetchMarketWatch, indexLabel, isInIndex } from "./prices/marketwatch";
@@ -420,7 +420,12 @@ async function computeIntrinsicValuations(): Promise<IntrinsicPage> {
         .map((y) => Number(epsByYear[y]))
         .filter((e) => Number.isFinite(e));
       const epsNorm = normalizedEps(epsAsc) ?? eps;
-      const growth = epsAsc.length >= 2 ? robustGrowthPct(epsAsc) : prof?.dividendGrowthPct ?? funds[h.symbol]?.epsGrowthPct ?? 0;
+      const rawGrowth = epsAsc.length >= 2 ? robustGrowthPct(epsAsc) : prof?.dividendGrowthPct ?? funds[h.symbol]?.epsGrowthPct ?? 0;
+      // Fade the trailing growth: windfall years (e.g. banks at 22% rates) don't
+      // persist, so we credit ~60% of it, capped — standard "growth fades" practice.
+      const growth = Math.max(-8, Math.min(15, rawGrowth * 0.6));
+      // Per-stock fair P/E from a realistic PK baseline + this stock's growth + the rate.
+      const holdingFairPE = pkFairPE(growth, sbpRatePct);
 
       const inputs: IntrinsicInputs = {
         symbol: h.symbol,
@@ -433,7 +438,7 @@ async function computeIntrinsicValuations(): Promise<IntrinsicPage> {
         dividendGrowthPct: growth,
         sbpRatePct,
         equityRiskPremiumPct,
-        fairPE,
+        fairPE: holdingFairPE,
         aboveEarnings: prof?.aboveEarnings ?? false,
         annualVolPct,
         navPerShare: lookThroughs.get(h.symbol)?.navPerShare ?? null,

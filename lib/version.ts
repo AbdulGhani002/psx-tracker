@@ -1,7 +1,7 @@
 // Single source of truth for the app version + changelog.
 // Bump APP_VERSION and prepend a CHANGELOG entry on every release.
 
-export const APP_VERSION = "3.3.0";
+export const APP_VERSION = "3.4.0";
 
 export const BUILD_DATE =
   process.env.NEXT_PUBLIC_BUILD_DATE ?? "";
@@ -17,6 +17,17 @@ export type ChangelogEntry = {
 
 // Reverse-chronological. Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: "3.4.0",
+    date: "2026-06-27",
+    title: "Realistic buy zones — calibrated to how PK stocks actually trade",
+    changes: [
+      "The model was so conservative that everything read 'expensive' with buy prices 40%+ below market that would never hit. Fixed by leading on a realistic Pakistani fair P/E (a blue-chip multiple that rises with growth and compresses when the SBP rate is high, bounded to the 4.5–12× band PK equities actually trade in) instead of a no-growth 'EPS ÷ rate' that caps fair value near 6× and marks everything expensive.",
+      "Growth now fades: instead of extrapolating a windfall year (banks earned huge profits at 22% rates — that reverses), the model credits ~60% of the trailing trend, capped. This stops both the over-optimism and the collapse-to-zero on a single down year.",
+      "Buy zones are reachable: the margin of safety starts at ~12% (a normal dip) for a steady blue chip instead of 20%+, and the 'fair' band is wider — so a fairly-priced stock reads 'fair', and a modest pullback turns it into a buy.",
+      "On each stock you can now drag the required return and the growth, and the fair P/E updates with them automatically (it's derived, not a guess), with the value and zones recomputing live.",
+    ],
+  },
   {
     version: "3.3.0",
     date: "2026-06-27",

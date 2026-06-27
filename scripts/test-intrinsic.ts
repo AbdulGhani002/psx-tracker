@@ -1,4 +1,4 @@
-import { computeIntrinsic, compositeIntrinsic, requiredMarginOfSafety, intrinsicSensitivity, normalizedEps, robustGrowthPct, type IntrinsicInputs } from "../lib/calculations/intrinsic";
+import { computeIntrinsic, compositeIntrinsic, requiredMarginOfSafety, intrinsicSensitivity, normalizedEps, robustGrowthPct, pkFairPE, type IntrinsicInputs } from "../lib/calculations/intrinsic";
 
 let pass = 0, fail = 0;
 const ok = (n: string, c: boolean, d = "") => { c ? pass++ : fail++; console.log(`${c ? "PASS" : "FAIL"}  ${n}  ${d}`); };
@@ -31,8 +31,8 @@ ok("Earnings × fair P/E = 80", m("earnings") === 80, `${m("earnings")}`);
 ok("intrinsic sits inside [low, high]", c.intrinsic != null && c.low != null && c.high != null && c.intrinsic >= c.low && c.intrinsic <= c.high, `${c.low?.toFixed(1)}..${c.intrinsic?.toFixed(1)}..${c.high?.toFixed(1)}`);
 
 const r = computeIntrinsic(base);
-ok("required MoS = 22.5% (vol 30)", r.requiredMosPct === 22.5, `${r.requiredMosPct}`);
-ok("buy line = intrinsic × (1 − MoS)", r.buyBelow != null && r.intrinsic != null && near(r.buyBelow, r.intrinsic * 0.775, 0.01), `${r.buyBelow?.toFixed(2)}`);
+ok("required MoS = 12% (vol 30 baseline)", r.requiredMosPct === 12, `${r.requiredMosPct}`);
+ok("buy line = intrinsic × (1 − MoS)", r.buyBelow != null && r.intrinsic != null && near(r.buyBelow, r.intrinsic * 0.88, 0.01), `${r.buyBelow?.toFixed(2)}`);
 ok("strong-buy line is 10pp below buy line", r.strongBuyBelow != null && r.buyBelow != null && r.strongBuyBelow < r.buyBelow);
 ok("price 100 >> intrinsic ~74 → expensive", r.zone === "expensive", r.zone);
 ok("negative margin of safety when overpriced", r.marginOfSafetyPct != null && r.marginOfSafetyPct < 0, `${r.marginOfSafetyPct?.toFixed(1)}`);
@@ -44,10 +44,10 @@ ok("price 40 → strong buy", cheap.zone === "strong buy", cheap.zone);
 ok("positive margin of safety when cheap", cheap.marginOfSafetyPct != null && cheap.marginOfSafetyPct > 0);
 
 // Risk scaling of the margin of safety.
-ok("MoS floor 15% (calm, profitable)", requiredMarginOfSafety(10, false, true) === 20);
-ok("MoS widens with volatility", requiredMarginOfSafety(45, false, true) === 30);
-ok("MoS +5 when dividend > earnings", requiredMarginOfSafety(25, true, true) === 25);
-ok("MoS capped at 45%", requiredMarginOfSafety(80, true, false) === 45);
+ok("MoS base 12% (calm blue chip)", requiredMarginOfSafety(10, false, true) === 12);
+ok("MoS widens with volatility", requiredMarginOfSafety(45, false, true) === 18); // 12 + (45−30)×0.4
+ok("MoS +4 when dividend > earnings", requiredMarginOfSafety(25, true, true) === 16);
+ok("MoS capped at 35%", requiredMarginOfSafety(80, true, false) === 35);
 
 // Holding company → NAV dominates, P/E methods become reference-only.
 const holdco = computeIntrinsic({ ...base, navPerShare: 120 });
@@ -56,7 +56,9 @@ ok("holdco intrinsic = NAV 120", near(holdco.intrinsic, 120, 0.01), `${holdco.in
 ok("holdco non-NAV methods carry weight 0", holdco.methods.filter((x) => x.key !== "nav").every((x) => x.weight === 0));
 
 // Sensitivity: a higher discount rate lowers value; faster growth raises it.
-const sens = intrinsicSensitivity(base);
+// (In production the fair P/E is always pkFairPE(growth, rate), so use that here
+// too — otherwise base and the growth ± rows would use mismatched multiples.)
+const sens = intrinsicSensitivity({ ...base, fairPE: pkFairPE(base.epsGrowthPct ?? 0, base.sbpRatePct) });
 const rr = sens.find((s) => s.label.startsWith("Required return"))!;
 ok("higher required return → lower value", rr.low < rr.base, `${rr.low.toFixed(1)} < ${rr.base.toFixed(1)}`);
 ok("lower required return → higher value", rr.high > rr.base, `${rr.high.toFixed(1)} > ${rr.base.toFixed(1)}`);
@@ -101,6 +103,13 @@ ok("justified P/E falls as the SBP rate rises", jpHighRate < jpLowRate, `${jpHig
 const ivLowRate = computeIntrinsic({ ...base, sbpRatePct: 7 }).intrinsic!;
 const ivHighRate = computeIntrinsic({ ...base, sbpRatePct: 18 }).intrinsic!;
 ok("intrinsic value is lower in a high-rate world", ivHighRate < ivLowRate, `${ivHighRate.toFixed(0)} < ${ivLowRate.toFixed(0)}`);
+
+// PK fair P/E: realistic blue-chip band, rises with growth, compresses at high rates.
+ok("pkFairPE baseline ~8 at 11% rate, 0 growth", near(pkFairPE(0, 11), 8, 0.01), `${pkFairPE(0, 11).toFixed(2)}`);
+ok("pkFairPE rises with growth", pkFairPE(15, 11) > pkFairPE(0, 11));
+ok("pkFairPE compresses at high rates", pkFairPE(0, 20) < pkFairPE(0, 11));
+ok("pkFairPE lifts when the SBP cuts", pkFairPE(0, 7) > pkFairPE(0, 11));
+ok("pkFairPE stays in the realistic 4.5–12 band", pkFairPE(40, 5) <= 12 && pkFairPE(-20, 25) >= 4.5, `${pkFairPE(40,5).toFixed(1)} / ${pkFairPE(-20,25).toFixed(1)}`);
 
 console.log(`\n${pass} passed, ${fail} failed`);
 if (fail > 0) process.exit(1);
