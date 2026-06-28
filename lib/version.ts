@@ -1,7 +1,7 @@
 // Single source of truth for the app version + changelog.
 // Bump APP_VERSION and prepend a CHANGELOG entry on every release.
 
-export const APP_VERSION = "4.0.0";
+export const APP_VERSION = "4.1.0";
 
 export const BUILD_DATE =
   process.env.NEXT_PUBLIC_BUILD_DATE ?? "";
@@ -17,6 +17,18 @@ export type ChangelogEntry = {
 
 // Reverse-chronological. Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: "4.1.0",
+    date: "2026-06-28",
+    title: "Strategy lab — backtester, portfolio optimiser, pattern scanner & dividend calendar",
+    changes: [
+      "Strategy backtest: test a simple rule (RSI oversold/overbought, SMA cross, or hold-above-SMA) on any PSX stock's full price history, and judge it honestly against buy-and-hold — return, edge, trades, win rate, max drawdown, time-in-market, and a growth-of-Rs-1 curve.",
+      "Portfolio optimiser: Modern Portfolio Theory on real PSX history. For a basket of stocks it finds the max-Sharpe and minimum-volatility blends and draws the efficient frontier, so you can see diversification at work — the mix sits above its parts.",
+      "Pattern scanner: a market-wide sweep for double tops/bottoms, head-and-shoulders and triangles, split into already-triggered breakouts and still-forming setups, each ranked by how clean it is. Each stock page now lists its own detected patterns too.",
+      "Dividend calendar: every announced cash dividend, bonus and right issue across PSX, sorted by book-closure date with a countdown to the ex-date — so you never miss an entitlement.",
+      "Under the hood: the index (KSE100) and the Shariah index (KMI30) are now collected, so beta and market-relative risk compute for the whole universe.",
+    ],
+  },
   {
     version: "4.0.0",
     date: "2026-06-28",

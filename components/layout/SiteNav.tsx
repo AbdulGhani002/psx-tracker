@@ -18,6 +18,10 @@ const PRIMARY = [
 const MORE = [
   { href: "/compare", label: "Compare stocks" },
   { href: "/rotation", label: "Sector rotation" },
+  { href: "/patterns", label: "Pattern scanner" },
+  { href: "/backtest", label: "Strategy backtest" },
+  { href: "/optimize", label: "Portfolio optimiser" },
+  { href: "/dividend-calendar", label: "Dividend calendar" },
   { href: "/assets", label: "Assets" },
   { href: "/rebalance", label: "Rebalance" },
   { href: "/tax", label: "Tax" },

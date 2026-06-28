@@ -2,7 +2,7 @@ import Link from "next/link";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { Section } from "@/components/layout/Section";
 import { Badge } from "@/components/ui/Badge";
-import { getRating } from "@/lib/analytics";
+import { getRating, getPatterns } from "@/lib/analytics";
 import { fmtRs } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
@@ -35,7 +35,7 @@ function SubScore({ label, value, max = 100, reasons, invert }: { label: string;
 
 export default async function StockPage({ params }: { params: { symbol: string } }) {
   const sym = params.symbol.toUpperCase();
-  const d = await getRating(sym);
+  const [d, pat] = await Promise.all([getRating(sym), getPatterns(sym)]);
   if (!d || d.error) {
     return (
       <div className="fade-in">
@@ -104,6 +104,32 @@ export default async function StockPage({ params }: { params: { symbol: string }
               <Row k="ROE" v={f.roe_pct == null ? "needs book value" : num(f.roe_pct, "%")} />
             </dl>
           </div>
+        </div>
+      </Section>
+
+      <Section number="03" title="Chart patterns" description="Reversal and continuation shapes detected from the recent price swings. A heuristic, not a signal — confirm with volume.">
+        {pat && pat.patterns && pat.patterns.length > 0 ? (
+          <div className="space-y-2">
+            {pat.patterns.map((p, i) => {
+              const bull = p.direction === "bullish";
+              const color = bull ? "var(--positive)" : "var(--negative)";
+              return (
+                <div key={i} className="flex items-center gap-3 border border-rule px-3 py-2" style={{ background: "var(--paper-2)" }}>
+                  <span className="font-medium text-[13px]">{p.pattern}</span>
+                  <span className="font-mono text-[11px] uppercase" style={{ color }}>{bull ? "bullish" : "bearish"}</span>
+                  {p.triggered && <span className="font-mono text-[10px] uppercase tracking-stat px-1.5 py-0.5" style={{ background: color, color: "var(--paper)" }}>triggered</span>}
+                  <span className="text-muted text-[12px] ml-auto">{p.note}</span>
+                  <span className="font-mono mono-num text-[12px] text-muted">{Math.round(p.confidence * 100)}%</span>
+                </div>
+              );
+            })}
+          </div>
+        ) : (
+          <p className="text-muted text-sm">No clean chart pattern on {sym} right now.</p>
+        )}
+        <div className="flex flex-wrap gap-x-5 gap-y-1 mt-4">
+          <Link href={`/backtest?symbol=${sym}`} className="font-mono text-[11px] uppercase tracking-stat text-muted hover:text-[var(--accent-deep)]">Backtest a strategy on {sym} →</Link>
+          <Link href="/patterns" className="font-mono text-[11px] uppercase tracking-stat text-muted hover:text-[var(--accent-deep)]">Scan the whole market →</Link>
         </div>
       </Section>
     </div>

@@ -54,3 +54,37 @@ export const getRating = (sym: string) => analyticsGet<any>(`/rating/${encodeURI
 export const getHeatmap = () => analyticsGet<{ sectors: any[] }>(`/heatmap`);
 export const getRotation = () => analyticsGet<{ entering: any[]; leaving: any[]; all: any[] }>(`/sector-rotation`);
 export const getCompare = (syms: string[]) => analyticsGet<{ stocks: RatedStock[] }>(`/compare?symbols=${syms.map((s) => s.toUpperCase()).join(",")}`);
+
+// ---- Phase 3: backtest, optimizer, patterns, dividend calendar ----
+
+export type Pattern = {
+  pattern: string;
+  direction: "bullish" | "bearish";
+  confidence: number;
+  note: string;
+  triggered: boolean;
+};
+export type ScannedPattern = Pattern & { symbol: string };
+
+export const getPatterns = (sym: string) =>
+  analyticsGet<{ symbol: string; patterns: Pattern[] }>(`/patterns/${encodeURIComponent(sym.toUpperCase())}`);
+export const getPatternScan = (params: { pattern?: string; direction?: string; limit?: number } = {}) => {
+  const p = new URLSearchParams();
+  if (params.pattern) p.set("pattern", params.pattern);
+  if (params.direction) p.set("direction", params.direction);
+  p.set("limit", String(params.limit ?? 120));
+  return analyticsGet<{ count: number; results: ScannedPattern[] }>(`/patterns/scan?${p.toString()}`, 600);
+};
+
+export type Dividend = {
+  symbol: string;
+  pct_of_face: number | null;
+  types: string[];
+  cycle: string;
+  ex_date: string;
+  book_closure_end: string | null;
+  announced: string | null;
+  upcoming: boolean;
+};
+export const getDividendCalendar = () =>
+  analyticsGet<{ upcoming: Dividend[]; recent: Dividend[]; today: string }>(`/calendar/dividends`, 900);
