@@ -9,13 +9,18 @@ import { ThemeToggle } from "./ThemeToggle";
 const PRIMARY = [
   { href: "/", label: "Overview" },
   { href: "/holdings", label: "Holdings" },
-  { href: "/assets", label: "Assets" },
+  { href: "/ratings", label: "AI Ratings" },
+  { href: "/screener", label: "Screener" },
+  { href: "/heatmap", label: "Heatmap" },
   { href: "/transactions", label: "Transactions" },
-  { href: "/rebalance", label: "Rebalance" },
-  { href: "/tax", label: "Tax" },
 ];
 
 const MORE = [
+  { href: "/compare", label: "Compare stocks" },
+  { href: "/rotation", label: "Sector rotation" },
+  { href: "/assets", label: "Assets" },
+  { href: "/rebalance", label: "Rebalance" },
+  { href: "/tax", label: "Tax" },
   { href: "/dividends", label: "Dividends" },
   { href: "/forecast", label: "Dividend forecast" },
   { href: "/valuation", label: "Valuation" },

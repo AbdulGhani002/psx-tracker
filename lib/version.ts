@@ -1,7 +1,7 @@
 // Single source of truth for the app version + changelog.
 // Bump APP_VERSION and prepend a CHANGELOG entry on every release.
 
-export const APP_VERSION = "3.5.0";
+export const APP_VERSION = "4.0.0";
 
 export const BUILD_DATE =
   process.env.NEXT_PUBLIC_BUILD_DATE ?? "";
@@ -17,6 +17,19 @@ export type ChangelogEntry = {
 
 // Reverse-chronological. Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: "4.0.0",
+    date: "2026-06-28",
+    title: "Market intelligence — AI ratings, screener & heatmap for the whole PSX",
+    changes: [
+      "The site is now a full market platform, not just a portfolio tracker. A new data pipeline collects the entire PSX (every listed company's prices, financials, payouts) into a database that refreshes itself daily, and a separate analytics engine turns it into live intelligence.",
+      "AI Ratings: every PSX stock gets a 0–100 score, blended from a Fundamental, Technical and Risk sub-score — each one explained in plain words, no black box. Browse the whole rating board or open any stock for the full breakdown.",
+      "Smart Screener: filter the entire market by P/E, dividend yield, net margin, EPS growth, RSI, volume spike, above SMA-50/200, MACD and the AI score — the list updates live as you change filters.",
+      "Live Heatmap: the whole market as green/red tiles by today's move, grouped by sector (market-cap weighted). Click any tile for its rating.",
+      "Sector Rotation: see which sectors money is flowing into and out of. Stock Comparison: put up to five names side by side on valuation, growth, quality and momentum.",
+      "Built as independent microservices behind the scenes; the market data is shared, your portfolio stays private to you.",
+    ],
+  },
   {
     version: "3.5.0",
     date: "2026-06-27",
