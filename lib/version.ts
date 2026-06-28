@@ -1,7 +1,7 @@
 // Single source of truth for the app version + changelog.
 // Bump APP_VERSION and prepend a CHANGELOG entry on every release.
 
-export const APP_VERSION = "4.1.0";
+export const APP_VERSION = "4.2.0";
 
 export const BUILD_DATE =
   process.env.NEXT_PUBLIC_BUILD_DATE ?? "";
@@ -17,6 +17,16 @@ export type ChangelogEntry = {
 
 // Reverse-chronological. Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: "4.2.0",
+    date: "2026-06-28",
+    title: "Foreign flows — FIPI/LIPI, who's really buying and selling PSX",
+    changes: [
+      "New Foreign flows page: the official NCCPL record of foreign vs local investor activity (FIPI/LIPI), in US-dollar millions. See whether foreigners are net buyers or sellers today, their current streak, and the cumulative inflow/outflow over the last ~4 months.",
+      "Three views: a cumulative foreign-flow line (are they accumulating or distributing?), daily net bars, and a same-session breakdown by investor type — foreign corporates and individuals versus local mutual funds, banks, companies and individuals — so you can see exactly who's on each side.",
+      "On the data: NCCPL's own portal is bot-gated (Cloudflare Turnstile), so the collector can't scrape it from the server directly. The same official numbers are sourced from scstrade and stored daily, with a 4-month history backfilled. Foreign selling isn't automatically bearish — steady local absorption often marks a floor.",
+    ],
+  },
   {
     version: "4.1.0",
     date: "2026-06-28",

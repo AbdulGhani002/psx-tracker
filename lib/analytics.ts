@@ -88,3 +88,29 @@ export type Dividend = {
 };
 export const getDividendCalendar = () =>
   analyticsGet<{ upcoming: Dividend[]; recent: Dividend[]; today: string }>(`/calendar/dividends`, 900);
+
+// ---- FIPI/LIPI investor flows (foreign vs local) ----
+
+export type FlowCategory = {
+  category: string;
+  mtype: "Foreign" | "Local";
+  net_usd_mn: number;
+  buy_usd_mn: number;
+  sell_usd_mn: number;
+};
+export type FlowPoint = { date: string; fipi: number; lipi: number };
+export type FlowsData = {
+  days: number;
+  latest: string | null;
+  fipi_today: number;
+  lipi_today: number;
+  fipi_5d: number;
+  fipi_20d: number;
+  cumulative_fipi: number;
+  streak: number;
+  streak_side: "buying" | "selling" | "flat";
+  categories: FlowCategory[];
+  series: FlowPoint[];
+  cumulative: { date: string; value: number }[];
+};
+export const getFlows = (days = 90) => analyticsGet<FlowsData>(`/flows?days=${days}`, 600);

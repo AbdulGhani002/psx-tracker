@@ -18,6 +18,7 @@ const PRIMARY = [
 const MORE = [
   { href: "/compare", label: "Compare stocks" },
   { href: "/rotation", label: "Sector rotation" },
+  { href: "/flows", label: "Foreign flows (FIPI)" },
   { href: "/patterns", label: "Pattern scanner" },
   { href: "/backtest", label: "Strategy backtest" },
   { href: "/optimize", label: "Portfolio optimiser" },
