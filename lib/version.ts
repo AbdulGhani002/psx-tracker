@@ -1,7 +1,7 @@
 // Single source of truth for the app version + changelog.
 // Bump APP_VERSION and prepend a CHANGELOG entry on every release.
 
-export const APP_VERSION = "4.2.0";
+export const APP_VERSION = "4.3.0";
 
 export const BUILD_DATE =
   process.env.NEXT_PUBLIC_BUILD_DATE ?? "";
@@ -17,6 +17,15 @@ export type ChangelogEntry = {
 
 // Reverse-chronological. Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: "4.3.0",
+    date: "2026-06-28",
+    title: "Dollar equivalents — see your worth in USD too",
+    changes: [
+      "Your portfolio worth and amount invested now show a US-dollar equivalent alongside the rupee figure — on the overview (net worth, total value, cost basis), the wealth statement, and each holding's detail page.",
+      "The USD/PKR rate is pulled live from a free interbank source (refreshed every few hours) and clearly marked approximate. If the rate can't be fetched, the dollar line is simply hidden — never shown with a made-up rate.",
+    ],
+  },
   {
     version: "4.2.0",
     date: "2026-06-28",

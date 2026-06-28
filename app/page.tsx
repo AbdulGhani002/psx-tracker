@@ -22,12 +22,14 @@ import {
 } from "@/lib/data";
 import {
   fmtRs,
+  fmtUsd,
   fmtSignedRs,
   fmtSignedPct,
   fmtPct,
   fmtDate,
   fmtDateTime,
 } from "@/lib/format";
+import { getUsdPkr } from "@/lib/fx";
 import type { PositionRow } from "@/lib/calculations";
 import type { Transaction } from "@/lib/types";
 
@@ -35,14 +37,18 @@ export const dynamic = "force-dynamic";
 
 export default async function Dashboard() {
   const avail = await checkDataAvailability();
-  const [summary, allTx, netWorth, movers, risk, settings] = await Promise.all([
+  const [summary, allTx, netWorth, movers, risk, settings, usdPkr] = await Promise.all([
     getPortfolioSummary(),
     getAllTransactions(),
     getNetWorth(),
     getTodaysMovers(),
     getRiskMetrics(),
     getAppSettings(),
+    getUsdPkr(),
   ]);
+
+  // "≈ $X" line for a PKR amount, omitted entirely when the rate is unavailable.
+  const usd = (rs: number) => (usdPkr ? `≈ ${fmtUsd(rs, usdPkr, false)}` : undefined);
 
   const hasOtherAssets = netWorth.funds + netWorth.savings + netWorth.cash > 0;
 
@@ -217,6 +223,7 @@ export default async function Dashboard() {
                 <div className="font-display mono-num text-[28px] mt-1" style={{ fontVariationSettings: "'opsz' 144" }}>
                   {fmtRs(netWorth.total)}
                 </div>
+                {usdPkr && <div className="font-mono text-[12px] text-muted mt-0.5">{usd(netWorth.total)}</div>}
               </div>
               <div className="flex gap-5 font-mono mono-num text-[12px]">
                 <div>
@@ -242,8 +249,8 @@ export default async function Dashboard() {
       )}
 
       <StatRow>
-        <Stat label="Total Value" value={fmtRs(summary.totalValue)} />
-        <Stat label="Cost Basis" value={fmtRs(summary.totalCost)} />
+        <Stat label="Total Value" value={fmtRs(summary.totalValue)} hint={usd(summary.totalValue)} />
+        <Stat label="Cost Basis" value={fmtRs(summary.totalCost)} hint={usd(summary.totalCost)} />
         <Stat
           label="Unrealised P/L"
           value={fmtSignedRs(summary.unrealizedPL)}

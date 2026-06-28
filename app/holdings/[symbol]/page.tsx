@@ -26,11 +26,13 @@ import {
 import { deriveFromTransactions } from "@/lib/calculations";
 import {
   fmtRs,
+  fmtUsd,
   fmtNum,
   fmtSignedRs,
   fmtSignedPct,
   fmtPct,
 } from "@/lib/format";
+import { getUsdPkr } from "@/lib/fx";
 
 export const dynamic = "force-dynamic";
 
@@ -51,6 +53,7 @@ export default async function HoldingDetail({ params }: Props) {
   const currentPercent = summary.positions.find((p) => p.symbol === symbol)?.currentPercent ?? 0;
   const intrinsic = (await getIntrinsicValuations().catch(() => null))?.items.find((i) => i.symbol === symbol) ?? null;
 
+  const usdPkr = await getUsdPkr();
   const marketValue = derived.shares * currentPrice;
   const unrealizedPL = marketValue - derived.totalCost;
   const unrealizedPct = derived.totalCost > 0 ? unrealizedPL / derived.totalCost : 0;
@@ -97,7 +100,7 @@ export default async function HoldingDetail({ params }: Props) {
         <Stat label="Shares Held" value={fmtNum(derived.shares)} />
         <Stat label="Avg Cost" value={fmtRs(derived.avgCost, true)} />
         <Stat label="Current Price" value={fmtRs(currentPrice, true)} />
-        <Stat label="Market Value" value={fmtRs(marketValue)} />
+        <Stat label="Market Value" value={fmtRs(marketValue)} hint={usdPkr ? `≈ ${fmtUsd(marketValue, usdPkr, false)} · ${fmtUsd(derived.totalCost, usdPkr, false)} invested` : undefined} />
         <Stat
           label="Unrealised P/L"
           value={fmtSignedRs(unrealizedPL)}

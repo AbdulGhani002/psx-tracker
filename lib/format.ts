@@ -51,6 +51,16 @@ export function fmtMultiple(v: number | null | undefined): string {
   return `${v.toFixed(2)}×`;
 }
 
+const USD_COMPACT = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", notation: "compact", maximumFractionDigits: 1 });
+const USD_FULL = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 });
+
+// Dollar equivalent of a PKR amount, given a USD/PKR rate. Returns "" when the
+// amount or rate is missing so callers can omit the line entirely (never a fake).
+export function fmtUsd(rs: number | null | undefined, rate: number | null | undefined, compact = true): string {
+  if (rs == null || !Number.isFinite(rs) || rate == null || !Number.isFinite(rate) || rate <= 0) return "";
+  return (compact ? USD_COMPACT : USD_FULL).format(rs / rate);
+}
+
 export function fmtCompact(v: number | null | undefined): string {
   if (v == null || !Number.isFinite(v)) return "—";
   const abs = Math.abs(v);

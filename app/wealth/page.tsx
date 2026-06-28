@@ -13,25 +13,28 @@ import {
   checkDataAvailability,
 } from "@/lib/data";
 import { currentTaxYear } from "@/lib/dates";
-import { fmtRs, fmtSignedRs, fmtPct } from "@/lib/format";
+import { fmtRs, fmtUsd, fmtSignedRs, fmtPct } from "@/lib/format";
+import { getUsdPkr } from "@/lib/fx";
 import type { PositionRow } from "@/lib/calculations";
 
 export const dynamic = "force-dynamic";
 
 export default async function WealthPage() {
   const avail = await checkDataAvailability();
-  const [netWorth, summary, funds, savings, cash] = await Promise.all([
+  const [netWorth, summary, funds, savings, cash, usdPkr] = await Promise.all([
     getNetWorth(),
     getPortfolioSummary(),
     getMutualFundsValued(),
     getSavingsValued(),
     getCashSummary(),
+    getUsdPkr(),
   ]);
 
   const ty = currentTaxYear();
   const equityRows = summary.positions.filter((p) => p.shares > 0);
   const totalCost = equityRows.reduce((s, p) => s + p.totalCost, 0);
   const totalGain = netWorth.equity - totalCost;
+  const usd = (rs: number) => (usdPkr ? `≈ ${fmtUsd(rs, usdPkr, false)}` : undefined);
 
   const cols: Column<PositionRow>[] = [
     { key: "sym", header: "Symbol", render: (p) => <span className="font-mono font-medium">{p.symbol}</span> },
@@ -51,9 +54,9 @@ export default async function WealthPage() {
       {!avail.available && <SetupBanner reason={avail.reason} />}
 
       <StatRow>
-        <Stat label="Net worth" value={fmtRs(netWorth.total)} size="lg" />
-        <Stat label="Equity cost" value={fmtRs(totalCost)} />
-        <Stat label="Equity value" value={fmtRs(netWorth.equity)} />
+        <Stat label="Net worth" value={fmtRs(netWorth.total)} size="lg" hint={usd(netWorth.total)} />
+        <Stat label="Equity cost" value={fmtRs(totalCost)} hint={usd(totalCost)} />
+        <Stat label="Equity value" value={fmtRs(netWorth.equity)} hint={usd(netWorth.equity)} />
         <Stat label="Unrealised gain" value={fmtSignedRs(totalGain)} tone={totalGain >= 0 ? "positive" : "negative"} />
         <Stat label="Funds" value={fmtRs(netWorth.funds)} />
         <Stat label="Cash + savings" value={fmtRs(netWorth.savings + netWorth.cash)} />
