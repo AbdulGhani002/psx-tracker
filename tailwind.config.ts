@@ -19,9 +19,9 @@ const config: Config = {
         "inverted-fg": "var(--inverted-fg)",
       },
       fontFamily: {
-        display: ['"Fraunces"', "Georgia", "serif"],
-        sans: ['"IBM Plex Sans"', "system-ui", "sans-serif"],
-        mono: ['"IBM Plex Mono"', "ui-monospace", "monospace"],
+        display: ["var(--font-display)", '"Fraunces"', "Georgia", "serif"],
+        sans: ["var(--font-sans)", '"IBM Plex Sans"', "system-ui", "sans-serif"],
+        mono: ["var(--font-mono)", '"IBM Plex Mono"', "ui-monospace", "monospace"],
       },
       borderRadius: {
         none: "0",

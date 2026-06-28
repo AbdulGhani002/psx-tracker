@@ -1,7 +1,7 @@
 // Single source of truth for the app version + changelog.
 // Bump APP_VERSION and prepend a CHANGELOG entry on every release.
 
-export const APP_VERSION = "4.4.0";
+export const APP_VERSION = "4.5.0";
 
 export const BUILD_DATE =
   process.env.NEXT_PUBLIC_BUILD_DATE ?? "";
@@ -17,6 +17,16 @@ export type ChangelogEntry = {
 
 // Reverse-chronological. Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: "4.5.0",
+    date: "2026-06-28",
+    title: "Speed — self-hosted fonts and parallel data loading",
+    changes: [
+      "Fonts are now self-hosted and preloaded instead of being pulled from Google on every visit. That removes three slow, render-blocking round-trips to external font servers before any text could appear — the single biggest cause of the slow first paint, especially on a Pakistani connection to the Europe server.",
+      "Heavy pages (like a holding's detail) now fetch all their data in parallel instead of one query after another, cutting server response time noticeably.",
+      "Compression and long-term caching of the app's code were verified already in place, so repeat visits stay fast.",
+    ],
+  },
   {
     version: "4.4.0",
     date: "2026-06-28",

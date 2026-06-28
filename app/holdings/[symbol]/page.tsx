@@ -40,20 +40,23 @@ type Props = { params: { symbol: string } };
 
 export default async function HoldingDetail({ params }: Props) {
   const symbol = params.symbol.toUpperCase();
-  const holding = await getHoldingBySymbol(symbol);
+  // Fire every independent fetch at once instead of eight serial round-trips.
+  const [holding, transactions, lookThrough, market, prices, summary, intrinsicAll, usdPkr] = await Promise.all([
+    getHoldingBySymbol(symbol),
+    getTransactionsBySymbol(symbol),
+    getLookThroughFor(symbol).catch(() => null),
+    getMarketContext(symbol).catch(() => null),
+    getCurrentPrices([symbol]),
+    getPortfolioSummary(),
+    getIntrinsicValuations().catch(() => null),
+    getUsdPkr(),
+  ]);
   if (!holding) notFound();
 
-  const transactions = await getTransactionsBySymbol(symbol);
-  const lookThrough = await getLookThroughFor(symbol).catch(() => null);
-  const market = await getMarketContext(symbol).catch(() => null);
-  const prices = await getCurrentPrices([symbol]);
   const currentPrice = prices.get(symbol) ?? 0;
   const derived = deriveFromTransactions(transactions);
-  const summary = await getPortfolioSummary();
   const currentPercent = summary.positions.find((p) => p.symbol === symbol)?.currentPercent ?? 0;
-  const intrinsic = (await getIntrinsicValuations().catch(() => null))?.items.find((i) => i.symbol === symbol) ?? null;
-
-  const usdPkr = await getUsdPkr();
+  const intrinsic = intrinsicAll?.items.find((i) => i.symbol === symbol) ?? null;
   const marketValue = derived.shares * currentPrice;
   const unrealizedPL = marketValue - derived.totalCost;
   const unrealizedPct = derived.totalCost > 0 ? unrealizedPL / derived.totalCost : 0;
