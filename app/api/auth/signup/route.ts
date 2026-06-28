@@ -4,6 +4,7 @@ import { UserModel } from "@/lib/models";
 import { hashPassword, randomToken } from "@/lib/auth/password";
 import { createSession, SESSION_COOKIE, SESSION_MAX_AGE_SEC } from "@/lib/auth/session";
 import { sendEmail, appOrigin, verifyEmailHtml } from "@/lib/auth/mailer";
+import { verifyTurnstile } from "@/lib/auth/turnstile";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -12,6 +13,10 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 export async function POST(req: NextRequest) {
   const body = await req.json().catch(() => ({}) as Record<string, unknown>);
+  const ip = req.headers.get("x-forwarded-for")?.split(",")[0].trim() || req.headers.get("x-real-ip") || undefined;
+  if (!(await verifyTurnstile(String((body as any).turnstileToken ?? ""), ip))) {
+    return NextResponse.json({ error: "Bot check failed. Please try again." }, { status: 403 });
+  }
   const email = String((body as any).email ?? "").toLowerCase().trim();
   const password = String((body as any).password ?? "");
   const name = String((body as any).name ?? "").trim();

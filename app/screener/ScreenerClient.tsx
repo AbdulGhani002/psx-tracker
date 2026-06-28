@@ -19,6 +19,49 @@ const NUMS: { key: string; label: string; placeholder?: string }[] = [
   { key: "vol_spike_min", label: "Vol spike ≥ ×" },
   { key: "mcap_min", label: "Mkt cap ≥ (000)" },
 ];
+
+// Slider range per filter. `off` is the non-restrictive end — dragging there
+// clears the filter (empty value). Mkt cap has no slider (range too skewed).
+const RANGES: Record<string, { min: number; max: number; step: number; off: number }> = {
+  pe_max: { min: 1, max: 50, step: 0.5, off: 50 },
+  div_yield_min: { min: 0, max: 30, step: 0.5, off: 0 },
+  margin_min: { min: 0, max: 60, step: 1, off: 0 },
+  eps_growth_min: { min: -20, max: 60, step: 1, off: -20 },
+  rsi_min: { min: 0, max: 100, step: 1, off: 0 },
+  rsi_max: { min: 0, max: 100, step: 1, off: 100 },
+  vol_spike_min: { min: 0, max: 10, step: 0.5, off: 0 },
+};
+
+function NumberWithSlider({ label, value, onChange, range }: {
+  label: string; value: string; onChange: (v: string) => void;
+  range?: { min: number; max: number; step: number; off: number };
+}) {
+  return (
+    <div className="block">
+      <span className="label-cap block mb-1">{label}</span>
+      <input
+        type="number"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        className="w-full border border-rule bg-transparent px-2 py-1.5 text-[13px] font-mono"
+      />
+      {range && (
+        <input
+          type="range"
+          min={range.min}
+          max={range.max}
+          step={range.step}
+          value={value === "" ? range.off : Number(value)}
+          onChange={(e) => {
+            const v = Number(e.target.value);
+            onChange(v === range.off ? "" : String(v));
+          }}
+          className="w-full mt-1.5 accent-[var(--accent)]"
+        />
+      )}
+    </div>
+  );
+}
 const BOOLS: { key: string; label: string }[] = [
   { key: "above_sma50", label: "Above SMA-50" },
   { key: "above_sma200", label: "Above SMA-200" },
@@ -79,10 +122,13 @@ export function ScreenerClient() {
             </select>
           </label>
           {NUMS.map((n) => (
-            <label key={n.key} className="block">
-              <span className="label-cap block mb-1">{n.label}</span>
-              <input type="number" value={nums[n.key] ?? ""} onChange={(e) => setNums((p) => ({ ...p, [n.key]: e.target.value }))} className="w-full border border-rule bg-transparent px-2 py-1.5 text-[13px] font-mono" />
-            </label>
+            <NumberWithSlider
+              key={n.key}
+              label={n.label}
+              value={nums[n.key] ?? ""}
+              onChange={(v) => setNums((p) => ({ ...p, [n.key]: v }))}
+              range={RANGES[n.key]}
+            />
           ))}
         </div>
         <div className="flex flex-wrap items-center gap-x-5 gap-y-2 mt-4">

@@ -3,6 +3,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { SiteNav } from "@/components/layout/SiteNav";
 import { ThemeScript } from "@/components/layout/ThemeToggle";
+import { NoNumberScroll } from "@/components/ui/NoNumberScroll";
 import { APP_VERSION } from "@/lib/version";
 
 export const metadata: Metadata = {
@@ -17,6 +18,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <ThemeScript />
       </head>
       <body>
+        <NoNumberScroll />
         <div className="min-h-screen flex flex-col">
           <SiteNav />
           <main className="flex-1 w-full max-w-[1000px] mx-auto px-6 py-10 fade-in">

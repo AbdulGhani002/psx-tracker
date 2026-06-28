@@ -3,6 +3,7 @@ import { connectDb } from "@/lib/db";
 import { UserModel } from "@/lib/models";
 import { verifyPassword } from "@/lib/auth/password";
 import { createSession, verifySession, SESSION_COOKIE, SESSION_MAX_AGE_SEC } from "@/lib/auth/session";
+import { verifyTurnstile } from "@/lib/auth/turnstile";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -37,6 +38,11 @@ export async function POST(req: NextRequest) {
   }
 
   const body = await req.json().catch(() => ({}) as Record<string, unknown>);
+  // Bot check (no-op unless TURNSTILE_SECRET_KEY is set). Done before the
+  // password check so it doesn't burn a brute-force attempt.
+  if (!(await verifyTurnstile(String((body as any).turnstileToken ?? ""), ip))) {
+    return NextResponse.json({ error: "Bot check failed. Please try again." }, { status: 403 });
+  }
   // Accept `email` (new) or `username` (legacy form field).
   const email = String((body as any).email ?? (body as any).username ?? "").toLowerCase().trim();
   const password = String((body as any).password ?? "");

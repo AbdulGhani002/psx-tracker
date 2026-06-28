@@ -88,10 +88,11 @@ export function BacktestClient({ initialSymbol = "MEBL" }: { initialSymbol?: str
   useEffect(() => { run(); /* eslint-disable-next-line */ }, []);
 
   const edge = res ? res.total_return_pct - res.buy_hold_return_pct : 0;
-  const field = (k: string, label: string) => (
+  const field = (k: string, label: string, min: number, max: number, step = 1) => (
     <label className="block">
       <span className="label-cap block mb-1">{label}</span>
       <input type="number" value={p[k]} onChange={(e) => setP((s) => ({ ...s, [k]: e.target.value }))} className="w-full border border-rule bg-transparent px-2 py-1.5 text-[13px] font-mono" />
+      <input type="range" min={min} max={max} step={step} value={Number(p[k]) || min} onChange={(e) => setP((s) => ({ ...s, [k]: e.target.value }))} className="w-full mt-1.5 accent-[var(--accent)]" />
     </label>
   );
 
@@ -114,9 +115,9 @@ export function BacktestClient({ initialSymbol = "MEBL" }: { initialSymbol?: str
           </button>
         </div>
         <div className="grid sm:grid-cols-3 gap-3 mt-3">
-          {strategy === "rsi" && <>{field("period", "RSI period")}{field("oversold", "Buy below RSI")}{field("overbought", "Sell above RSI")}</>}
-          {strategy === "sma_cross" && <>{field("fast", "Fast SMA")}{field("slow", "Slow SMA")}</>}
-          {strategy === "above_sma" && <>{field("period", "SMA period")}</>}
+          {strategy === "rsi" && <>{field("period", "RSI period", 2, 50)}{field("oversold", "Buy below RSI", 10, 45)}{field("overbought", "Sell above RSI", 55, 90)}</>}
+          {strategy === "sma_cross" && <>{field("fast", "Fast SMA", 5, 100)}{field("slow", "Slow SMA", 50, 300, 5)}</>}
+          {strategy === "above_sma" && <>{field("period", "SMA period", 10, 250, 5)}</>}
         </div>
       </div>
 

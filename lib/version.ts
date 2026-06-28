@@ -1,7 +1,7 @@
 // Single source of truth for the app version + changelog.
 // Bump APP_VERSION and prepend a CHANGELOG entry on every release.
 
-export const APP_VERSION = "4.3.0";
+export const APP_VERSION = "4.4.0";
 
 export const BUILD_DATE =
   process.env.NEXT_PUBLIC_BUILD_DATE ?? "";
@@ -17,6 +17,16 @@ export type ChangelogEntry = {
 
 // Reverse-chronological. Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: "4.4.0",
+    date: "2026-06-28",
+    title: "Sliders, no more scroll-wheel surprises, and bot protection on sign-in",
+    changes: [
+      "The screener and the strategy backtester now have a slider under each numeric filter — drag for a quick range, or still type an exact value. Dragging a slider to its open end clears that filter.",
+      "Fixed an annoyance: scrolling the mouse wheel while a number field was focused used to silently change its value (by the field's step). That's now disabled everywhere — a number is whatever you type, full stop; the page just scrolls.",
+      "Login and signup are now wired for Cloudflare Turnstile bot protection. It stays invisible until the site keys are configured, then a quick human-check appears on the auth screen.",
+    ],
+  },
   {
     version: "4.3.0",
     date: "2026-06-28",
