@@ -1,7 +1,7 @@
 // Single source of truth for the app version + changelog.
 // Bump APP_VERSION and prepend a CHANGELOG entry on every release.
 
-export const APP_VERSION = "4.5.0";
+export const APP_VERSION = "4.6.0";
 
 export const BUILD_DATE =
   process.env.NEXT_PUBLIC_BUILD_DATE ?? "";
@@ -17,6 +17,19 @@ export type ChangelogEntry = {
 
 // Reverse-chronological. Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: "4.6.0",
+    date: "2026-07-02",
+    title: "Deep speed pass — streaming pages, scroll-loading, and no more analytics stalls",
+    changes: [
+      "The overview now streams: the header and layout paint immediately, and each section (stats, allocation, risk, activity) pops in as its data is ready — instead of a blank page until everything was computed. Shared data is computed once per visit even though sections load independently.",
+      "The AI ratings board renders its top 120 stocks instantly (the page is ~4× lighter) and automatically loads the rest of the market as you scroll toward the bottom.",
+      "Fixed the every-15-minutes hang: when the market analytics cache expired, the next visitor waited ~7 seconds while the whole universe recomputed. It now serves the existing data instantly and refreshes in the background — market pages answer in milliseconds, always.",
+      "Going back to a page you just visited is now instant (a short-lived in-browser cache); editing anything still refreshes the numbers.",
+      "The compounding model (the heaviest chart code) no longer downloads until you scroll near it on a holding's page.",
+      "The server now speaks HTTP/2 and streams responses through unbuffered — both matter most on high-latency connections like Pakistan to Europe.",
+    ],
+  },
   {
     version: "4.5.0",
     date: "2026-06-28",

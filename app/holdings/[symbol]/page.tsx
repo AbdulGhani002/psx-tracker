@@ -5,7 +5,7 @@ import { Section } from "@/components/layout/Section";
 import { Stat, StatRow } from "@/components/ui/Stat";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
-import { CompoundingModel } from "@/components/model/CompoundingModel";
+import { CompoundingModelLazy as CompoundingModel } from "@/components/model/CompoundingModelLazy";
 import { HoldingSettings } from "./HoldingSettings";
 import { HoldingPlaybook } from "./HoldingPlaybook";
 import { HoldingTransactions } from "./HoldingTransactions";

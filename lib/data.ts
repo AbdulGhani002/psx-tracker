@@ -1,4 +1,5 @@
 import "server-only";
+import { cache } from "react";
 import { connectDb } from "./db";
 import { getCurrentUserId } from "./auth/current-user";
 import { knownHoldingCompany } from "./holding-companies";
@@ -77,12 +78,12 @@ async function tryConnect(): Promise<boolean> {
   }
 }
 
-export async function checkDataAvailability(): Promise<DataAvailability> {
+async function _checkDataAvailability(): Promise<DataAvailability> {
   const ok = await tryConnect();
   return ok ? { available: true } : { available: false, reason: lastConnectionError ?? "unknown" };
 }
 
-export async function getAllHoldings(): Promise<Holding[]> {
+async function _getAllHoldings(): Promise<Holding[]> {
   const uid = await getCurrentUserId();
   if (!uid || !(await tryConnect())) return [];
   const docs = await HoldingModel.find({ userId: uid }).sort({ symbol: 1 }).lean();
@@ -96,7 +97,7 @@ export async function getHoldingBySymbol(symbol: string): Promise<Holding | null
   return doc ? plain<Holding>(doc) : null;
 }
 
-export async function getAllTransactions(): Promise<Transaction[]> {
+async function _getAllTransactions(): Promise<Transaction[]> {
   const uid = await getCurrentUserId();
   if (!uid || !(await tryConnect())) return [];
   const docs = await TransactionModel.find({ userId: uid, deletedAt: null }).sort({ date: -1, createdAt: -1 }).lean();
@@ -131,7 +132,7 @@ export async function getCurrentPrices(symbols: string[]): Promise<Map<string, n
   }
 }
 
-export async function getPortfolioSummary(): Promise<PortfolioSummary> {
+async function _getPortfolioSummary(): Promise<PortfolioSummary> {
   const [holdings, transactions] = await Promise.all([
     getAllHoldings(),
     getAllTransactions(),
@@ -382,7 +383,7 @@ function downsample(series: { date: string; close: number }[], target = 140): { 
 
 // Intrinsic value, valuation methods, buying zones, sensitivity and a price
 // history for every holding. Heavy (EOD per symbol) → cached + cron-warmed.
-export async function getIntrinsicValuations(): Promise<IntrinsicPage> {
+async function _getIntrinsicValuations(): Promise<IntrinsicPage> {
   return cachedSnapshot("page:intrinsic", 90 * 60 * 1000, computeIntrinsicValuations);
 }
 
@@ -1061,7 +1062,7 @@ export type NetWorth = {
   breakdown: { label: string; value: number }[];
 };
 
-export async function getNetWorth(): Promise<NetWorth> {
+async function _getNetWorth(): Promise<NetWorth> {
   const [summary, funds, savings, cash] = await Promise.all([
     getPortfolioSummary(),
     getMutualFundsValued(),
@@ -1090,7 +1091,7 @@ export async function getNetWorth(): Promise<NetWorth> {
 
 export type AppSettings = typeof DEFAULT_SETTINGS;
 
-export async function getAppSettings(): Promise<AppSettings> {
+async function _getAppSettings(): Promise<AppSettings> {
   const uid = await getCurrentUserId();
   if (!uid || !(await tryConnect())) return { ...DEFAULT_SETTINGS };
   const doc = await AppSettingsModel.findOneAndUpdate(
@@ -1301,7 +1302,7 @@ export async function getSellTodayCgt(): Promise<{
   };
 }
 
-export async function getRiskMetrics(): Promise<RiskMetrics | null> {
+async function _getRiskMetrics(): Promise<RiskMetrics | null> {
   return cachedSnapshot("page:riskMetrics", 90 * 60 * 1000, computeRiskMetrics);
 }
 
@@ -1378,7 +1379,7 @@ export async function getCommodityTradesValued(): Promise<{ trades: ValuedTrade[
 
 export type Mover = { symbol: string; price: number; prevClose: number; changePct: number };
 
-export async function getTodaysMovers(): Promise<{ gainers: Mover[]; losers: Mover[] }> {
+async function _getTodaysMovers(): Promise<{ gainers: Mover[]; losers: Mover[] }> {
   return cachedSnapshot("page:todaysMovers", 90 * 60 * 1000, computeTodaysMovers);
 }
 
@@ -1419,3 +1420,21 @@ export async function getScenariosForSymbol(symbol: string | null) {
   const docs = await ScenarioProjectionModel.find({ userId: await meId(), symbol }).lean();
   return plain<Array<{ _id: string; name: string; symbol: string | null; assumptions: { annualGrowthRate: number; endingPE: number; payoutRatio: number; horizonYears: number; useDRIP: boolean; customNotes: string } }>>(docs);
 }
+
+export const checkDataAvailability = cache(_checkDataAvailability);
+
+export const getAllTransactions = cache(_getAllTransactions);
+
+export const getPortfolioSummary = cache(_getPortfolioSummary);
+
+export const getNetWorth = cache(_getNetWorth);
+
+export const getAppSettings = cache(_getAppSettings);
+
+export const getRiskMetrics = cache(_getRiskMetrics);
+
+export const getTodaysMovers = cache(_getTodaysMovers);
+
+export const getIntrinsicValuations = cache(_getIntrinsicValuations);
+
+export const getAllHoldings = cache(_getAllHoldings);

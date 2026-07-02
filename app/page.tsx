@@ -1,3 +1,4 @@
+import { Suspense } from "react";
 import Link from "next/link";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { Section } from "@/components/layout/Section";
@@ -6,6 +7,7 @@ import { Term } from "@/components/ui/Term";
 import { Table, type Column } from "@/components/ui/Table";
 import { Badge } from "@/components/ui/Badge";
 import { Card } from "@/components/ui/Card";
+import { Skeleton } from "@/components/ui/Skeleton";
 import { SetupBanner } from "@/components/layout/SetupBanner";
 import { SectorBar } from "@/components/charts/SectorBar";
 import { AllocationDonut } from "@/components/charts/AllocationDonut";
@@ -35,54 +37,32 @@ import type { Transaction } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
-export default async function Dashboard() {
-  const avail = await checkDataAvailability();
-  const [summary, allTx, netWorth, movers, risk, settings, usdPkr] = await Promise.all([
+// The page streams: the header flushes immediately, then each section below
+// arrives as its data resolves. The data getters are wrapped in React cache()
+// (lib/data.ts), so sections sharing the portfolio summary compute it ONCE per
+// request — Suspense here costs no extra queries.
+
+function BlockFallback({ rows = 3 }: { rows?: number }) {
+  return (
+    <div className="space-y-2.5 py-6">
+      {Array.from({ length: rows }).map((_, i) => (
+        <Skeleton key={i} className="h-5 w-full" />
+      ))}
+    </div>
+  );
+}
+
+async function TopBlock() {
+  const [avail, summary, netWorth, movers, usdPkr] = await Promise.all([
+    checkDataAvailability(),
     getPortfolioSummary(),
-    getAllTransactions(),
     getNetWorth(),
     getTodaysMovers(),
-    getRiskMetrics(),
-    getAppSettings(),
     getUsdPkr(),
   ]);
-
-  // "≈ $X" line for a PKR amount, omitted entirely when the rate is unavailable.
   const usd = (rs: number) => (usdPkr ? `≈ ${fmtUsd(rs, usdPkr, false)}` : undefined);
-
   const hasOtherAssets = netWorth.funds + netWorth.savings + netWorth.cash > 0;
-
-  // Portfolio-level signals (from the sizing playbook).
-  const cap = settings.concentrationCap ?? 25;
-  const active = summary.positions.filter((p) => p.shares > 0);
-  const topPos = [...active].sort((a, b) => b.currentPercent - a.currentPercent)[0];
-  const topSector = summary.sectorBreakdown[0];
-  const cashBufferPct = netWorth.total > 0 ? ((netWorth.cash + netWorth.savings) / netWorth.total) * 100 : 0;
-  const signals: Array<{ ok: boolean; text: string }> = [];
-  if (topPos) {
-    signals.push({
-      ok: topPos.currentPercent <= cap,
-      text: topPos.currentPercent <= cap
-        ? `Largest position ${topPos.symbol} ${topPos.currentPercent.toFixed(1)}% — within the ${cap}% cap`
-        : `${topPos.symbol} is ${topPos.currentPercent.toFixed(1)}% — over your ${cap}% single-stock cap, consider trimming`,
-    });
-  }
-  if (topSector) {
-    signals.push({
-      ok: topSector.percent <= 40,
-      text: topSector.percent <= 40
-        ? `Top sector ${topSector.sector} ${topSector.percent.toFixed(1)}% — under 40%`
-        : `${topSector.sector} is ${topSector.percent.toFixed(1)}% of equities — over the 40% sector cap`,
-    });
-  }
-  signals.push({
-    ok: cashBufferPct >= 5,
-    text: cashBufferPct >= 5
-      ? `Cash + savings buffer ${cashBufferPct.toFixed(1)}% — dry powder available`
-      : `Only ${cashBufferPct.toFixed(1)}% in cash/savings — under the 5% buffer for opportunities`,
-  });
   const hasMovers = movers.gainers.length + movers.losers.length > 0;
-  const recent = allTx.slice(0, 5);
   const xirrLabel = summary.xirr != null ? fmtSignedPct(summary.xirr, 1) : "—";
   const xirrHint =
     summary.xirr != null
@@ -91,92 +71,10 @@ export default async function Dashboard() {
       ? `Needs 90+ days (you're at ${Math.round(summary.xirrSpanDays)})`
       : "Out of range";
   const totalReturn = summary.unrealizedPL + summary.realizedPL + summary.dividendsTotal;
-  const totalReturnPct =
-    summary.totalCost > 0 ? totalReturn / summary.totalCost : null;
-
-  const positionColumns: Column<PositionRow>[] = [
-    {
-      key: "symbol",
-      header: "Symbol",
-      render: (r) => (
-        <Link
-          href={`/holdings/${r.symbol}`}
-          className="font-mono font-medium hover:text-[var(--accent-deep)]"
-        >
-          {r.symbol}
-        </Link>
-      ),
-    },
-    { key: "sector", header: "Sector", render: (r) => <span className="text-[12px] text-muted">{r.sector}</span> },
-    { key: "value", header: "Market Value", align: "right", mono: true, render: (r) => fmtRs(r.marketValue) },
-    {
-      key: "alloc",
-      header: "% / Target",
-      align: "right",
-      mono: true,
-      render: (r) => {
-        const dev = Math.abs(r.deviation);
-        const tone = dev <= 3 ? "positive" : dev <= 6 ? "amber" : "negative";
-        return (
-          <div className="flex items-center justify-end gap-2">
-            <span>{fmtPct(r.currentPercent / 100, 1)}</span>
-            <span className="text-muted">/</span>
-            <span className="text-muted">{fmtPct(r.targetPercent / 100, 0)}</span>
-            <Badge tone={tone as any}>{fmtSignedPct(r.deviation / 100, 1)}</Badge>
-          </div>
-        );
-      },
-    },
-    {
-      key: "unr",
-      header: "Unrealised",
-      align: "right",
-      mono: true,
-      render: (r) => (
-        <span style={{ color: r.unrealizedPL >= 0 ? "var(--positive)" : "var(--negative)" }}>
-          {fmtSignedPct(r.unrealizedPct)}
-        </span>
-      ),
-    },
-  ];
-
-  const recentColumns: Column<Transaction>[] = [
-    { key: "date", header: "Date", render: (t) => <span className="font-mono text-[12px]">{fmtDate(t.date)}</span> },
-    { key: "symbol", header: "Symbol", render: (t) => <span className="font-mono font-medium">{t.symbol}</span> },
-    {
-      key: "type",
-      header: "Type",
-      render: (t) => (
-        <Badge
-          tone={
-            t.type === "BUY" || t.type === "RIGHT"
-              ? "accent"
-              : t.type === "SELL"
-              ? "negative"
-              : t.type === "DIVIDEND"
-              ? "positive"
-              : "amber"
-          }
-        >
-          {t.type}
-        </Badge>
-      ),
-    },
-    { key: "amt", header: "Net", align: "right", mono: true, render: (t) => fmtRs(t.netAmount) },
-    { key: "notes", header: "Notes", render: (t) => <span className="text-[12px] text-muted">{t.notes}</span> },
-  ];
+  const totalReturnPct = summary.totalCost > 0 ? totalReturn / summary.totalCost : null;
 
   return (
-    <div>
-      <PageHeader
-        eyebrow="Overview"
-        title="Your portfolio."
-        subtitle={`As of ${fmtDateTime(new Date())}`}
-        italic={false}
-      >
-        <RefreshPrices />
-      </PageHeader>
-
+    <>
       {!avail.available && <SetupBanner reason={avail.reason} />}
 
       {hasMovers && (
@@ -265,21 +163,98 @@ export default async function Dashboard() {
           label="XIRR"
           value={xirrLabel}
           hint={xirrHint}
-          tone={
-            summary.xirr == null ? "muted" : summary.xirr >= 0 ? "positive" : "negative"
-          }
+          tone={summary.xirr == null ? "muted" : summary.xirr >= 0 ? "positive" : "negative"}
         />
         <Stat
           label={`Dividends ${summary.taxYearLabel}`}
           value={fmtRs(summary.dividendsYTD)}
-          hint={
-            totalReturnPct != null
-              ? `Total return ${fmtSignedPct(totalReturnPct, 1)}`
-              : "PK tax year (Jul–Jun)"
-          }
+          hint={totalReturnPct != null ? `Total return ${fmtSignedPct(totalReturnPct, 1)}` : "PK tax year (Jul–Jun)"}
         />
       </StatRow>
+    </>
+  );
+}
 
+async function AllocationBlock() {
+  const [summary, netWorth, settings] = await Promise.all([
+    getPortfolioSummary(),
+    getNetWorth(),
+    getAppSettings(),
+  ]);
+  const cap = settings.concentrationCap ?? 25;
+  const active = summary.positions.filter((p) => p.shares > 0);
+  const topPos = [...active].sort((a, b) => b.currentPercent - a.currentPercent)[0];
+  const topSector = summary.sectorBreakdown[0];
+  const cashBufferPct = netWorth.total > 0 ? ((netWorth.cash + netWorth.savings) / netWorth.total) * 100 : 0;
+  const signals: Array<{ ok: boolean; text: string }> = [];
+  if (topPos) {
+    signals.push({
+      ok: topPos.currentPercent <= cap,
+      text: topPos.currentPercent <= cap
+        ? `Largest position ${topPos.symbol} ${topPos.currentPercent.toFixed(1)}% — within the ${cap}% cap`
+        : `${topPos.symbol} is ${topPos.currentPercent.toFixed(1)}% — over your ${cap}% single-stock cap, consider trimming`,
+    });
+  }
+  if (topSector) {
+    signals.push({
+      ok: topSector.percent <= 40,
+      text: topSector.percent <= 40
+        ? `Top sector ${topSector.sector} ${topSector.percent.toFixed(1)}% — under 40%`
+        : `${topSector.sector} is ${topSector.percent.toFixed(1)}% of equities — over the 40% sector cap`,
+    });
+  }
+  signals.push({
+    ok: cashBufferPct >= 5,
+    text: cashBufferPct >= 5
+      ? `Cash + savings buffer ${cashBufferPct.toFixed(1)}% — dry powder available`
+      : `Only ${cashBufferPct.toFixed(1)}% in cash/savings — under the 5% buffer for opportunities`,
+  });
+
+  const positionColumns: Column<PositionRow>[] = [
+    {
+      key: "symbol",
+      header: "Symbol",
+      render: (r) => (
+        <Link href={`/holdings/${r.symbol}`} className="font-mono font-medium hover:text-[var(--accent-deep)]">
+          {r.symbol}
+        </Link>
+      ),
+    },
+    { key: "sector", header: "Sector", render: (r) => <span className="text-[12px] text-muted">{r.sector}</span> },
+    { key: "value", header: "Market Value", align: "right", mono: true, render: (r) => fmtRs(r.marketValue) },
+    {
+      key: "alloc",
+      header: "% / Target",
+      align: "right",
+      mono: true,
+      render: (r) => {
+        const dev = Math.abs(r.deviation);
+        const tone = dev <= 3 ? "positive" : dev <= 6 ? "amber" : "negative";
+        return (
+          <div className="flex items-center justify-end gap-2">
+            <span>{fmtPct(r.currentPercent / 100, 1)}</span>
+            <span className="text-muted">/</span>
+            <span className="text-muted">{fmtPct(r.targetPercent / 100, 0)}</span>
+            <Badge tone={tone as any}>{fmtSignedPct(r.deviation / 100, 1)}</Badge>
+          </div>
+        );
+      },
+    },
+    {
+      key: "unr",
+      header: "Unrealised",
+      align: "right",
+      mono: true,
+      render: (r) => (
+        <span style={{ color: r.unrealizedPL >= 0 ? "var(--positive)" : "var(--negative)" }}>
+          {fmtSignedPct(r.unrealizedPct)}
+        </span>
+      ),
+    },
+  ];
+
+  return (
+    <>
       {active.length > 0 && (
         <Section title="Portfolio signals" display="Sizing discipline at a glance.">
           <Card>
@@ -335,6 +310,91 @@ export default async function Dashboard() {
           <SectorBar entries={summary.sectorBreakdown} totalValue={summary.totalValue} />
         )}
       </Section>
+    </>
+  );
+}
+
+async function RiskBlock() {
+  const risk = await getRiskMetrics();
+  if (!risk || risk.annualVol == null) return null;
+  return (
+    <Section
+      number="04"
+      title="Risk"
+      display="How bumpy the ride is."
+      description="From your portfolio's daily returns over the last year vs KSE-100. Annualised."
+    >
+      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
+        <Stat label="Volatility" value={fmtPct(risk.annualVol ?? 0, 1)} tone="muted" hint="annualised σ" />
+        <Stat label={<Term k="sharpe">Sharpe</Term>} value={risk.sharpe != null ? risk.sharpe.toFixed(2) : "—"} tone={(risk.sharpe ?? 0) >= 1 ? "positive" : "default"} hint="return per unit risk" />
+        <Stat label="Sortino" value={risk.sortino != null ? risk.sortino.toFixed(2) : "—"} tone={(risk.sortino ?? 0) >= 1 ? "positive" : "default"} hint="downside-adjusted" />
+        <Stat label={<Term k="drawdown">Max drawdown</Term>} value={fmtPct(risk.maxDrawdown ?? 0, 1)} tone="negative" hint="peak-to-trough" />
+        <Stat label={<Term k="beta">Beta vs KSE</Term>} value={risk.beta != null ? risk.beta.toFixed(2) : "—"} tone="muted" hint="market sensitivity" />
+        <Stat label={<Term k="alpha">Alpha</Term>} value={risk.alpha != null ? fmtSignedPct(risk.alpha, 1) : "—"} tone={(risk.alpha ?? 0) >= 0 ? "positive" : "negative"} hint="vs CAPM expectation" />
+      </div>
+    </Section>
+  );
+}
+
+async function RecentBlock() {
+  const allTx = await getAllTransactions();
+  const recent = allTx.slice(0, 5);
+  const recentColumns: Column<Transaction>[] = [
+    { key: "date", header: "Date", render: (t) => <span className="font-mono text-[12px]">{fmtDate(t.date)}</span> },
+    { key: "symbol", header: "Symbol", render: (t) => <span className="font-mono font-medium">{t.symbol}</span> },
+    {
+      key: "type",
+      header: "Type",
+      render: (t) => (
+        <Badge
+          tone={
+            t.type === "BUY" || t.type === "RIGHT"
+              ? "accent"
+              : t.type === "SELL"
+              ? "negative"
+              : t.type === "DIVIDEND"
+              ? "positive"
+              : "amber"
+          }
+        >
+          {t.type}
+        </Badge>
+      ),
+    },
+    { key: "amt", header: "Net", align: "right", mono: true, render: (t) => fmtRs(t.netAmount) },
+    { key: "notes", header: "Notes", render: (t) => <span className="text-[12px] text-muted">{t.notes}</span> },
+  ];
+  return (
+    <Section
+      number="05"
+      title="Recent activity"
+      display="The last five things you did."
+      action={<Link href="/transactions" className="label-cap hover:text-[var(--accent-deep)]">All transactions →</Link>}
+    >
+      <Table columns={recentColumns} rows={recent} rowKey={(t) => String(t._id)} empty="No transactions recorded yet." />
+    </Section>
+  );
+}
+
+export default function Dashboard() {
+  return (
+    <div>
+      <PageHeader
+        eyebrow="Overview"
+        title="Your portfolio."
+        subtitle={`As of ${fmtDateTime(new Date())}`}
+        italic={false}
+      >
+        <RefreshPrices />
+      </PageHeader>
+
+      <Suspense fallback={<BlockFallback rows={5} />}>
+        <TopBlock />
+      </Suspense>
+
+      <Suspense fallback={<BlockFallback rows={6} />}>
+        <AllocationBlock />
+      </Suspense>
 
       <Section
         number="03"
@@ -345,37 +405,13 @@ export default async function Dashboard() {
         <BenchmarkChartLoader />
       </Section>
 
-      {risk && risk.annualVol != null && (
-        <Section
-          number="04"
-          title="Risk"
-          display="How bumpy the ride is."
-          description="From your portfolio's daily returns over the last year vs KSE-100. Annualised."
-        >
-          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
-            <Stat label="Volatility" value={fmtPct(risk.annualVol ?? 0, 1)} tone="muted" hint="annualised σ" />
-            <Stat label={<Term k="sharpe">Sharpe</Term>} value={risk.sharpe != null ? risk.sharpe.toFixed(2) : "—"} tone={(risk.sharpe ?? 0) >= 1 ? "positive" : "default"} hint="return per unit risk" />
-            <Stat label="Sortino" value={risk.sortino != null ? risk.sortino.toFixed(2) : "—"} tone={(risk.sortino ?? 0) >= 1 ? "positive" : "default"} hint="downside-adjusted" />
-            <Stat label={<Term k="drawdown">Max drawdown</Term>} value={fmtPct(risk.maxDrawdown ?? 0, 1)} tone="negative" hint="peak-to-trough" />
-            <Stat label={<Term k="beta">Beta vs KSE</Term>} value={risk.beta != null ? risk.beta.toFixed(2) : "—"} tone="muted" hint="market sensitivity" />
-            <Stat label={<Term k="alpha">Alpha</Term>} value={risk.alpha != null ? fmtSignedPct(risk.alpha, 1) : "—"} tone={(risk.alpha ?? 0) >= 0 ? "positive" : "negative"} hint="vs CAPM expectation" />
-          </div>
-        </Section>
-      )}
+      <Suspense fallback={<BlockFallback rows={2} />}>
+        <RiskBlock />
+      </Suspense>
 
-      <Section
-        number="05"
-        title="Recent activity"
-        display="The last five things you did."
-        action={<Link href="/transactions" className="label-cap hover:text-[var(--accent-deep)]">All transactions →</Link>}
-      >
-        <Table
-          columns={recentColumns}
-          rows={recent}
-          rowKey={(t) => String(t._id)}
-          empty="No transactions recorded yet."
-        />
-      </Section>
+      <Suspense fallback={<BlockFallback rows={3} />}>
+        <RecentBlock />
+      </Suspense>
     </div>
   );
 }
