@@ -10,7 +10,7 @@ const UA =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124 Safari/537.36";
 const MUFAP_URL = "https://mufap.com.pk/WebPost/WebPostById?title=Open-FundScheme";
 
-export type FundNav = { name: string; amc: string; nav: number };
+export type FundNav = { name: string; amc: string; nav: number; fundId: number | null };
 
 function decode(s: string): string {
   return s
@@ -44,9 +44,68 @@ export function parseMufap(html: string): FundNav[] {
     const nav = Number(navMatch[1].replace(/,/g, ""));
     if (!Number.isFinite(nav) || nav <= 0) continue;
 
-    out.push({ name, amc, nav });
+    // MUFAP fund id from the "View Details" link — keys the returns lookup.
+    const idMatch = block.match(/FundID=(\d+)/i);
+    const fundId = idMatch ? Number(idMatch[1]) : null;
+
+    out.push({ name, amc, nav, fundId });
   }
   return out;
+}
+
+// --- Published fund returns (the numbers on each fund's MUFAP detail page) ---
+// POST /AMC/GetFundDetailbyAMCByDate {FundID, Date:"YYYY-MM-01"} → data.Table4[0]
+// carries {YTD, MTD, Day30..Day270, Year1..Year3} in percent. Year1 (trailing
+// twelve months) is the honest "annual yield". Null when MUFAP has no figures —
+// callers fall back to the user's manual value rather than inventing one.
+export type FundReturns = { ytdPct: number | null; year1Pct: number | null; day30Pct: number | null; asOf: string };
+
+const RETURNS_URL = "https://mufap.com.pk/AMC/GetFundDetailbyAMCByDate";
+const returnsCache = new Map<number, { at: number; data: FundReturns | null }>();
+
+function numOrNull(v: unknown): number | null {
+  return typeof v === "number" && Number.isFinite(v) ? v : null;
+}
+
+async function fetchReturnsOnce(fundId: number): Promise<FundReturns | null> {
+  const now = new Date();
+  const date = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-01`;
+  const res = await fetch(RETURNS_URL, {
+    method: "POST",
+    headers: { "user-agent": UA, "content-type": "application/json; charset=UTF-8" },
+    body: JSON.stringify({ FundID: fundId, Date: date }),
+    cache: "no-store",
+    signal: AbortSignal.timeout(20000),
+  });
+  if (!res.ok) throw new Error(String(res.status));
+  const outer = (await res.json()) as { data?: string };
+  const inner = JSON.parse(outer.data ?? "{}") as { Table4?: Array<Record<string, unknown>> };
+  const ps = inner.Table4?.[0];
+  return ps
+    ? {
+        ytdPct: numOrNull(ps.YTD),
+        year1Pct: numOrNull(ps.Year1),
+        day30Pct: numOrNull(ps.Day30),
+        asOf: typeof ps.CreateDate === "string" ? ps.CreateDate.slice(0, 10) : "",
+      }
+    : null;
+}
+
+export async function fetchFundReturns(fundId: number): Promise<FundReturns | null> {
+  const hit = returnsCache.get(fundId);
+  if (hit && Date.now() - hit.at < TTL_MS) return hit.data;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const data = await fetchReturnsOnce(fundId);
+      returnsCache.set(fundId, { at: Date.now(), data });
+      return data;
+    } catch {
+      /* one retry, then fall through */
+    }
+  }
+  // Transient failure: keep any stale data and retry in 2 minutes, not 6 hours.
+  returnsCache.set(fundId, { at: Date.now() - TTL_MS + 2 * 60 * 1000, data: hit?.data ?? null });
+  return hit?.data ?? null;
 }
 
 let cache: { at: number; data: FundNav[] } | null = null;

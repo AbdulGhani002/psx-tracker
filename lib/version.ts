@@ -1,7 +1,7 @@
 // Single source of truth for the app version + changelog.
 // Bump APP_VERSION and prepend a CHANGELOG entry on every release.
 
-export const APP_VERSION = "4.6.0";
+export const APP_VERSION = "4.7.0";
 
 export const BUILD_DATE =
   process.env.NEXT_PUBLIC_BUILD_DATE ?? "";
@@ -17,6 +17,16 @@ export type ChangelogEntry = {
 
 // Reverse-chronological. Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: "4.7.0",
+    date: "2026-07-03",
+    title: "Real fund yields from MUFAP + install as an app (PWA)",
+    changes: [
+      "Mutual funds now show their REAL annual yield — the trailing-12-month return MUFAP publishes for each fund — instead of a hand-entered guess. Daily-dividend funds accrue at the live rate too; the manual figure is only a fallback, clearly marked.",
+      "Fund records reconciled against the AMC account statement (units and anchors corrected).",
+      "The site is now installable as an app on your phone or desktop: repeat opens are near-instant (code and fonts served from the device). Your financial data is never cached — it always comes fresh from the server.",
+    ],
+  },
   {
     version: "4.6.0",
     date: "2026-07-02",

@@ -27,7 +27,7 @@ import { fetchFundamentals } from "./prices/fundamentals";
 import { fetchPayouts } from "./prices/payouts";
 import type { FundamentalsInput } from "./calculations/dividend-forecast";
 import { SBP_POLICY_RATE_DEFAULTS, policyRateOn, type RateStep } from "./timeseries/sbp-rate";
-import { fetchAllNavs, findNav } from "./funds/mufap";
+import { fetchAllNavs, findNav, fetchFundReturns } from "./funds/mufap";
 import { valueSavings, valueFund, type SavingsValuation, type FundValuation } from "./calculations/assets";
 import { buildTaxReport, type TaxReport } from "./calculations/tax";
 import { buildLots, summariseCgt, type Disposal, type CgtSummary, type Lot } from "./calculations/lots";
@@ -981,6 +981,10 @@ export type ValuedFund = {
   notes: string;
   nav: number; // 0 if NAV unavailable
   navFound: boolean;
+  // Live MUFAP-published trailing-12-month return (the real annual yield).
+  // null when MUFAP has no figure — the UI then shows the manual value, marked.
+  liveAnnualYieldPct: number | null;
+  liveYieldAsOf: string;
 } & FundValuation;
 
 export async function getMutualFundsValued(): Promise<ValuedFund[]> {
@@ -988,17 +992,21 @@ export async function getMutualFundsValued(): Promise<ValuedFund[]> {
   const docs = await MutualFundModel.find({ userId: await meId() }).sort({ name: 1 }).lean();
   if (docs.length === 0) return [];
   const navs = await fetchAllNavs();
-  const byName = new Map(navs.map((n) => [n.name.toLowerCase(), n.nav]));
+  const byName = new Map(navs.map((n) => [n.name.toLowerCase(), n]));
   const out: ValuedFund[] = [];
   for (const f of docs) {
-    let nav = byName.get(f.mufapName.toLowerCase()) ?? 0;
-    if (!nav) {
-      const m = await findNav(f.mufapName);
-      nav = m?.nav ?? 0;
-    }
+    let entry = byName.get(f.mufapName.toLowerCase()) ?? null;
+    if (!entry) entry = await findNav(f.mufapName);
+    const nav = entry?.nav ?? 0;
+    // Real annual yield: MUFAP's published trailing-12-month return for this fund.
+    const returns = entry?.fundId ? await fetchFundReturns(entry.fundId) : null;
+    const liveAnnualYieldPct = returns?.year1Pct ?? null;
     const dailyDividend = (f as any).fundType === "dailyDividend";
+    // Daily-dividend accrual runs on the LIVE annual yield when MUFAP has one;
+    // the stored manual figure is only the fallback.
+    const accrualYieldPct = liveAnnualYieldPct ?? ((f as any).annualYieldPct ?? 0);
     const v = valueFund(
-      { units: f.units, avgCost: f.avgCost, dailyDividend, annualYieldPct: (f as any).annualYieldPct ?? 0, anchorDate: (f as any).anchorDate ?? "" },
+      { units: f.units, avgCost: f.avgCost, dailyDividend, annualYieldPct: accrualYieldPct, anchorDate: (f as any).anchorDate ?? "" },
       nav
     );
     out.push({
@@ -1013,6 +1021,8 @@ export async function getMutualFundsValued(): Promise<ValuedFund[]> {
       anchorDate: (f as any).anchorDate ?? "",
       notes: f.notes,
       navFound: nav > 0,
+      liveAnnualYieldPct,
+      liveYieldAsOf: returns?.asOf ?? "",
     });
   }
   return out;

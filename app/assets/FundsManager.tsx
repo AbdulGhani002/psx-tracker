@@ -29,6 +29,8 @@ type ValuedFund = {
   unrealizedPL: number;
   unrealizedPct: number;
   dailyDividend: boolean;
+  liveAnnualYieldPct: number | null; // MUFAP trailing-12-month return
+  liveYieldAsOf: string;
 };
 
 type NavHit = { name: string; amc: string; nav: number };
@@ -187,6 +189,26 @@ export function FundsManager({ funds }: { funds: ValuedFund[] }) {
           fmtRs(f.nav, true)
         ) : (
           <Badge tone="negative">no NAV</Badge>
+        ),
+    },
+    {
+      key: "yield",
+      header: "Annual yield",
+      align: "right",
+      mono: true,
+      render: (f) =>
+        f.liveAnnualYieldPct != null ? (
+          <div>
+            <div style={{ color: "var(--positive)" }}>{f.liveAnnualYieldPct.toFixed(2)}%</div>
+            <div className="text-[10px] text-muted">MUFAP 1-yr{f.liveYieldAsOf ? ` · ${f.liveYieldAsOf}` : ""}</div>
+          </div>
+        ) : f.annualYieldPct > 0 ? (
+          <div>
+            <div>{f.annualYieldPct.toFixed(2)}%</div>
+            <div className="text-[10px] text-muted">manual</div>
+          </div>
+        ) : (
+          <span className="text-muted">—</span>
         ),
     },
     { key: "value", header: "Value", align: "right", mono: true, render: (f) => fmtRs(f.value) },

@@ -5,6 +5,7 @@ import { Fraunces, IBM_Plex_Sans, IBM_Plex_Mono } from "next/font/google";
 import { SiteNav } from "@/components/layout/SiteNav";
 import { ThemeScript } from "@/components/layout/ThemeToggle";
 import { NoNumberScroll } from "@/components/ui/NoNumberScroll";
+import { PwaRegister } from "@/components/layout/PwaRegister";
 import { APP_VERSION } from "@/lib/version";
 
 // Self-hosted, preloaded fonts — no external render-blocking round-trips.
@@ -19,6 +20,10 @@ export const metadata: Metadata = {
   description: "A long-horizon Pakistani equity portfolio tracker.",
 };
 
+export const viewport = {
+  themeColor: "#1a1814",
+};
+
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en" className={`${display.variable} ${sans.variable} ${mono.variable}`}>
@@ -27,6 +32,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       </head>
       <body>
         <NoNumberScroll />
+        <PwaRegister />
         <div className="min-h-screen flex flex-col">
           <SiteNav />
           <main className="flex-1 w-full max-w-[1000px] mx-auto px-6 py-10 fade-in">

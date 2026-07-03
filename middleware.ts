@@ -94,6 +94,7 @@ export async function middleware(req: NextRequest) {
 }
 
 export const config = {
-  // Run on everything except Next internals and static icons. Includes /api/*.
-  matcher: ["/((?!_next/static|_next/image|favicon.ico|icon.svg|apple-icon.png).*)"],
+  // Run on everything except Next internals, static icons and the PWA files
+  // (manifest, service worker, app icons must be public or install fails).
+  matcher: ["/((?!_next/static|_next/image|favicon.ico|icon.svg|apple-icon.png|manifest.webmanifest|sw.js|icon-192.png|icon-512.png).*)"],
 };
