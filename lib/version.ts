@@ -1,7 +1,7 @@
 // Single source of truth for the app version + changelog.
 // Bump APP_VERSION and prepend a CHANGELOG entry on every release.
 
-export const APP_VERSION = "6.0.0";
+export const APP_VERSION = "6.0.1";
 
 export const BUILD_DATE =
   process.env.NEXT_PUBLIC_BUILD_DATE ?? "";
@@ -17,6 +17,14 @@ export type ChangelogEntry = {
 
 // Reverse-chronological. Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: "6.0.1",
+    date: "2026-07-03",
+    title: "Chat assistant temporarily disabled",
+    changes: [
+      "The AI chat assistant is paused for now and removed from the menu — it was heavy on the shared server. Everything else (news, summaries, ratings, calendars, alerts, reports) is unchanged. It can be switched back on later.",
+    ],
+  },
   {
     version: "6.0.0",
     date: "2026-07-03",
