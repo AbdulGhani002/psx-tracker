@@ -29,7 +29,7 @@ export default async function RatingsPage({ searchParams }: { searchParams: { se
       <PageHeader
         eyebrow="Market · AI"
         title="Every PSX stock, rated by AI."
-        subtitle="A 0–100 score for every company, blended from a Fundamental, Technical and Risk sub-score (News is neutral until the news engine lands). Each is explained on the stock's page — no black box. Tuned for the Pakistani market."
+        subtitle="A 0–100 score for every company, blended from a Fundamental, Technical and Risk sub-score (News comes from tagged press coverage). Each is explained on the stock's page — no black box. Tuned for the Pakistani market."
       >
         <Link href="/screener" className="font-mono text-[11px] uppercase tracking-stat text-muted hover:text-[var(--accent-deep)]">Open screener →</Link>
       </PageHeader>

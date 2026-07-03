@@ -1,7 +1,7 @@
 // Single source of truth for the app version + changelog.
 // Bump APP_VERSION and prepend a CHANGELOG entry on every release.
 
-export const APP_VERSION = "4.8.0";
+export const APP_VERSION = "5.0.0";
 
 export const BUILD_DATE =
   process.env.NEXT_PUBLIC_BUILD_DATE ?? "";
@@ -17,6 +17,20 @@ export type ChangelogEntry = {
 
 // Reverse-chronological. Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: "5.0.0",
+    date: "2026-07-03",
+    title: "Version 5 — news intelligence, smarter alerts, and the tools around the trade",
+    changes: [
+      "News desk: Pakistani business coverage (Business Recorder, Dawn, Tribune) refreshed daily, scored by a transparent word-list sentiment and conservatively tagged to listed companies — see /news, and each stock page shows its own latest coverage.",
+      "The AI rating's News score is finally real: it now comes from the stock's tagged press coverage over the last 14 days (neutral only when there genuinely isn't enough coverage — never guessed).",
+      "Earnings calendar: every company's board-meeting notices (where results and dividends get decided), upcoming with countdowns — the parser fix unblocked 2,300+ real meeting records.",
+      "Telegram alerts got smarter: on top of watchlist targets, drift and ex-dividend reminders, you now get pinged when a held/watchlisted stock enters its BUY zone, and when foreigners hit a 3/5/7/10-session buying or selling streak.",
+      "Portfolio statement: a print-ready report of everything you own — PKR and USD, cost vs value, each holding's AI rating, fund yields, and the foreign-flow context. One click: Print / Save as PDF.",
+      "Optimizer → action: the max-Sharpe mix now turns into concrete BUY/SELL amounts (shares and rupees) against your live positions and any budget you set.",
+      "CGT what-if simulator: pick a holding, drag the shares slider, and see exactly which FIFO lots a sale would consume and the tax at your filer rate — before you sell.",
+    ],
+  },
   {
     version: "4.8.0",
     date: "2026-07-03",

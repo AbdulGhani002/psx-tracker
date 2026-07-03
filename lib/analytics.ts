@@ -114,3 +114,24 @@ export type FlowsData = {
   cumulative: { date: string; value: number }[];
 };
 export const getFlows = (days = 90) => analyticsGet<FlowsData>(`/flows?days=${days}`, 600);
+
+// ---- News (PK business feeds, lexicon sentiment) + earnings calendar ----
+
+export type NewsArticle = {
+  source: string;
+  title: string;
+  url: string;
+  published_at: string | null;
+  summary: string;
+  symbols: string[];
+  sentiment: number;
+};
+export const getNews = (symbol?: string, limit = 60) =>
+  analyticsGet<{ count: number; articles: NewsArticle[] }>(
+    `/news?${symbol ? `symbol=${encodeURIComponent(symbol.toUpperCase())}&` : ""}limit=${limit}`,
+    600
+  );
+
+export type EarningsRow = { symbol: string; date: string; purpose: string };
+export const getEarningsCalendar = () =>
+  analyticsGet<{ upcoming: EarningsRow[]; recent: EarningsRow[]; today: string }>(`/calendar/earnings`, 900);

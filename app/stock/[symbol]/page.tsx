@@ -2,7 +2,7 @@ import Link from "next/link";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { Section } from "@/components/layout/Section";
 import { Badge } from "@/components/ui/Badge";
-import { getRating, getPatterns } from "@/lib/analytics";
+import { getRating, getPatterns, getNews } from "@/lib/analytics";
 import { fmtRs } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
@@ -35,7 +35,7 @@ function SubScore({ label, value, max = 100, reasons, invert }: { label: string;
 
 export default async function StockPage({ params }: { params: { symbol: string } }) {
   const sym = params.symbol.toUpperCase();
-  const [d, pat] = await Promise.all([getRating(sym), getPatterns(sym)]);
+  const [d, pat, news] = await Promise.all([getRating(sym), getPatterns(sym), getNews(sym, 5)]);
   if (!d || d.error) {
     return (
       <div className="fade-in">
@@ -53,7 +53,7 @@ export default async function StockPage({ params }: { params: { symbol: string }
         <Link href="/ratings" className="font-mono text-[11px] uppercase tracking-stat text-muted hover:text-[var(--accent-deep)]">← Ratings</Link>
       </PageHeader>
 
-      <Section number="01" title="AI rating" display={`${r.overall}/100 — ${r.verdict}`} description="Overall = 40% Fundamental + 30% Technical + 20% Safety + 10% News. News is neutral (50) until the news engine lands.">
+      <Section number="01" title="AI rating" display={`${r.overall}/100 — ${r.verdict}`} description={`Overall = 40% Fundamental + 30% Technical + 20% Safety + 10% News. News score ${r.scores.news}/100 from tagged press coverage (neutral 50 when under 2 recent articles).`}>
         <div className="flex items-center gap-4 mb-6">
           <div className="font-display mono-num text-[56px] leading-none" style={{ fontVariationSettings: "'opsz' 144" }}>{r.overall}</div>
           <div>
@@ -131,6 +131,24 @@ export default async function StockPage({ params }: { params: { symbol: string }
           <Link href={`/backtest?symbol=${sym}`} className="font-mono text-[11px] uppercase tracking-stat text-muted hover:text-[var(--accent-deep)]">Backtest a strategy on {sym} →</Link>
           <Link href="/patterns" className="font-mono text-[11px] uppercase tracking-stat text-muted hover:text-[var(--accent-deep)]">Scan the whole market →</Link>
         </div>
+      </Section>
+      <Section number="04" title="Latest coverage" description="Stories our news desk confidently tagged to this company (headline-matched, transparent sentiment). These feed the rating's news score.">
+        {news && news.articles.length > 0 ? (
+          <div className="space-y-3">
+            {news.articles.map((a) => (
+              <div key={a.url} className="flex items-baseline gap-3 flex-wrap">
+                <a href={a.url} target="_blank" rel="noopener noreferrer" className="text-[14px] hover:text-[var(--accent-deep)]">{a.title}</a>
+                <span className="font-mono text-[10px] uppercase tracking-stat text-muted">{a.source}</span>
+                <span className="font-mono text-[10px] uppercase tracking-stat" style={{ color: a.sentiment > 0.15 ? "var(--positive)" : a.sentiment < -0.15 ? "var(--negative)" : "var(--muted)" }}>
+                  {a.sentiment > 0.15 ? "positive" : a.sentiment < -0.15 ? "negative" : "neutral"}
+                </span>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <p className="text-muted text-sm">No recent coverage tagged to {sym} — its news score stays neutral (50) rather than guessed.</p>
+        )}
+        <Link href="/news" className="inline-block mt-4 font-mono text-[11px] uppercase tracking-stat text-muted hover:text-[var(--accent-deep)]">All market news →</Link>
       </Section>
     </div>
   );

@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 import { connectDb } from "@/lib/db";
 import { AlertLogModel } from "@/lib/models";
-import { getAppSettings, getWatchlist, getCurrentPrices, getPortfolioSummary, getAllHoldings, getUpcomingExDates, getAllUserIds } from "@/lib/data";
+import { getAppSettings, getWatchlist, getCurrentPrices, getPortfolioSummary, getAllHoldings, getUpcomingExDates, getAllUserIds, getIntrinsicValuations } from "@/lib/data";
+import { getFlows } from "@/lib/analytics";
 import { runAsUser } from "@/lib/auth/current-user";
 import { uid } from "@/lib/auth/uid";
 import { sendTelegram } from "@/lib/notify/telegram";
@@ -77,6 +78,41 @@ async function runAlertsForCurrentUser() {
     }
   } catch {
     /* best-effort */
+  }
+
+  // 4. Buying-zone entries: a held or watchlisted stock whose blended intrinsic
+  //    valuation says it's now in a buy zone. Keyed by month so a stock that
+  //    stays cheap doesn't ping every single day.
+  try {
+    const month = today.slice(0, 7);
+    const mine = new Set([...watch.map((w) => w.symbol), ...summary.positions.filter((p) => p.shares > 0).map((p) => p.symbol)]);
+    const iv = await getIntrinsicValuations();
+    for (const it of iv.items) {
+      if (!mine.has(it.symbol)) continue;
+      if (it.zone === "strong buy" || it.zone === "buy") {
+        candidates.push({
+          key: `zone:${it.symbol}:${it.zone}:${month}`,
+          message: `🟢 <b>${it.symbol}</b> is in a ${it.zone.toUpperCase()} zone — Rs ${Number(it.price).toFixed(2)} vs intrinsic Rs ${Number(it.intrinsic).toFixed(0)}`,
+        });
+      }
+    }
+  } catch {
+    /* valuations unavailable — skip */
+  }
+
+  // 5. Foreign-flow streaks (FIPI): sustained foreign buying/selling is a
+  //    regime signal. Fires only as the streak crosses 3/5/7/10 sessions.
+  try {
+    const flows = await getFlows(30);
+    if (flows && [3, 5, 7, 10].includes(flows.streak) && flows.streak_side !== "flat") {
+      const emoji = flows.streak_side === "buying" ? "🟩" : "🟥";
+      candidates.push({
+        key: `fipi:${flows.streak_side}:${flows.streak}:${flows.latest}`,
+        message: `${emoji} Foreigners net ${flows.streak_side} <b>${flows.streak} sessions straight</b> (latest ${flows.fipi_today >= 0 ? "+" : ""}$${Math.abs(flows.fipi_today).toFixed(1)}m)`,
+      });
+    }
+  } catch {
+    /* analytics down — skip */
   }
 
   // Insert-only dedup: a successful insert means this key is fresh today.

@@ -12,6 +12,7 @@ const PRIMARY = [
   { href: "/ratings", label: "AI Ratings" },
   { href: "/screener", label: "Screener" },
   { href: "/heatmap", label: "Heatmap" },
+  { href: "/news", label: "News" },
   { href: "/transactions", label: "Transactions" },
 ];
 
@@ -23,6 +24,9 @@ const MORE = [
   { href: "/backtest", label: "Strategy backtest" },
   { href: "/optimize", label: "Portfolio optimiser" },
   { href: "/dividend-calendar", label: "Dividend calendar" },
+  { href: "/earnings-calendar", label: "Earnings calendar" },
+  { href: "/report", label: "Statement (PDF)" },
+  { href: "/cgt-simulator", label: "CGT simulator" },
   { href: "/assets", label: "Assets" },
   { href: "/rebalance", label: "Rebalance" },
   { href: "/tax", label: "Tax" },

@@ -77,6 +77,12 @@ export function OptimizeClient() {
   const [res, setRes] = useState<Result | null>(null);
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const [pf, setPf] = useState<{ totalValue: number; positions: { symbol: string; shares: number; price: number; marketValue: number }[] } | null>(null);
+  const [applyBudget, setApplyBudget] = useState<string>("");
+
+  useEffect(() => {
+    fetch("/api/portfolio/positions").then((r) => r.json()).then(setPf).catch(() => {});
+  }, []);
 
   async function run() {
     const syms = input.split(",").map((s) => s.trim().toUpperCase()).filter(Boolean);
@@ -121,6 +127,65 @@ export function OptimizeClient() {
             <p className="text-[11px] text-muted mt-2">
               Each hollow dot is one stock on its own. The curve is the best return you could have had at each level of risk by mixing them — notice the blends sit up and to the left of the individual stocks. That gap is diversification.
             </p>
+          </div>
+          <div className="border border-rule p-4 mt-5" style={{ background: "var(--paper-2)" }}>
+            <div className="flex items-baseline justify-between flex-wrap gap-2 mb-2">
+              <div className="label-cap">Apply the max-Sharpe mix to your money</div>
+              <label className="flex items-center gap-2 text-[12px] text-muted">
+                Budget Rs
+                <input type="number" value={applyBudget} placeholder={pf ? String(Math.round(pf.totalValue)) : ""} onChange={(e) => setApplyBudget(e.target.value)} className="w-32 border border-rule bg-transparent px-2 py-1 text-[13px] font-mono" />
+              </label>
+            </div>
+            {!pf ? (
+              <p className="text-[13px] text-muted">Loading your portfolio…</p>
+            ) : (
+              (() => {
+                const budget = Number(applyBudget) > 0 ? Number(applyBudget) : pf.totalValue;
+                const bySym = new Map(pf.positions.map((p) => [p.symbol, p]));
+                const rows = Object.entries(res.max_sharpe.weights)
+                  .filter(([, w]) => w >= 0.5)
+                  .map(([sym, w]) => {
+                    const targetRs = (w / 100) * budget;
+                    const cur = bySym.get(sym);
+                    const curRs = cur?.marketValue ?? 0;
+                    const price = cur?.price ?? null;
+                    const deltaRs = targetRs - curRs;
+                    const shares = price && price > 0 ? Math.round(Math.abs(deltaRs) / price) : null;
+                    return { sym, w, targetRs, curRs, deltaRs, shares, price };
+                  });
+                return (
+                  <div className="overflow-x-auto">
+                    <table className="w-full border-collapse text-[13px]">
+                      <thead>
+                        <tr className="border-t border-ink border-b border-ink">
+                          {["Symbol", "Weight", "Target Rs", "You hold Rs", "Action"].map((h, i) => (
+                            <th key={h} className="px-2 py-2 font-mono text-[10px] uppercase tracking-stat text-muted font-medium" style={{ textAlign: i === 0 ? "left" : "right" }}>{h}</th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {rows.map((r) => (
+                          <tr key={r.sym} className="border-b border-rule">
+                            <td className="px-2 py-1.5 font-mono font-medium">{r.sym}</td>
+                            <td className="px-2 py-1.5 text-right font-mono mono-num">{r.w.toFixed(1)}%</td>
+                            <td className="px-2 py-1.5 text-right font-mono mono-num">{Math.round(r.targetRs).toLocaleString()}</td>
+                            <td className="px-2 py-1.5 text-right font-mono mono-num text-muted">{Math.round(r.curRs).toLocaleString()}</td>
+                            <td className="px-2 py-1.5 text-right font-mono mono-num" style={{ color: r.deltaRs >= 0 ? "var(--positive)" : "var(--negative)" }}>
+                              {Math.abs(r.deltaRs) < Math.max(500, budget * 0.005)
+                                ? "hold"
+                                : `${r.deltaRs > 0 ? "BUY" : "SELL"}${r.shares != null ? ` ~${r.shares}` : ""} (Rs ${Math.round(Math.abs(r.deltaRs)).toLocaleString()})`}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                    <p className="text-[11px] text-muted mt-2 max-w-[72ch]">
+                      Based on your live positions and prices. Stocks you hold that aren't in this basket aren't counted — this sizes the basket against the budget above (default: your current equity value). Fees and CGT not included; check the CGT simulator before selling.
+                    </p>
+                  </div>
+                );
+              })()
+            )}
           </div>
         </div>
       )}
