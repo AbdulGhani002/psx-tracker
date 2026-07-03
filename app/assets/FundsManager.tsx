@@ -261,7 +261,7 @@ export function FundsManager({ funds }: { funds: ValuedFund[] }) {
             <NumberInput label="Avg cost / unit (Rs)" value={edit.avgCost} onChange={(v) => setEdit((p) => ({ ...p, avgCost: v }))} min={0} step={0.01} />
             {edit.daily && (
               <>
-                <NumberInput label="Annual yield %" value={edit.yieldPct} onChange={(v) => setEdit((p) => ({ ...p, yieldPct: v }))} min={0} max={100} step={0.1} hint="The fund's recent annualised payout (check MUFAP). Units accrue daily at this rate." />
+                <NumberInput label="Annual yield %" value={edit.yieldPct} onChange={(v) => setEdit((p) => ({ ...p, yieldPct: v }))} min={0} max={100} step={0.1} hint="Fallback only — the live MUFAP 1-yr yield is fetched daily and used automatically." />
                 <div>
                   <label className="label-cap block mb-1.5">Anchor date</label>
                   <input type="date" value={edit.anchorDate} onChange={(e) => setEdit((p) => ({ ...p, anchorDate: e.target.value }))} className={dateCls} />
@@ -310,7 +310,7 @@ export function FundsManager({ funds }: { funds: ValuedFund[] }) {
               <NumberInput label="Avg cost / unit (Rs)" value={avgCost} onChange={setAvgCost} min={0} step={0.01} hint="Defaults to current NAV; set your real average." />
               {daily && (
                 <>
-                  <NumberInput label="Annual yield %" value={yieldPct} onChange={setYieldPct} min={0} max={100} step={0.1} hint="Fund's recent annualised payout (from MUFAP)." />
+                  <NumberInput label="Annual yield %" value={yieldPct} onChange={setYieldPct} min={0} max={100} step={0.1} hint="Fallback only — the live MUFAP 1-yr yield updates daily automatically." />
                   <div>
                     <label className="label-cap block mb-1.5">Anchor date</label>
                     <input type="date" value={anchorDate} onChange={(e) => setAnchorDate(e.target.value)} className={dateCls} />

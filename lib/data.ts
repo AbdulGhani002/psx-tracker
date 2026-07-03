@@ -987,6 +987,54 @@ export type ValuedFund = {
   liveYieldAsOf: string;
 } & FundValuation;
 
+// --- Fund yields: persistent + self-refreshing -------------------------------
+// MUFAP's published returns are GLOBAL data (same for every user), so they live
+// in an unprefixed FeedSnapshot per fund id. The hourly snapshots cron calls
+// refreshAllFundYields(), which re-fetches once a day and also keeps each fund
+// record's stored annualYieldPct (the manual fallback) in sync — so yields stay
+// current without anyone touching them.
+const FUND_RETURNS_TTL_MS = 26 * 60 * 60 * 1000; // serve the stored value up to 26h
+const FUND_RETURNS_REFRESH_MS = 20 * 60 * 60 * 1000; // cron re-fetches after 20h
+
+type StoredFundReturns = { ytdPct: number | null; year1Pct: number | null; day30Pct: number | null; asOf: string };
+
+async function getFundReturnsStored(fundId: number): Promise<StoredFundReturns | null> {
+  const key = `fundReturns:${fundId}`;
+  const snap = await getFeedSnapshot<StoredFundReturns>(key);
+  const age = snap.updatedAt ? Date.now() - new Date(snap.updatedAt).getTime() : Infinity;
+  if (snap.data != null && age < FUND_RETURNS_TTL_MS) return snap.data;
+  const live = await fetchFundReturns(fundId);
+  if (live) await saveFeedSnapshot(key, live, "ok").catch(() => {});
+  return live ?? snap.data ?? null;
+}
+
+export async function refreshAllFundYields(): Promise<Record<string, unknown>> {
+  if (!(await tryConnect())) return { status: "no-db" };
+  // Distinct fund names across ALL users — the yield is the same fund either way.
+  const names: string[] = await MutualFundModel.distinct("mufapName");
+  if (names.length === 0) return { status: "ok", funds: 0 };
+  const navs = await fetchAllNavs(true);
+  const byName = new Map(navs.map((n) => [n.name.toLowerCase(), n]));
+  let updated = 0, fresh = 0, failed = 0;
+  for (const name of names) {
+    const entry = byName.get(name.toLowerCase()) ?? (await findNav(name));
+    if (!entry?.fundId) { failed++; continue; }
+    const key = `fundReturns:${entry.fundId}`;
+    const snap = await getFeedSnapshot<StoredFundReturns>(key);
+    const age = snap.updatedAt ? Date.now() - new Date(snap.updatedAt).getTime() : Infinity;
+    if (snap.data != null && age < FUND_RETURNS_REFRESH_MS) { fresh++; continue; }
+    const live = await fetchFundReturns(entry.fundId);
+    if (!live) { failed++; continue; }
+    await saveFeedSnapshot(key, live, "ok").catch(() => {});
+    // Keep the stored fallback current too (only with a real published figure).
+    if (live.year1Pct != null && Number.isFinite(live.year1Pct)) {
+      await MutualFundModel.updateMany({ mufapName: name }, { $set: { annualYieldPct: live.year1Pct } }).catch(() => {});
+    }
+    updated++;
+  }
+  return { status: "ok", funds: names.length, updated, fresh, failed };
+}
+
 export async function getMutualFundsValued(): Promise<ValuedFund[]> {
   if (!(await tryConnect())) return [];
   const docs = await MutualFundModel.find({ userId: await meId() }).sort({ name: 1 }).lean();
@@ -998,8 +1046,9 @@ export async function getMutualFundsValued(): Promise<ValuedFund[]> {
     let entry = byName.get(f.mufapName.toLowerCase()) ?? null;
     if (!entry) entry = await findNav(f.mufapName);
     const nav = entry?.nav ?? 0;
-    // Real annual yield: MUFAP's published trailing-12-month return for this fund.
-    const returns = entry?.fundId ? await fetchFundReturns(entry.fundId) : null;
+    // Real annual yield: MUFAP's published trailing-12-month return for this
+    // fund, served from the daily-refreshed snapshot (no live wait on MUFAP).
+    const returns = entry?.fundId ? await getFundReturnsStored(entry.fundId) : null;
     const liveAnnualYieldPct = returns?.year1Pct ?? null;
     const dailyDividend = (f as any).fundType === "dailyDividend";
     // Daily-dividend accrual runs on the LIVE annual yield when MUFAP has one;

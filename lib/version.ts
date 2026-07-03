@@ -1,7 +1,7 @@
 // Single source of truth for the app version + changelog.
 // Bump APP_VERSION and prepend a CHANGELOG entry on every release.
 
-export const APP_VERSION = "4.7.0";
+export const APP_VERSION = "4.8.0";
 
 export const BUILD_DATE =
   process.env.NEXT_PUBLIC_BUILD_DATE ?? "";
@@ -17,6 +17,15 @@ export type ChangelogEntry = {
 
 // Reverse-chronological. Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: "4.8.0",
+    date: "2026-07-03",
+    title: "Fund yields now update themselves daily",
+    changes: [
+      "Every fund's annual yield is re-fetched from MUFAP once a day by the background scheduler and stored — pages read the stored figure instantly, restarts don't lose it, and nobody ever needs to type a yield again.",
+      "The same refresh also keeps each fund record's fallback figure in sync with the latest published 1-year return, so even the fallback can't drift stale.",
+    ],
+  },
   {
     version: "4.7.0",
     date: "2026-07-03",

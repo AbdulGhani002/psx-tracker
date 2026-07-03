@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { saveFeedSnapshot, warmPageCaches, getAllUserIds } from "@/lib/data";
+import { saveFeedSnapshot, warmPageCaches, getAllUserIds, refreshAllFundYields } from "@/lib/data";
 import { runAsUser } from "@/lib/auth/current-user";
 import { buildKse100SectorWeights, SECTOR_WEIGHTS_KEY } from "@/lib/feeds/sector-weights";
 import { computeBenchmark, benchmarkKey, BENCHMARK_RANGES } from "@/lib/feeds/benchmark";
@@ -24,6 +24,16 @@ export async function POST() {
     const note = String(e).slice(0, 200);
     await saveFeedSnapshot(SECTOR_WEIGHTS_KEY, null, "error", note).catch(() => {});
     report[SECTOR_WEIGHTS_KEY] = { status: "error", note };
+  }
+
+  // Mutual-fund yields: re-fetch each fund's published MUFAP returns once a day
+  // (the hourly timer calls this, but it only re-fetches after ~20h) and keep
+  // every fund record's fallback yield in sync. Global data — runs once, not
+  // per user.
+  try {
+    report.fundYields = await refreshAllFundYields();
+  } catch (e) {
+    report.fundYields = { status: "error", note: String(e).slice(0, 200) };
   }
 
   // Per-user warming: for every account, warm its page aggregates + its three
