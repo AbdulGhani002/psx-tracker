@@ -123,6 +123,7 @@ export type NewsArticle = {
   url: string;
   published_at: string | null;
   summary: string;
+  ai_summary?: string | null;
   symbols: string[];
   sentiment: number;
 };

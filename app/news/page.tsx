@@ -30,7 +30,14 @@ function Article({ a }: { a: NewsArticle }) {
           {a.title}
         </a>
       </div>
-      {a.summary && <p className="text-[13px] text-muted mt-1 max-w-[80ch] line-clamp-2">{a.summary}</p>}
+      {a.ai_summary ? (
+        <p className="text-[13px] mt-1 max-w-[80ch]">
+          <span className="font-mono text-[9px] uppercase tracking-stat px-1 py-0.5 mr-1.5 border" style={{ color: "var(--accent-deep)", borderColor: "var(--accent)" }}>AI summary</span>
+          {a.ai_summary}
+        </p>
+      ) : (
+        a.summary && <p className="text-[13px] text-muted mt-1 max-w-[80ch] line-clamp-2">{a.summary}</p>
+      )}
       <div className="flex items-center gap-x-4 gap-y-1 mt-2 flex-wrap">
         <span className="font-mono text-[10px] uppercase tracking-stat text-muted">{a.source}</span>
         <span className="font-mono text-[10px] text-muted">{ago(a.published_at)}</span>
@@ -59,7 +66,7 @@ export default async function NewsPage() {
       <PageHeader
         eyebrow="Market · News"
         title="What Pakistan's business press is saying."
-        subtitle="Business Recorder, Dawn Business and Tribune, refreshed daily. Each story is scored by a transparent word-list sentiment (no black box) and conservatively tagged to listed companies — those tags feed each stock's AI news score."
+        subtitle="Business Recorder, Dawn Business and Tribune, refreshed daily. Summaries are written by our own model — a T5 transformer fine-tuned on Pakistani financial news on local hardware. Sentiment is a transparent word-list; company tags feed each stock's AI news score."
       />
 
       {tagged.length > 0 && (

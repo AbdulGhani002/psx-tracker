@@ -1,7 +1,7 @@
 // Single source of truth for the app version + changelog.
 // Bump APP_VERSION and prepend a CHANGELOG entry on every release.
 
-export const APP_VERSION = "5.0.0";
+export const APP_VERSION = "6.0.0";
 
 export const BUILD_DATE =
   process.env.NEXT_PUBLIC_BUILD_DATE ?? "";
@@ -17,6 +17,17 @@ export type ChangelogEntry = {
 
 // Reverse-chronological. Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: "6.0.0",
+    date: "2026-07-03",
+    title: "Version 6 — your own AI: a market chatbot and an AI news summarizer, trained locally",
+    changes: [
+      "Ask the market anything: a new Chat assistant grounded on this platform's own live data — ratings, prices, dividends, board meetings, foreign flows and news. It retrieves real facts with transformer embeddings, answers with a compact instruct LLM served on this server, shows the facts it used, and admits when it doesn't know. Fine-tuned on thousands of Q&A pairs generated from real PSX data on local GPU hardware.",
+      "AI-written news summaries: our own summarization model — a T5 transformer fine-tuned on a purpose-built corpus of Pakistani financial articles (collected, cleaned and paired in-house) — writes the summary under each story on the News page. Summaries are precomputed in the background, so the page stays instant.",
+      "Both features run as separate microservices (chatbot-service, summarizer-service) beside the existing data and analytics services — nothing monolithic.",
+      "The training corpus (full article bodies) and the chat dataset keep growing daily with the collector, and both models retrain with one command.",
+    ],
+  },
   {
     version: "5.0.0",
     date: "2026-07-03",

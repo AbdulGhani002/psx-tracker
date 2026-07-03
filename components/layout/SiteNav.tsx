@@ -13,6 +13,7 @@ const PRIMARY = [
   { href: "/screener", label: "Screener" },
   { href: "/heatmap", label: "Heatmap" },
   { href: "/news", label: "News" },
+  { href: "/chat", label: "Chat" },
   { href: "/transactions", label: "Transactions" },
 ];
 
