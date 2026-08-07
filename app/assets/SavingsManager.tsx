@@ -8,6 +8,7 @@ import { NumberInput } from "@/components/ui/NumberInput";
 import { TextInput } from "@/components/ui/TextInput";
 import { Select } from "@/components/ui/Select";
 import { fmtRs, fmtPct, fmtDate } from "@/lib/format";
+import { realPct } from "@/lib/calculations/pk-tax";
 
 type ValuedSavings = {
   _id: string;
@@ -24,7 +25,7 @@ type ValuedSavings = {
   movements: Array<{ date: string; type: "DEPOSIT" | "WITHDRAWAL"; amount: number; note: string }>;
 };
 
-export function SavingsManager({ accounts }: { accounts: ValuedSavings[] }) {
+export function SavingsManager({ accounts, inflationPct, podWhtPct }: { accounts: ValuedSavings[]; inflationPct: number | null; podWhtPct: number }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [name, setName] = useState("Bank Alfalah Alfa");
@@ -127,7 +128,7 @@ export function SavingsManager({ accounts }: { accounts: ValuedSavings[] }) {
       ) : (
         <div className="space-y-3">
           {accounts.map((a) => (
-            <SavingsCard key={a._id} account={a} onChange={() => router.refresh()} />
+            <SavingsCard key={a._id} account={a} inflationPct={inflationPct} podWhtPct={podWhtPct} onChange={() => router.refresh()} />
           ))}
         </div>
       )}
@@ -135,7 +136,7 @@ export function SavingsManager({ accounts }: { accounts: ValuedSavings[] }) {
   );
 }
 
-function SavingsCard({ account, onChange }: { account: ValuedSavings; onChange: () => void }) {
+function SavingsCard({ account, inflationPct, podWhtPct, onChange }: { account: ValuedSavings; inflationPct: number | null; podWhtPct: number; onChange: () => void }) {
   const [showMove, setShowMove] = useState(false);
   const [moveType, setMoveType] = useState<"DEPOSIT" | "WITHDRAWAL">("DEPOSIT");
   const [moveAmount, setMoveAmount] = useState(0);
@@ -173,7 +174,14 @@ function SavingsCard({ account, onChange }: { account: ValuedSavings; onChange: 
             {account.name}
           </div>
           <div className="text-[11px] text-muted font-mono mt-0.5">
-            {account.bank} · {fmtPct(account.ratePercent / 100, 2)}/yr · since {fmtDate(account.anchorDate)}
+            {account.bank} · {fmtPct(account.ratePercent / 100, 2)}/yr
+            {inflationPct != null && (() => {
+              const real = realPct(account.ratePercent * (1 - podWhtPct / 100), inflationPct);
+              return (
+                <> · <span style={{ color: real >= 0 ? "var(--positive)" : "var(--negative)" }}>real after tax {real >= 0 ? "+" : ""}{real.toFixed(2)}%</span></>
+              );
+            })()}{" "}
+            · since {fmtDate(account.anchorDate)}
           </div>
         </div>
         <div className="text-right">

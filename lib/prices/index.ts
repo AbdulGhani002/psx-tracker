@@ -26,9 +26,34 @@ async function readLatestBatch(symbols: string[]): Promise<Map<string, PriceQuot
   const rows: any[] = await PriceSnapshotModel.aggregate([
     { $match: { symbol: { $in: upper } } },
     { $sort: { timestamp: -1 } },
-    { $group: { _id: "$symbol", price: { $first: "$price" }, timestamp: { $first: "$timestamp" }, source: { $first: "$source" } } },
+    { $group: { _id: "$symbol", price: { $first: "$price" }, timestamp: { $first: "$timestamp" }, source: { $first: "$source" }, asOf: { $first: "$asOf" } } },
   ]);
-  for (const r of rows) m.set(r._id, { symbol: r._id, price: r.price, timestamp: new Date(r.timestamp), source: r.source });
+  for (const r of rows) m.set(r._id, { symbol: r._id, price: r.price, timestamp: new Date(r.timestamp), source: r.source, asOf: r.asOf || undefined });
+  return m;
+}
+
+export type PriceFreshness = {
+  timestamp: Date;
+  ageDays: number; // since WE last got a real quote — the silent-fallback window
+  asOf: string; // PSX's own "As of …" text, when the scraper captured one
+  source: string;
+};
+
+// How old is the price each page is showing? getPrices falls back to the last
+// stored snapshot when the scraper fails, silently — this is the surface that
+// makes that fallback visible so a weeks-old price can't pose as live.
+export async function getPriceFreshness(symbols: string[]): Promise<Map<string, PriceFreshness>> {
+  await connectDb();
+  const m = new Map<string, PriceFreshness>();
+  const latest = await readLatestBatch(symbols);
+  for (const [sym, q] of latest) {
+    m.set(sym, {
+      timestamp: q.timestamp,
+      ageDays: (Date.now() - q.timestamp.getTime()) / 86400000,
+      asOf: q.asOf ?? "",
+      source: q.source,
+    });
+  }
   return m;
 }
 
@@ -43,6 +68,7 @@ async function writeSnapshot(q: PriceQuote): Promise<void> {
     timestamp: q.timestamp,
     source: q.source,
     isMarketHours: isMarketHoursNow(q.timestamp),
+    asOf: q.asOf ?? "",
   });
 }
 

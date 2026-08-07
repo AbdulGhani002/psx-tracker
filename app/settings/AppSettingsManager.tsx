@@ -15,6 +15,8 @@ type Settings = {
   dividendWhtNonFiler: number;
   cgtRateFiler: number;
   cgtRateNonFiler: number;
+  podWhtFiler: number;
+  podWhtNonFiler: number;
   pmexCommissionPerLot: number;
   pmexCgtPercent: number;
   concentrationCap: number;
@@ -84,7 +86,7 @@ export function AppSettingsManager({ initial, telegramConfigured }: { initial: S
           hint="Drives the tax report and the filer/non-filer meter."
         />
         <NumberInput label="Concentration cap (%)" value={s.concentrationCap} onChange={(v) => set("concentrationCap", v)} min={0} max={100} step={1} suffix="%" />
-        <NumberInput label="Inflation (CPI) %" value={s.inflationPct} onChange={(v) => set("inflationPct", v)} min={0} max={100} step={0.5} suffix="%" hint="Pakistan's annual CPI — powers the inflation-adjusted 'Real' return line on the benchmark chart." />
+        <NumberInput label="Inflation (CPI) %" value={s.inflationPct} onChange={(v) => set("inflationPct", v)} min={0} max={100} step={0.5} suffix="%" hint="0 = automatic (live PBS CPI, computed from the official index). Set a value only to OVERRIDE the feed." />
         <div />
 
         <NumberInput label="Dividend WHT — filer (%)" value={s.dividendWhtFiler} onChange={(v) => set("dividendWhtFiler", v)} min={0} max={100} step={0.5} suffix="%" />
@@ -93,6 +95,8 @@ export function AppSettingsManager({ initial, telegramConfigured }: { initial: S
 
         <NumberInput label="CGT — filer (%)" value={s.cgtRateFiler} onChange={(v) => set("cgtRateFiler", v)} min={0} max={100} step={0.5} suffix="%" hint="Equities; verify against the current FBR schedule." />
         <NumberInput label="CGT — non-filer (%)" value={s.cgtRateNonFiler} onChange={(v) => set("cgtRateNonFiler", v)} min={0} max={100} step={0.5} suffix="%" />
+        <NumberInput label="Profit-on-debt WHT — filer (%)" value={s.podWhtFiler ?? 15} onChange={(v) => set("podWhtFiler", v)} min={0} max={100} step={0.5} suffix="%" hint="Bank/savings profit and T-bills (Sec 151); withheld at source." />
+        <NumberInput label="Profit-on-debt WHT — non-filer (%)" value={s.podWhtNonFiler ?? 35} onChange={(v) => set("podWhtNonFiler", v)} min={0} max={100} step={0.5} suffix="%" />
         <div />
 
         <NumberInput label="PMEX commission / lot (Rs)" value={s.pmexCommissionPerLot} onChange={(v) => set("pmexCommissionPerLot", v)} min={0} step={10} hint="Round-turn, from your broker schedule." />
@@ -108,7 +112,7 @@ export function AppSettingsManager({ initial, telegramConfigured }: { initial: S
         <div className="label-cap mb-3">Telegram alerts</div>
         <p className="text-[12px] text-muted mb-4 max-w-[60ch]">
           Create a bot with @BotFather, paste its token, and your chat id (message @userinfobot to get yours).
-          When enabled, watchlist target-hits and rebalance drift are pushed once a day.
+          When enabled: rebalance drift, buy-zone entries, upcoming ex-dates, foreign-flow streaks and KMI drop-outs — pushed once a day.
         </p>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-4">
           <TextInput

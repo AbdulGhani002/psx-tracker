@@ -15,10 +15,20 @@ const LOCKOUT_MS = 15 * 60 * 1000;
 type Bucket = { fails: number; first: number; blockedUntil: number };
 const attempts = new Map<string, Bucket>();
 
+// Trust X-Real-IP: nginx sets it from $remote_addr, so a client can't forge it.
+// X-Forwarded-For is APPENDED to by nginx ($proxy_add_x_forwarded_for), so its
+// FIRST entry is whatever the caller sent — reading that let an attacker reset
+// their own throttle bucket just by rotating the header. If we must fall back to
+// XFF, take the LAST hop (the one nginx appended).
 function clientIp(req: NextRequest): string {
+  const real = req.headers.get("x-real-ip");
+  if (real) return real.trim();
   const fwd = req.headers.get("x-forwarded-for");
-  if (fwd) return fwd.split(",")[0].trim();
-  return req.headers.get("x-real-ip") ?? "unknown";
+  if (fwd) {
+    const hops = fwd.split(",").map((s) => s.trim()).filter(Boolean);
+    if (hops.length > 0) return hops[hops.length - 1];
+  }
+  return "unknown";
 }
 function cookieSecure(req: NextRequest): boolean {
   const proto = req.headers.get("x-forwarded-proto");

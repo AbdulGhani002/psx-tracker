@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
-import { saveFeedSnapshot, warmPageCaches, getAllUserIds, refreshAllFundYields } from "@/lib/data";
+import { cronAuthorised } from "@/lib/auth/cron";
+import { saveFeedSnapshot, warmPageCaches, getAllUserIds, refreshAllFundYields, refreshSbpRates, refreshInflation } from "@/lib/data";
 import { runAsUser } from "@/lib/auth/current-user";
 import { buildKse100SectorWeights, SECTOR_WEIGHTS_KEY } from "@/lib/feeds/sector-weights";
 import { computeBenchmark, benchmarkKey, BENCHMARK_RANGES } from "@/lib/feeds/benchmark";
@@ -13,6 +14,9 @@ export const maxDuration = 300; // first run fetches ~97 company pages
 // dataset is independent: a failure in one is recorded (status "error") and
 // doesn't sink the others.
 export async function POST() {
+  // Machine-only: this is a multi-minute job; a logged-in user re-triggering it
+  // is a trivial DoS on a shared box. See lib/auth/cron.ts.
+  if (!cronAuthorised()) return NextResponse.json({ error: "forbidden" }, { status: 403 });
   const report: Record<string, unknown> = {};
 
   // KSE-100 sector weights (market-cap weighting from free PSX data).
@@ -34,6 +38,23 @@ export async function POST() {
     report.fundYields = await refreshAllFundYields();
   } catch (e) {
     report.fundYields = { status: "error", note: String(e).slice(0, 200) };
+  }
+
+  // SBP policy rate + T-bill cut-offs + official USD/PKR. Global data. This is
+  // the rate behind required return, intrinsic value and buy-zone alerts, so a
+  // failure here must stay visible rather than silently fall back to a guess.
+  try {
+    report.sbpRates = await refreshSbpRates();
+  } catch (e) {
+    report.sbpRates = { status: "error", note: String(e).slice(0, 200) };
+  }
+
+  // Pakistan CPI from PBS. Monthly data, but cheap to check — this is what makes
+  // every "real return" real instead of nominal.
+  try {
+    report.inflation = await refreshInflation();
+  } catch (e) {
+    report.inflation = { status: "error", note: String(e).slice(0, 200) };
   }
 
   // Per-user warming: for every account, warm its page aggregates + its three

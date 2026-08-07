@@ -24,6 +24,20 @@ const SavingsAccountSchema = new Schema(
     anchorDate: { type: String, required: true }, // ISO date of the known balance
     anchorBalance: { type: Number, required: true, default: 0 },
     movements: { type: [MovementSchema], default: [] },
+    // Cash is a POSITION, not the absence of one: parked money carries a
+    // purpose and a HARD review date. Past-due or purposeless cash is surfaced
+    // with its inflation drag — a silent cost made visible.
+    cashPlan: {
+      type: new Schema(
+        {
+          purpose: { type: String, default: "" }, // strategic_wait|dry_powder|emergency|default_dump
+          reviewBy: { type: String, default: "" }, // ISO date — hard expiry
+          reviewReason: { type: String, default: "" }, // "await PTL FY26 report ~Oct 2026"
+        },
+        { _id: false }
+      ),
+      default: () => ({}),
+    },
     notes: { type: String, default: "" },
   },
   { timestamps: true }

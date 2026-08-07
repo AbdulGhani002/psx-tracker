@@ -4,6 +4,7 @@ import { connectDb } from "@/lib/db";
 import { uid } from "@/lib/auth/uid";
 import { APP_VERSION } from "@/lib/version";
 import {
+  DecisionModel,
   HoldingModel,
   TransactionModel,
   ScenarioProjectionModel,
@@ -32,6 +33,7 @@ const COLLECTIONS: Array<{ name: string; model: any }> = [
   { name: "Transaction", model: TransactionModel },
   { name: "CashEntry", model: CashEntryModel },
   { name: "DecisionLog", model: DecisionLogModel },
+  { name: "Decision", model: DecisionModel },
   { name: "MutualFund", model: MutualFundModel },
   { name: "SavingsAccount", model: SavingsAccountModel },
   { name: "CommodityTrade", model: CommodityTradeModel },

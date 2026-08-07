@@ -9,7 +9,6 @@ const base: IntrinsicInputs = {
   price: 100,
   eps: 10,
   epsGrowthPct: 8,
-  bvps: 50,
   forwardDps: 5,
   dividendGrowthPct: 5,
   sbpRatePct: 11,
@@ -22,8 +21,11 @@ const base: IntrinsicInputs = {
 
 const c = compositeIntrinsic(base);
 const m = (k: string) => c.methods.find((x) => x.key === k)?.value ?? null;
-ok("Graham number (local) ≈ 69.28", near(m("graham"), 69.28), `${m("graham")?.toFixed(2)}`); // √(8×1.2 × 10 × 50), local fair P/E not US 22.5
-ok("Justified P/E value ≈ 60", near(m("justifiedPE"), 60), `${m("justifiedPE")?.toFixed(2)}`); // payout 0.5 × 1.08 / (0.17−0.08) = 6.0× × EPS 10
+// Removed models must STAY removed: Graham needed a book value the PSX data
+// never provides (a permanent N/A row), and justified-P/E was the dividend
+// model in disguise (payout×EPS ≈ DPS → same Gordon formula counted twice).
+ok("Graham is gone", c.methods.every((x) => (x.key as string) !== "graham"));
+ok("justified P/E is gone", c.methods.every((x) => (x.key as string) !== "justifiedPE"));
 ok("DDM ≈ 43.75", near(m("ddm"), 43.75), `${m("ddm")?.toFixed(2)}`);
 ok("EPV ≈ 58.82", near(m("epv"), 58.82), `${m("epv")?.toFixed(2)}`);
 ok("DCF ≈ 93.2", near(m("dcf"), 93.2, 1.0), `${m("dcf")?.toFixed(2)}`);
@@ -49,11 +51,49 @@ ok("MoS widens with volatility", requiredMarginOfSafety(45, false, true) === 18)
 ok("MoS +4 when dividend > earnings", requiredMarginOfSafety(25, true, true) === 16);
 ok("MoS capped at 35%", requiredMarginOfSafety(80, true, false) === 35);
 
-// Holding company → NAV dominates, P/E methods become reference-only.
+// Holding company → NAV leads and the EARNINGS-MULTIPLE methods stay
+// reference-only, because a holdco is not an earnings multiple.
+//
+// But a holdco that reliably hands cash up is ALSO an income stream, so the
+// dividend model now carries real weight. This is deliberate: the market prices
+// holding companies at a discount to NAV precisely because a minority holder
+// only ever receives the dividends, never the underlying assets. Valuing AHCL
+// on NAV alone ignored the only cash the shareholder actually sees.
 const holdco = computeIntrinsic({ ...base, navPerShare: 120 });
 ok("holdco basis = nav", holdco.basis === "nav");
-ok("holdco intrinsic = NAV 120", near(holdco.intrinsic, 120, 0.01), `${holdco.intrinsic?.toFixed(2)}`);
-ok("holdco non-NAV methods carry weight 0", holdco.methods.filter((x) => x.key !== "nav").every((x) => x.weight === 0));
+ok(
+  "holdco: earnings-multiple methods stay reference-only",
+  holdco.methods
+    .filter((x) => ["earnings", "dcf", "epv"].includes(x.key))
+    .every((x) => x.weight === 0)
+);
+ok("holdco: NAV still leads", holdco.methods.find((x) => x.key === "nav")!.weight > 0);
+ok("holdco: the dividend stream now counts", holdco.methods.find((x) => x.key === "ddm")!.weight > 0);
+const holdcoDdm = holdco.methods.find((x) => x.key === "ddm")!.value!;
+ok(
+  "holdco value sits between the income read and NAV",
+  holdco.intrinsic! > Math.min(holdcoDdm, 120) && holdco.intrinsic! < Math.max(holdcoDdm, 120),
+  `${holdcoDdm.toFixed(2)} < ${holdco.intrinsic?.toFixed(2)} < 120`
+);
+
+// A holdco that pays NOTHING has no income stream to value — the dividend model
+// must go silent rather than invent one.
+const holdcoNoDiv = computeIntrinsic({ ...base, navPerShare: 120, forwardDps: 0 });
+ok("holdco with no dividend → income model carries no weight", holdcoNoDiv.methods.find((x) => x.key === "ddm")!.weight === 0);
+ok("holdco with no dividend → NAV only", near(holdcoNoDiv.intrinsic, 120, 0.01), `${holdcoNoDiv.intrinsic?.toFixed(2)}`);
+
+// The company's OWN audited model outranks ours when it publishes one.
+// AHCL's disclosed Level-3 fair value: r=16%, g=5% on a Rs 1.35 dividend → 12.89.
+const withDisclosed = computeIntrinsic({
+  ...base,
+  navPerShare: 120,
+  disclosed: { requiredReturnPct: 16, growthPct: 5, baseDps: 1.35, source: "FY25 accounts, signed off by A.F. Ferguson", asOf: "2025-06-30" },
+});
+const dm = withDisclosed.methods.find((x) => x.key === "disclosed")!;
+ok("disclosed model is valued at its own assumptions", near(dm.value, 12.89, 0.01), `${dm.value?.toFixed(2)}`);
+ok("disclosed model outweighs every other method", dm.weight >= Math.max(...withDisclosed.methods.filter((x) => x.key !== "disclosed").map((x) => x.weight)));
+// Absent a disclosure it must be N/A, never a fabricated number wearing an auditor's name.
+ok("no disclosure → method is not applicable", holdco.methods.find((x) => x.key === "disclosed")!.value === null);
 
 // Sensitivity: a higher discount rate lowers value; faster growth raises it.
 // (In production the fair P/E is always pkFairPE(growth, rate), so use that here
@@ -66,40 +106,41 @@ const gr = sens.find((s) => s.label.startsWith("Growth"))!;
 ok("faster growth → higher value", gr.high > gr.base && gr.low < gr.base);
 
 // No EPS and no NAV → no earnings methods; only dividend model can fire.
-const noEps = computeIntrinsic({ ...base, eps: null, bvps: 0 });
-ok("no EPS → earnings methods all N/A", ["graham", "epv", "dcf", "justifiedPE", "earnings"].every((k) => (noEps.methods.find((x) => x.key === k)?.value ?? null) === null));
+const noEps = computeIntrinsic({ ...base, eps: null });
+ok("no EPS → earnings methods all N/A", ["epv", "dcf", "earnings"].every((k) => (noEps.methods.find((x) => x.key === k)?.value ?? null) === null));
 ok("no EPS → DDM still values it", (noEps.methods.find((x) => x.key === "ddm")?.value ?? null) != null);
 
 // Normalisation helpers (take EPS in ascending year order).
 ok("normalizedEps = 3-yr avg", near(normalizedEps([47.18, 56.62, 49.54]), 51.11, 0.1), `${normalizedEps([47.18, 56.62, 49.54])?.toFixed(2)}`);
-ok("normalizedEps ignores non-positive", normalizedEps([-5, 0, 30, 40]) === 35);
-ok("normalizedEps null when no positive years", normalizedEps([-1, 0]) === null);
+// Loss years COUNT now — the old positive-only filter credited a cyclical
+// with earning power its own cycle disproves. avg(0, 30, 40) = 23.33.
+ok("normalizedEps includes loss years", near(normalizedEps([-5, 0, 30, 40]), 23.33, 0.01), `${normalizedEps([-5, 0, 30, 40])?.toFixed(2)}`);
+ok("normalizedEps null when avg not positive", normalizedEps([-1, 0]) === null && normalizedEps([10, -20, 4]) === null);
 ok("robustGrowth = 2-yr CAGR ≈ 10%", near(robustGrowthPct([100, 110, 121]), 10, 0.1), `${robustGrowthPct([100, 110, 121]).toFixed(2)}`);
 ok("robustGrowth needs 2+ years", robustGrowthPct([100]) === 0);
 ok("robustGrowth clamps a crash to −10%", robustGrowthPct([100, 50]) === -10);
 ok("robustGrowth clamps a spike to +25%", robustGrowthPct([100, 400]) === 25);
 
 // Outlier rejection: a broken dividend model (tiny DDM) must NOT drag the blend.
-const outlier = computeIntrinsic({ ...base, eps: 50, normalizedEps: 50, bvps: 0, forwardDps: 2, epsGrowthPct: 8, dividendGrowthPct: 8 });
+const outlier = computeIntrinsic({ ...base, eps: 50, normalizedEps: 50, forwardDps: 2, epsGrowthPct: 8, dividendGrowthPct: 8 });
 const ddm = outlier.methods.find((m) => m.key === "ddm")!;
 ok("broken DDM is computed but tiny", ddm.value != null && ddm.value < 40, `${ddm.value?.toFixed(1)}`);
 ok("broken DDM is excluded as an outlier", ddm.included === false);
-ok("the agreeing methods stay included", outlier.methods.filter((m) => ["dcf", "epv", "earnings"].includes(m.key)).every((m) => m.included));
+ok("the agreeing methods stay included", outlier.methods.filter((m) => ["dcf", "earnings"].includes(m.key)).every((m) => m.included));
+ok("the zero-growth floor is reference-only (never in the blend)", outlier.methods.find((m) => m.key === "epv")!.weight === 0 && outlier.methods.find((m) => m.key === "epv")!.included === false);
 ok("intrinsic isn't dragged down by the outlier (>300)", outlier.intrinsic != null && outlier.intrinsic > 300, `${outlier.intrinsic?.toFixed(0)}`);
 ok("drivers name the excluded method", outlier.drivers.some((d) => /outlier/i.test(d)));
 
 // Normalised EPS smooths a freak year (MEBL-like: a peak then a dip).
-const lumpy = computeIntrinsic({ ...base, eps: 49.5, normalizedEps: 51.1, epsGrowthPct: 7, dividendGrowthPct: 7, bvps: 0, forwardDps: 28 });
+const lumpy = computeIntrinsic({ ...base, eps: 49.5, normalizedEps: 51.1, epsGrowthPct: 7, dividendGrowthPct: 7, forwardDps: 28 });
 ok("lumpy earner gets a sane intrinsic (not collapsed)", lumpy.intrinsic != null && lumpy.intrinsic > 200, `${lumpy.intrinsic?.toFixed(0)}`);
 
-// Pakistan tuning: the Graham number tracks the LOCAL fair P/E (not a fixed US
-// 22.5), and the justified P/E (and the whole value) falls as the SBP rate rises.
-const gLow = compositeIntrinsic({ ...base, fairPE: 6 }).methods.find((m) => m.key === "graham")!.value!;
-const gHigh = compositeIntrinsic({ ...base, fairPE: 11 }).methods.find((m) => m.key === "graham")!.value!;
-ok("Graham number scales with the local fair P/E", gHigh > gLow, `${gLow.toFixed(0)} < ${gHigh.toFixed(0)}`);
-const jpLowRate = compositeIntrinsic({ ...base, sbpRatePct: 7 }).methods.find((m) => m.key === "justifiedPE")!.value!;
-const jpHighRate = compositeIntrinsic({ ...base, sbpRatePct: 18 }).methods.find((m) => m.key === "justifiedPE")!.value!;
-ok("justified P/E falls as the SBP rate rises", jpHighRate < jpLowRate, `${jpHighRate.toFixed(0)} < ${jpLowRate.toFixed(0)}`);
+// The cleaned model set: exactly six methods, no duplicates, no dead rows.
+// Graham (needed a book value the data never has → permanent N/A row) and
+// justified-P/E (payout×EPS≈DPS, so it double-counted the dividend model) are gone.
+const setCheck = compositeIntrinsic({ ...base });
+ok("model set is the clean six", JSON.stringify(setCheck.methods.map((m) => m.key).sort()) === JSON.stringify(["dcf", "ddm", "disclosed", "earnings", "epv", "nav"]));
+ok("no method double-counts the dividend stream", setCheck.methods.filter((m) => m.key === "ddm").length === 1);
 const ivLowRate = computeIntrinsic({ ...base, sbpRatePct: 7 }).intrinsic!;
 const ivHighRate = computeIntrinsic({ ...base, sbpRatePct: 18 }).intrinsic!;
 ok("intrinsic value is lower in a high-rate world", ivHighRate < ivLowRate, `${ivHighRate.toFixed(0)} < ${ivLowRate.toFixed(0)}`);

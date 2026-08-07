@@ -7,6 +7,14 @@ import { SavingsAccountModel } from "@/lib/models";
 export const dynamic = "force-dynamic";
 
 const patchSchema = z.object({
+  cashPlan: z
+    .object({
+      purpose: z.enum(["", "strategic_wait", "dry_powder", "emergency", "default_dump"]).default(""),
+      reviewBy: z.string().default(""),
+      reviewReason: z.string().max(300).default(""),
+    })
+    .optional(),
+
   name: z.string().optional(),
   bank: z.string().optional(),
   ratePercent: z.number().min(0).max(100).optional(),

@@ -1,7 +1,7 @@
 // Single source of truth for the app version + changelog.
 // Bump APP_VERSION and prepend a CHANGELOG entry on every release.
 
-export const APP_VERSION = "6.0.1";
+export const APP_VERSION = "7.1.0";
 
 export const BUILD_DATE =
   process.env.NEXT_PUBLIC_BUILD_DATE ?? "";
@@ -17,6 +17,169 @@ export type ChangelogEntry = {
 
 // Reverse-chronological. Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: "7.1.0",
+    date: "2026-08-07",
+    title: "Broker documents import themselves — and check their own arithmetic first",
+    changes: [
+      "BMA contract-note PDFs now import directly on the Import page. Every note is reconciled against itself before anything is written: each row's quantity × net rate, the note total, and total ± S.S.T against the grand total. If the layout ever changes or a number is off by more than 3 paisa, the note is refused and shown raw — a surprise can never import wrong numbers. Multiple fills at one price merge into one transaction; S.S.T is split across rows by commission, so fees land to the paisa.",
+      "iSave statements reconcile on the Assets page. Units and repurchase NAVs are read per fund and cross-checked against the statement's own printed total; Apply moves units and the NAV anchor and refreshes the stored NAV (useful while MUFAP blocks the server). Cost basis is never touched, and funds on the statement that aren't tracked here are pointed out — including the dust.",
+      "A price that's really last week's now says so: if the PSX scraper has been failing for 7+ days, the Holdings price cell gets an age badge instead of posing as live, and buy-zone alerts stop firing on stale arithmetic entirely.",
+      "The dividend calendar's ≈ Rs/share now uses each company's real par value where it's on file (marked *), instead of assuming Rs 10 for everyone.",
+      "New on Decisions: an opportunity ranking of every held position by after-tax return vs the best money-market fund net of WHT — the weakest justifier sits on top. Positions we can't rank are listed as unrankable, never guessed.",
+      "The database now backs itself up nightly on the server (14-day rotation), and each backup is integrity-checked before older ones rotate out.",
+    ],
+  },
+  {
+    version: "7.0.2",
+    date: "2026-08-06",
+    title: "A fund with no live NAV is no longer valued at zero",
+    changes: [
+      "MUFAP began blocking our server today, and with no live NAV your money-market fund was valued at ZERO — a fabricated -100% that silently dropped Rs 55k from net worth. The last successfully published NAV is now stored durably and served when the feed is down, clearly labelled with its date. A days-old real NAV is honest; zero never is.",
+    ],
+  },
+  {
+    version: "7.0.1",
+    date: "2026-07-18",
+    title: "Stale tabs now heal themselves",
+    changes: [
+      "If the app is updated while you have a tab open, the next click used to hit files that no longer existed and the page just looked broken until a hard refresh. Now the tab detects exactly that case and reloads itself once, automatically. A friendly error screen replaces the blank one for anything else.",
+      "Deploys now keep the previous builds' asset files on the server, so tabs opened before an update keep working even without the reload.",
+    ],
+  },
+  {
+    version: "7.0.0",
+    date: "2026-07-18",
+    title: "Version 7 — the sell side becomes first-class: triggers, guards, and an append-only decision log",
+    changes: [
+      "The analyzer used to validate holding and stay silent about selling. Backwards: holding is the default that needs no courage. V7 makes every sell, trim, and hold-through-a-fired-rule a logged, pre-committed decision.",
+      "Selling now REQUIRES a decision: rationale and falsifier are written with the trade, frozen with a full snapshot (price, weights, your fair-value band, which triggers had fired, the thesis verbatim), into an append-only log. No rationale, no sale — enforced at the API, not politely suggested.",
+      "Pre-committed sell triggers on every position: your price ceiling, falsifiable thesis invalidators, an opportunity-cost floor against your real money-market alternative (net of tax), concentration and time stops — plus the counter-intuitive cyclical rule: LOW P/E on PEAK earnings with rates rising is the sell setup, not the bargain.",
+      "A new Decisions page is the inbox: fired triggers, expired cash, due re-buy reviews and due outcome-reviews land as cards that nag until cleared. Overriding your own rule is allowed — silently ignoring it is not (hold-through-trigger must be logged with reasoning).",
+      "Behavioural guards watch YOU, not the stock: anchoring-to-cost detection in your own sell rationale, escalating-commitment counters when ceilings/targets get raised without logged reasons, thesis-drift warnings when the story keeps changing without decisions. None of them block — they make you look first.",
+      "Cash is a position now: every fund, savings account and the brokerage balance carries a purpose and a hard review date. Purposeless or past-due cash surfaces with its inflation drag computed from the live CPI.",
+      "Re-buy rules with teeth: exit a position and optionally pre-commit a ceiling, conditions and a review date. When the data lands you get the checklist — and if the price is above your ceiling, the card says do not chase.",
+      "Grade yourself later: each decision can carry a review date; when it arrives you record what happened and score the REASONING 1-5 (write-once). The scorecard aggregates by action type — your trims vs your adds, in numbers.",
+      "Cash-conversion (3-year OCF/PAT) flags earnings quality; reported profit comes from the scraped financials, operating cash flow is transcribed by you from the annual report — no free feed carries it, and we never invent it.",
+      "Nothing auto-trades. The tool advises, records and nags; you decide.",
+    ],
+  },
+  {
+    version: "6.6.0",
+    date: "2026-07-17",
+    title: "The app now reports to you: weekly digest, board-meeting pings, and sharper answers",
+    changes: [
+      "Weekly Telegram digest, every Friday: net worth (with the dollar figure), unrealised P/L, XIRR with its REAL twin after live CPI, your best and worst holding, and the coming week's ex-dates and board meetings. Same live numbers as the site, pushed to you.",
+      "Board-meeting alerts: when a company you HOLD has a board meeting in the next 7 days (results, dividend declarations), you get a ping. The ex-date alert told you about the payout — this tells you about the day it's decided.",
+      "'What moved it' on the dashboard: the last 30 days' change split into per-holding rupee contributions, biggest mover first, with honest footnotes for anything measured on partial data. The headline number finally has a why.",
+      "Yield-on-cost column on Holdings: all dividends a position has ever paid you against what you actually paid for it — the income investor's compounding score. (Already on each holding's page; now visible across the book.)",
+      "Buy-side what-if on every holding page: shares and price in, and you get the new average cost, cash needed with real PSX brokerage, and your new weight against the concentration cap — before you place the order. The mirror of the sell-side CGT preview.",
+      "Company's-own-model editor on every holding page: transcribe the audited fair-value assumptions (required return, growth, base dividend) with the citation. No source, no save — a number wearing an auditor's name must be citable. When set, it anchors the intrinsic blend.",
+      "The portfolio-in-USD chart line already existed as a toggle on the dashboard benchmark chart — 'did I gain, or did the rupee just melt?' is answered there.",
+    ],
+  },
+  {
+    version: "6.5.2",
+    date: "2026-07-17",
+    title: "Four more pages retired — the app now matches how you invest",
+    changes: [
+      "Removed the Pattern scanner and Strategy backtest — chart-pattern tools for traders, not for a fundamentals and income investor. Old links redirect to the Screener.",
+      "Removed the Watchlist page (never used). Buy-zone Telegram alerts continue to cover every stock you actually hold via the intrinsic valuation — that path doesn't need a watchlist.",
+      "Removed the Glossary index page. The Urdu term tooltips that appear inline across the app (tax, CGT, overview) are unchanged.",
+      "The navigation is now 31 pages, every one either holding your data or answering a question you actually ask.",
+    ],
+  },
+  {
+    version: "6.5.1",
+    date: "2026-07-17",
+    title: "Two never-used pages retired",
+    changes: [
+      "Removed the Decision log and Commodities (PMEX) pages. The database shows zero decision-log entries and zero commodity trades ever recorded — and PMEX blocks live prices anyway, so that page was manual-entry only. Old links redirect to Transactions and Assets. Your data models and backups are untouched, so nothing is lost if either ever comes back.",
+      "The per-stock Playbook on each holding page remains the place to write down why you bought.",
+    ],
+  },
+  {
+    version: "6.5.0",
+    date: "2026-07-17",
+    title: "One fair value, six honest models",
+    changes: [
+      "Removed the old Valuation page and its separate engine. It computed a second, cruder fair value that could disagree with the Intrinsic page — one stock, two different 'fair values' is worse than none. /valuation now redirects to Intrinsic & buy zones, which is THE fair value everywhere (screener, alerts, exports).",
+      "Cut the models that made no sense. The Graham number needed a book value the PSX data never provides, so it showed 'N/A' on essentially every stock — a dead row. The 'Justified P/E' was the dividend model in disguise (payout × EPS is the dividend, so it ran the same Gordon formula twice and double-counted the dividend signal). Both gone.",
+      "The zero-growth floor (EPS ÷ required return) no longer drags the blend down. Its own description said 'a downside anchor, not fair value' — yet it was mixed into fair value anyway. It's now shown as context: the price at which the stock works even if it never grows again.",
+      "Through-cycle earnings now include loss years. Averaging only the profitable years credited cyclicals with earning power their own cycle disproves; a company whose 3-year average is a loss now honestly shows no earnings-based value at all.",
+      "What remains is one model per idea: the company's own audited model (weighted highest when it exists), look-through NAV for holding companies, sector-fair-P/E on through-cycle earnings, the dividend stream (Gordon, at your per-company CAPM required return), and a 5-year DCF. Each answers a different question, so the blend means something.",
+    ],
+  },
+  {
+    version: "6.4.0",
+    date: "2026-07-17",
+    title: "The Pakistan pack: real returns, the next-rupee ladder, Zakat, SIP and more",
+    changes: [
+      "New page — Next rupee: every place you can park money (12-month T-bill, your money-market funds, your savings accounts, your equities), ranked by what actually SURVIVES — after each instrument's own withholding tax and after live CPI inflation. Advertised yields are the least useful number in an 11% inflation economy; right now the ladder shows nothing in fixed income beats inflation after tax, which is the honest case for productive assets.",
+      "New page — Zakat: 2.5% on your net zakatable wealth with the nisab threshold computed from the live silver price. Includes the CZ-50 bank-deduction note, the AAOIFI long-term-shares view, and per-category include/exclude. If the silver price is unavailable it says so — the threshold is never guessed.",
+      "Real returns beside nominal, everywhere it matters: your funds and savings on Assets now show 'real after tax', the dashboard XIRR shows its inflation-adjusted twin, and the income planner defaults to live PBS inflation instead of a typed-in 10.",
+      "Monthly SIP in the compounding model: add a monthly contribution and see the honest outcome — the CAGR cards go quiet with a SIP (a lump-sum CAGR would count your own contributions as growth) and a plain-language card shows end value against ALL money you put in, plus what it buys in today's rupees.",
+      "Tax page: the dividend-WHT-by-tax-year table now actually renders (it was computed but never shown); a new section shows the withholding haircut on your savings profit (Sec 151) that your bank takes before you ever see it; and the headline CGT figure is now THIS tax year's exact FIFO number instead of a lifetime average-cost estimate.",
+      "New Telegram alert: a held share leaving the KMI Shariah universe now pings you — the semi-annual recomposition was previously silent, exactly when a Shariah-conscious holder must act.",
+      "Settings: profit-on-debt withholding rates (filer/non-filer) are now editable, and the inflation field is an OVERRIDE — leave it at 0 and the live official feed is used.",
+      "Not shipped: a National Savings (Behbood/DSC) comparison rung — savings.gov.pk's rates page currently returns a server error, so there is no reliable source to build on. It'll be added if their site comes back.",
+    ],
+  },
+  {
+    version: "6.3.0",
+    date: "2026-07-16",
+    title: "A risk premium that fits Pakistan, and inflation that updates itself",
+    changes: [
+      "Every share used to clear the same hurdle: one flat risk premium for a power utility, a bank and a cement cyclical alike. Now each company is discounted using its OWN measured beta against the KSE-100 — riskier shares must clear more, defensive ones less.",
+      "Betas are adjusted toward the market before use (the standard Blume method). Thinly-traded PSX shares measure an artificially LOW beta simply because they rarely trade, which would have handed them a lower hurdle — the opposite of the truth, since illiquidity is a risk.",
+      "The equity risk premium is now 5.5 points over the SBP policy rate, not 10. A flat 10 put the required return at 21.5% and marked almost everything expensive. 5.5 reconciles with how Pakistani equities are actually valued: it puts a market-risk share at 17%, and Arif Habib Ltd's own measured beta lands its hurdle at 16.0% — the same rate AHCL's audited Level-3 model uses.",
+      "Inflation now updates itself, from the Pakistan Bureau of Statistics CPI feed. It was previously defaulted to zero (making every 'real return' simply the nominal one) while the income planner used a hardcoded 10. Latest published: 11.07% year-on-year.",
+      "Real returns now use the Fisher formula rather than subtracting inflation from the return, which overstates it — and overstates it most when inflation is high, which in Pakistan is exactly when it matters.",
+    ],
+  },
+  {
+    version: "6.2.1",
+    date: "2026-07-16",
+    title: "A missing price no longer looks like a total loss",
+    changes: [
+      "If we couldn't get a price for one of your shares, the app treated it as worth zero — showing a 100% loss on that holding and quietly dropping it out of your portfolio total and every percentage weight. A price we don't have is unknown, not zero. Such a holding now shows 'no price', reports no gain or loss, and a banner tells you your totals exclude it.",
+      "The same error existed one level up: your portfolio's unrealised P/L subtracted the cost of an unpriced holding while ignoring its value, inventing a loss across the whole book. Value and cost are now always compared over the same holdings.",
+      "Dividends and realised gains on such a holding are still counted — that money is banked and doesn't depend on today's quote.",
+    ],
+  },
+  {
+    version: "6.2.0",
+    date: "2026-07-16",
+    title: "Valuing a share as what it actually pays you",
+    changes: [
+      "A holding company is now also valued as an income stream, not only on what it owns. Before, any company with a look-through NAV was valued on sum-of-the-parts alone and its dividend was ignored entirely. That was wrong: a minority shareholder never receives the underlying assets, only the dividends — which is exactly why holding companies trade at a discount to NAV.",
+      "You can now record a company's OWN published valuation model — the required return, growth and dividend it discloses in its audited accounts, with the source. When a company and its auditor have published the assumptions behind a fair value, that beats anything we model ourselves, so it now carries the most weight. Companies that publish nothing show 'not applicable' — we never invent one.",
+      "Fixed a real error in the growth calculation: loss-making years were dropped from the year count, which squeezed the timeline and overstated growth. A company earning 5 then 10 across six years (with losses between) was reported as growing 25% a year; the truth is 14.9%. Overstated growth had been inflating fair value and creating buy signals that weren't there.",
+      "Every discount rate now starts from the real SBP policy rate fetched live, plus your equity risk premium.",
+    ],
+  },
+  {
+    version: "6.1.0",
+    date: "2026-07-16",
+    title: "The policy rate is now real",
+    changes: [
+      "The SBP policy rate is now fetched live from the State Bank instead of a hand-typed table. This matters: the old table had placeholder rows marked 'illustrative', their dates passed, and a made-up 10.5% quietly became the live rate — while the real rate was 11.50%. That number sets your required return, every intrinsic value and every buy-zone alert, so those were all shifted. It reads 11.50% now.",
+      "We also pull the T-bill (MTB) cut-off yields, KIBOR and the State Bank's official USD/PKR rate from the same page — so the valuation page's 'earnings yield vs the T-bill rate' comparison is now backed by an actual T-bill rate.",
+      "If the State Bank feed is ever unreachable we keep the last real rate and mark it stale. We never fall back to a guess.",
+      "Security: the scheduled-job endpoints are now machine-only. Previously any signed-in account could call them, which exposed the list of users and could burn other people's daily alert slots.",
+      "Security: your SBP rate overrides are now private to your account. They used to be shared, so one account's edits changed everyone's numbers.",
+      "Speed: the funds, savings and cash figures were each being calculated twice on every load of Assets, Wealth and Statement. Now once.",
+    ],
+  },
+  {
+    version: "6.0.2",
+    date: "2026-07-16",
+    title: "Signed-in users skip the login page",
+    changes: [
+      "If you're already signed in and open the login page, we now send you straight to your dashboard instead of showing the sign-in form again.",
+      "Corrected the MCB mutual-fund holdings from the latest statement and fixed a stale cost basis that was showing a false loss on a money-market fund; fund returns now read the real MUFAP published yield.",
+    ],
+  },
   {
     version: "6.0.1",
     date: "2026-07-03",

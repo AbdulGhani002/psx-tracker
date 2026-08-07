@@ -22,16 +22,19 @@ type Props = {
   reliableReturn: boolean;
   defaultReturnPct: number;
   defaultTarget: number;
+  defaultInflationPct: number;
+  inflationIsLive: boolean;
   forecastDividends12m: number;
 };
 
-export function IncomePlanner({ equityValue, totalNetWorth, actualReturnPct, reliableReturn, defaultReturnPct, defaultTarget, forecastDividends12m }: Props) {
+export function IncomePlanner({ equityValue, totalNetWorth, actualReturnPct, reliableReturn, defaultReturnPct, defaultTarget, forecastDividends12m, defaultInflationPct, inflationIsLive }: Props) {
   const [base, setBase] = useState<"networth" | "equity">("networth");
   const startPortfolio = base === "networth" ? totalNetWorth : equityValue;
 
   const [portfolio, setPortfolio] = useState(Math.round(startPortfolio) || 1_000_000);
   const [ret, setRet] = useState(defaultReturnPct);
-  const [inflation, setInflation] = useState(10);
+  // Live PBS CPI by default (was a hardcoded 10) — still user-adjustable.
+  const [inflation, setInflation] = useState(defaultInflationPct);
   const [safeRate, setSafeRate] = useState(3);
   const [target, setTarget] = useState(defaultTarget || 200_000);
   const [incomeGrowth, setIncomeGrowth] = useState(10);

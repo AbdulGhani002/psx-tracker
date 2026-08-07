@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { cronAuthorised } from "@/lib/auth/cron";
 import { connectDb } from "@/lib/db";
 import { HoldingModel, FundamentalModel } from "@/lib/models";
 import { fetchFundamentals } from "@/lib/prices/fundamentals";
@@ -12,6 +13,8 @@ export const maxDuration = 120;
 // so the forecast / valuation / look-through pages always have fresh data
 // (otherwise they refetch lazily on view, which is slow). Run weekly by a timer.
 export async function POST() {
+  // Machine-only: a logged-in session must not reach this. See lib/auth/cron.ts.
+  if (!cronAuthorised()) return NextResponse.json({ error: "forbidden" }, { status: 403 });
   await connectDb();
   const holdings = await HoldingModel.find({ currentShares: { $gt: 0 } }).lean();
   const symbols = [...new Set(holdings.map((h: any) => h.symbol))];

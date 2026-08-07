@@ -20,3 +20,4 @@ export { AlertLogModel, type AlertLog } from "./AlertLog";
 export { FundamentalModel, type Fundamental } from "./Fundamental";
 export { FeedSnapshotModel, type FeedSnapshot } from "./FeedSnapshot";
 export { UserModel, type User } from "./User";
+export { DecisionModel, type Decision } from "./Decision";

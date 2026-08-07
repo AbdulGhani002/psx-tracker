@@ -7,6 +7,7 @@ const PriceSnapshotSchema = new Schema(
     timestamp: { type: Date, required: true, default: () => new Date() },
     source: { type: String, required: true, default: "stub" },
     isMarketHours: { type: Boolean, default: false },
+    asOf: { type: String, default: "" }, // PSX's own "As of …" text — provenance for the quote
   },
   { timestamps: false }
 );

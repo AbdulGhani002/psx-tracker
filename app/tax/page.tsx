@@ -6,7 +6,9 @@ import { Card } from "@/components/ui/Card";
 import { Table, type Column } from "@/components/ui/Table";
 import { Badge } from "@/components/ui/Badge";
 import Link from "next/link";
-import { getTaxReport, getCgtReport, getHarvestReport, getSellTodayCgt, getAllTransactions, getAppSettings, checkDataAvailability } from "@/lib/data";
+import { getTaxReport, getCgtReport, getHarvestReport, getSellTodayCgt, getAllTransactions, getAppSettings, getSavingsValued, checkDataAvailability } from "@/lib/data";
+import { whtPct } from "@/lib/calculations/pk-tax";
+import { currentTaxYear } from "@/lib/dates";
 import { dividendWhtFlags } from "@/lib/calculations/tax";
 import { fmtRs, fmtPct, fmtDate, fmtSignedRs, fmtNum } from "@/lib/format";
 import type { DividendTaxRow } from "@/lib/calculations";
@@ -16,15 +18,22 @@ export const dynamic = "force-dynamic";
 
 export default async function TaxPage() {
   const avail = await checkDataAvailability();
-  const [report, cgt, harvest, sellToday, txs, settings] = await Promise.all([
+  const [report, cgt, harvest, sellToday, txs, settings, savingsAccts] = await Promise.all([
     getTaxReport(),
     getCgtReport(),
     getHarvestReport(),
     getSellTodayCgt(),
     getAllTransactions(),
     getAppSettings(),
+    getSavingsValued(),
   ]);
   const flags = dividendWhtFlags(txs, settings.dividendWhtFiler);
+  // Headline CGT must be THIS tax year's FIFO figure — the old stat used the
+  // lifetime average-cost estimate, which both uses the wrong basis (FBR wants
+  // FIFO) and piles every past year's gains into "owed now".
+  const ty = currentTaxYear();
+  const cgtThisYear = cgt.summary.byYear.find((y) => y.label === ty.label)?.cgt ?? 0;
+  const podWht = whtPct("profit-on-debt", settings as any);
   const isFiler = settings.filerStatus === "filer";
 
   const disposalCols: Column<Disposal>[] = [
@@ -67,7 +76,7 @@ export default async function TaxPage() {
         <Stat label="WHT withheld" value={fmtRs(report.totalWithheld)} tone="muted" />
         <Stat label="Zakat" value={fmtRs(report.totalZakat)} tone="muted" />
         <Stat label="Realised gains" value={fmtRs(report.realizedGains)} tone={report.realizedGains >= 0 ? "positive" : "negative"} />
-        <Stat label="Est. CGT on gains" value={fmtRs(report.estCgt)} tone="muted" />
+        <Stat label={`CGT ${ty.label} (FIFO)`} value={fmtRs(cgtThisYear)} tone="muted" hint="exact, current tax year only" />
         <Stat label="Net dividends" value={fmtRs(report.totalNet)} tone="positive" />
       </StatRow>
 
@@ -228,6 +237,40 @@ export default async function TaxPage() {
           </Card>
         </Section>
       )}
+
+      <Section
+        number="05"
+        title="Dividend WHT by tax year"
+        display="What was withheld, year by year"
+        description="From your recorded dividend warrants: gross, withholding and zakat deducted at source, and what reached you — bucketed into Pakistan's July-June tax years."
+      >
+        <Table columns={columns} rows={report.byYear} rowKey={(r) => r.label} empty="No dividends recorded yet." />
+      </Section>
+
+      <Section
+        number="06"
+        title="Savings profit — the tax you don't see"
+        display={`Profit on debt, withheld at ${podWht}%`}
+        description="Bank profit is 'profit on debt' (Sec 151): the bank withholds before it reaches your account, and for most individuals that is the final tax. The accrual on your Assets page is GROSS — this is the haircut at your current balances and rates."
+      >
+        {savingsAccts.length === 0 ? (
+          <Card><p className="text-sm text-muted">No savings accounts tracked yet — add one on the Assets page.</p></Card>
+        ) : (
+          <Table
+            columns={[
+              { key: "n", header: "Account", render: (a: any) => <div><div className="font-medium text-[13px]">{a.name}</div><div className="text-[11px] text-muted">{a.bank}</div></div> },
+              { key: "bal", header: "Balance (accrued)", align: "right", mono: true, render: (a: any) => fmtRs(a.balance) },
+              { key: "rate", header: "Rate", align: "right", mono: true, render: (a: any) => `${Number(a.ratePercent).toFixed(2)}%` },
+              { key: "gross", header: "Profit / yr", align: "right", mono: true, render: (a: any) => fmtRs((a.balance * a.ratePercent) / 100) },
+              { key: "wht", header: `WHT @ ${podWht}%`, align: "right", mono: true, render: (a: any) => <span style={{ color: "var(--negative)" }}>-{fmtRs(((a.balance * a.ratePercent) / 100) * (podWht / 100))}</span> },
+              { key: "net", header: "Net / yr", align: "right", mono: true, render: (a: any) => <span style={{ color: "var(--positive)" }}>{fmtRs(((a.balance * a.ratePercent) / 100) * (1 - podWht / 100))}</span> },
+            ]}
+            rows={savingsAccts as any[]}
+            rowKey={(a: any) => a._id}
+            empty=""
+          />
+        )}
+      </Section>
     </div>
   );
 }

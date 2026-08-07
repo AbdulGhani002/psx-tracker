@@ -1,17 +1,18 @@
 import { PageHeader } from "@/components/layout/PageHeader";
 import { SetupBanner } from "@/components/layout/SetupBanner";
 import { IncomePlanner } from "./IncomePlanner";
-import { getPortfolioSummary, getDividendForecast, getNetWorth, getAppSettings, checkDataAvailability } from "@/lib/data";
+import { getPortfolioSummary, getDividendForecast, getNetWorth, getAppSettings, getEffectiveInflationPct, checkDataAvailability } from "@/lib/data";
 
 export const dynamic = "force-dynamic";
 
 export default async function IncomePage() {
   const avail = await checkDataAvailability();
-  const [summary, forecast, netWorth, settings] = await Promise.all([
+  const [summary, forecast, netWorth, settings, inf] = await Promise.all([
     getPortfolioSummary(),
     getDividendForecast(),
     getNetWorth().catch(() => null),
     getAppSettings(),
+    getEffectiveInflationPct(),
   ]);
   const defaultTarget = (settings as any).targetMonthlyIncome || 200_000;
 
@@ -36,6 +37,8 @@ export default async function IncomePage() {
       />
       {!avail.available && <SetupBanner reason={avail.reason} />}
       <IncomePlanner
+        defaultInflationPct={Number((inf.pct ?? 10).toFixed(1))}
+        inflationIsLive={inf.source === "pbs"}
         equityValue={equityValue}
         totalNetWorth={totalNetWorth}
         actualReturnPct={actualReturnPct}

@@ -127,10 +127,6 @@ export default async function StockPage({ params }: { params: { symbol: string }
         ) : (
           <p className="text-muted text-sm">No clean chart pattern on {sym} right now.</p>
         )}
-        <div className="flex flex-wrap gap-x-5 gap-y-1 mt-4">
-          <Link href={`/backtest?symbol=${sym}`} className="font-mono text-[11px] uppercase tracking-stat text-muted hover:text-[var(--accent-deep)]">Backtest a strategy on {sym} →</Link>
-          <Link href="/patterns" className="font-mono text-[11px] uppercase tracking-stat text-muted hover:text-[var(--accent-deep)]">Scan the whole market →</Link>
-        </div>
       </Section>
       <Section number="04" title="Latest coverage" description="Stories our news desk confidently tagged to this company (headline-matched, transparent sentiment). These feed the rating's news score.">
         {news && news.articles.length > 0 ? (

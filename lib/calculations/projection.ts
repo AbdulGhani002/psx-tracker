@@ -7,6 +7,8 @@ export type ProjectionInputs = {
   payoutRatio: number;
   horizonYears: number;
   useDRIP: boolean;
+  // Rs of NEW money invested every month, buying at that year's price.
+  monthlyContribution?: number;
 };
 
 export type ProjectionRow = {
@@ -23,6 +25,7 @@ export type ProjectionRow = {
 
 export type ProjectionResult = {
   rows: ProjectionRow[];
+  totalContributed: number; // SIP money added over the horizon (0 without SIP)
   startValue: number;
   endValue: number;
   totalDivs: number;
@@ -32,7 +35,7 @@ export type ProjectionResult = {
 };
 
 export function project(inputs: ProjectionInputs): ProjectionResult {
-  const { initialShares, currentPrice, peStart, peEnd, annualGrowth, payoutRatio, horizonYears, useDRIP } = inputs;
+  const { initialShares, currentPrice, peStart, peEnd, annualGrowth, payoutRatio, horizonYears, useDRIP, monthlyContribution = 0 } = inputs;
 
   const eps0 = peStart > 0 ? currentPrice / peStart : 0;
   const startValue = initialShares * currentPrice;
@@ -68,6 +71,12 @@ export function project(inputs: ProjectionInputs): ProjectionResult {
       divsCumulative += dividendIncome;
     }
 
+    // SIP: a year of contributions buys shares at this year's price. An annual
+    // lump at the year-t price is a fair approximation for a yearly model.
+    if (monthlyContribution > 0 && price > 0) {
+      shares += (monthlyContribution * 12) / price;
+    }
+
     const value = shares * price;
 
     rows.push({
@@ -86,16 +95,21 @@ export function project(inputs: ProjectionInputs): ProjectionResult {
   const endRow = rows[rows.length - 1];
   const endValue = endRow.value + endRow.divsCumulative;
   const totalDivs = useDRIP ? 0 : endRow.divsCumulative;
-  const cagrPriceOnly = startValue > 0 && horizonYears > 0
+  const totalContributed = monthlyContribution * 12 * horizonYears;
+  // A lump-sum CAGR flatters a SIP (it counts contributed money as growth), so
+  // with contributions both CAGRs go null and `multiple` divides by ALL money in.
+  const cagrPriceOnly = startValue > 0 && horizonYears > 0 && totalContributed === 0
     ? Math.pow(endRow.value / startValue, 1 / horizonYears) - 1
     : null;
-  const cagrTotalReturn = startValue > 0 && horizonYears > 0
+  const cagrTotalReturn = startValue > 0 && horizonYears > 0 && totalContributed === 0
     ? Math.pow(endValue / startValue, 1 / horizonYears) - 1
     : null;
-  const multiple = startValue > 0 ? endValue / startValue : 0;
+  const invested = startValue + totalContributed;
+  const multiple = invested > 0 ? endValue / invested : 0;
 
   return {
     rows,
+    totalContributed,
     startValue,
     endValue,
     totalDivs,

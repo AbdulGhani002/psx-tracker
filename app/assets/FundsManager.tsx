@@ -9,8 +9,10 @@ import { TextInput } from "@/components/ui/TextInput";
 import { Table, type Column } from "@/components/ui/Table";
 import { Badge } from "@/components/ui/Badge";
 import { fmtRs, fmtNum, fmtSignedPct } from "@/lib/format";
+import { realPct } from "@/lib/calculations/pk-tax";
 
 type ValuedFund = {
+  navAsOf: string;
   _id: string;
   name: string;
   mufapName: string;
@@ -38,7 +40,7 @@ type NavHit = { name: string; amc: string; nav: number };
 const todayISO = () => new Date().toISOString().slice(0, 10);
 const dateCls = "w-full bg-transparent border-b border-ink text-[14px] py-1.5 font-mono focus:outline-none focus:border-[var(--accent-deep)]";
 
-export function FundsManager({ funds }: { funds: ValuedFund[] }) {
+export function FundsManager({ funds, inflationPct, dividendWhtPct }: { funds: ValuedFund[]; inflationPct: number | null; dividendWhtPct: number }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
@@ -186,7 +188,12 @@ export function FundsManager({ funds }: { funds: ValuedFund[] }) {
             )}
           </div>
         ) : f.navFound ? (
-          fmtRs(f.nav, true)
+          <div>
+            <div>{fmtRs(f.nav, true)}</div>
+            {f.navAsOf < new Date().toISOString().slice(0, 10) && (
+              <div className="text-[10px]" style={{ color: "var(--negative)" }}>NAV as of {f.navAsOf} — MUFAP feed unreachable, serving last published</div>
+            )}
+          </div>
         ) : (
           <Badge tone="negative">no NAV</Badge>
         ),
@@ -201,6 +208,15 @@ export function FundsManager({ funds }: { funds: ValuedFund[] }) {
           <div>
             <div style={{ color: "var(--positive)" }}>{f.liveAnnualYieldPct.toFixed(2)}%</div>
             <div className="text-[10px] text-muted">MUFAP 1-yr{f.liveYieldAsOf ? ` · ${f.liveYieldAsOf}` : ""}</div>
+            {inflationPct != null && (() => {
+              // What actually survives: WHT off the top, then inflation (Fisher).
+              const real = realPct(f.liveAnnualYieldPct! * (1 - dividendWhtPct / 100), inflationPct);
+              return (
+                <div className="text-[10px] font-medium" style={{ color: real >= 0 ? "var(--positive)" : "var(--negative)" }}>
+                  real after tax {real >= 0 ? "+" : ""}{real.toFixed(2)}%
+                </div>
+              );
+            })()}
           </div>
         ) : f.annualYieldPct > 0 ? (
           <div>

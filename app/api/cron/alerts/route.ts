@@ -1,11 +1,16 @@
 import { NextResponse } from "next/server";
 import { connectDb } from "@/lib/db";
 import { AlertLogModel } from "@/lib/models";
-import { getAppSettings, getWatchlist, getCurrentPrices, getPortfolioSummary, getAllHoldings, getUpcomingExDates, getAllUserIds, getIntrinsicValuations } from "@/lib/data";
-import { getFlows } from "@/lib/analytics";
+import { getAppSettings, getWatchlist, getCurrentPrices, getPortfolioSummary, getAllHoldings, getUpcomingExDates, getAllUserIds, getIntrinsicValuations, getShariahStatus, getFeedSnapshot, saveFeedSnapshot, getNetWorth, getEffectiveInflationPct } from "@/lib/data";
+import { getUsdPkr } from "@/lib/fx";
+import { getPriceFreshness } from "@/lib/prices";
+import { getFlows, getEarningsCalendar } from "@/lib/analytics";
+import { realPct } from "@/lib/calculations/pk-tax";
+import { getDecisionInbox } from "@/lib/data-decisions";
 import { runAsUser } from "@/lib/auth/current-user";
 import { uid } from "@/lib/auth/uid";
 import { sendTelegram } from "@/lib/notify/telegram";
+import { cronAuthorised } from "@/lib/auth/cron";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -15,20 +20,28 @@ type Candidate = { key: string; message: string };
 
 // Scheduled timer hits this. Runs the alert check for EVERY user (each with
 // their own Telegram config, watchlist, holdings) and pushes deduped alerts.
-export async function POST() {
+export async function POST(req: Request) {
+  // Machine-only: a logged-in session must not reach this. See lib/auth/cron.ts.
+  if (!cronAuthorised()) return NextResponse.json({ error: "forbidden" }, { status: 403 });
   await connectDb();
+  // Optional body {forceDigest:true} sends the weekly digest NOW (machine-only
+  // endpoint, so this is an operator control, not a user surface).
+  const force = await req.json().then((b) => b?.forceDigest === true).catch(() => false);
   const userIds = await getAllUserIds();
-  const perUser: Record<string, unknown> = {};
+  let sent = 0;
   for (const uid of userIds) {
-    perUser[uid] = await runAsUser(uid, () => runAlertsForCurrentUser());
+    const r = (await runAsUser(uid, () => runAlertsForCurrentUser(force))) as { sent?: number } | undefined;
+    sent += r?.sent ?? 0;
   }
-  return NextResponse.json({ ok: true, users: userIds.length, perUser });
+  // Deliberately aggregate-only: keying the response by user id leaked the whole
+  // roster (and who has Telegram configured) to anyone who could call this.
+  return NextResponse.json({ ok: true, users: userIds.length, sent });
 }
 
 // Checks watchlist target hits + rebalance drift + upcoming ex-dates for the
 // CURRENT user, pushing deduped Telegram alerts (each key fires at most once
 // per day, per user).
-async function runAlertsForCurrentUser() {
+async function runAlertsForCurrentUser(forceDigest = false) {
   const settings: any = await getAppSettings();
   const token = settings.telegramBotToken ?? "";
   const chatId = settings.telegramChatId ?? "";
@@ -67,8 +80,10 @@ async function runAlertsForCurrentUser() {
 
   // 3. Upcoming ex-dividend / book-closure (next 14 days). Deduped by symbol+date
   //    so each entitlement is announced once, not every day.
+  let exDatesAhead: Awaited<ReturnType<typeof getUpcomingExDates>> = [];
   try {
     const exDates = await getUpcomingExDates(14);
+    exDatesAhead = exDates;
     for (const e of exDates) {
       const dps = (e.pctOfFace / 100) * e.faceValue;
       candidates.push({
@@ -87,8 +102,13 @@ async function runAlertsForCurrentUser() {
     const month = today.slice(0, 7);
     const mine = new Set([...watch.map((w) => w.symbol), ...summary.positions.filter((p) => p.shares > 0).map((p) => p.symbol)]);
     const iv = await getIntrinsicValuations();
+    // A "buy zone" verdict is price ÷ intrinsic — if the price is a week-old
+    // fallback snapshot, the verdict is stale arithmetic, not a signal. Skip.
+    const freshness = await getPriceFreshness([...mine]);
     for (const it of iv.items) {
       if (!mine.has(it.symbol)) continue;
+      const f = freshness.get(it.symbol);
+      if (f && f.ageDays >= 7) continue;
       if (it.zone === "strong buy" || it.zone === "buy") {
         candidates.push({
           key: `zone:${it.symbol}:${it.zone}:${month}`,
@@ -115,6 +135,112 @@ async function runAlertsForCurrentUser() {
     /* analytics down — skip */
   }
 
+  // 6. KMI drop-outs: a held share leaving the Meezan-screened KMI universe is
+  //    exactly the moment a Shariah-conscious holder must act (exit/purify), and
+  //    the semi-annual recomposition is otherwise silent. We diff against the
+  //    last KNOWN membership snapshot; when the market-watch feed is down every
+  //    row reads null and we skip entirely — a data outage must never read as
+  //    "everything left the index".
+  try {
+    const sh = await getShariahStatus();
+    const known = sh.holdings.filter((h) => h.compliant !== null && h.shares > 0);
+    if (known.length > 0) {
+      const myKey = `kmiMembers:${await uid()}`;
+      const prev = await getFeedSnapshot<string[]>(myKey);
+      const cur = known.filter((h) => h.compliant === true).map((h) => h.symbol);
+      const curSet = new Set(cur);
+      const month = today.slice(0, 7);
+      for (const sym of prev.data ?? []) {
+        const stillTracked = known.some((h) => h.symbol === sym);
+        if (stillTracked && !curSet.has(sym)) {
+          candidates.push({
+            key: `kmi-drop:${sym}:${month}`,
+            message: `🕌 <b>${sym}</b> has left the KMI Shariah universe (index recomposition). Review it: exit or purify per your policy — see the Shariah page.`,
+          });
+        }
+      }
+      await saveFeedSnapshot(myKey, cur, "ok", `${cur.length} compliant holdings`).catch(() => {});
+    }
+  } catch {
+    /* shariah data unavailable — skip, never guess membership */
+  }
+
+  // 7. Board meetings for HELD stocks in the next 7 days — the one date an
+  //    investor must not miss. From the PSX announcements the analytics service
+  //    already collects. Deduped per meeting, so it pings once, not daily.
+  let boardAhead: Array<{ symbol: string; date: string; purpose: string }> = [];
+  try {
+    const cal = await getEarningsCalendar();
+    const heldSet = new Set(summary.positions.filter((x) => x.shares > 0).map((x) => x.symbol));
+    const weekOut = new Date(Date.now() + 7 * 86400000).toISOString().slice(0, 10);
+    boardAhead = (cal?.upcoming ?? []).filter((e) => heldSet.has(e.symbol) && e.date >= today && e.date <= weekOut);
+    for (const e of boardAhead) {
+      candidates.push({
+        key: `board:${e.symbol}:${e.date}`,
+        message: `📋 <b>${e.symbol}</b> board meeting ${e.date} — ${String(e.purpose || "announcement").slice(0, 90)}`,
+      });
+    }
+  } catch {
+    /* calendar unavailable — skip */
+  }
+
+  // 7.5 Sell-discipline: fired triggers, expired cash, due re-buy reviews —
+  //     each becomes a Telegram nag, re-armed WEEKLY until a decision is logged
+  //     (the suppression window lives in the engine, the weekly re-nag here).
+  let decisionCards = 0;
+  try {
+    const inbox = await getDecisionInbox();
+    decisionCards = inbox.cards.filter((c) => c.severity === "action").length + inbox.reviewsDue.length;
+    const week = isoWeekKey(new Date());
+    for (const card of inbox.cards) {
+      if (card.severity !== "action") continue;
+      candidates.push({
+        key: `sellsig:${card.type}:${card.symbol}:${week}`,
+        message: `🧭 ${card.message}\n→ Clear it on the Decisions page — sell, trim, or log "hold" with your reasoning.`,
+      });
+    }
+  } catch {
+    /* discipline data unavailable — skip */
+  }
+
+  // 8. Friday weekly digest (Pakistan time) — the portfolio's week in one
+  //    message. Every number is the same live figure the site shows; the real
+  //    return uses the PBS CPI feed. Deduped by ISO week.
+  try {
+    const pktDay = new Intl.DateTimeFormat("en-US", { timeZone: "Asia/Karachi", weekday: "short" }).format(new Date());
+    if (forceDigest || pktDay === "Fri") {
+      const [netWorth, inf, usdPkr] = await Promise.all([
+        getNetWorth().catch(() => null),
+        getEffectiveInflationPct().catch(() => ({ pct: null as number | null, source: "none", period: null })),
+        getUsdPkr().catch(() => null),
+      ]);
+      const held = summary.positions.filter((x) => x.shares > 0 && x.priceKnown);
+      const best = [...held].sort((a, b) => b.unrealizedPct - a.unrealizedPct)[0];
+      const worst = [...held].sort((a, b) => a.unrealizedPct - b.unrealizedPct)[0];
+      const lines: string[] = ["📬 <b>Weekly digest</b>"];
+      if (netWorth) {
+        const usd = usdPkr ? ` (≈ $${Math.round(netWorth.total / usdPkr).toLocaleString()})` : "";
+        lines.push(`Net worth <b>Rs ${Math.round(netWorth.total).toLocaleString()}</b>${usd} — equities ${Math.round(netWorth.equity).toLocaleString()}, funds ${Math.round(netWorth.funds).toLocaleString()}, cash ${Math.round(netWorth.cash).toLocaleString()}`);
+      }
+      const plPct = summary.totalCost > 0 ? (summary.unrealizedPL / summary.totalCost) * 100 : null;
+      lines.push(`Unrealised ${summary.unrealizedPL >= 0 ? "+" : ""}Rs ${Math.round(summary.unrealizedPL).toLocaleString()}${plPct != null ? ` (${plPct >= 0 ? "+" : ""}${plPct.toFixed(1)}%)` : ""} · dividends banked Rs ${Math.round(summary.dividendsTotal).toLocaleString()}`);
+      if (summary.xirr != null) {
+        const realX = inf.pct != null ? realPct(summary.xirr * 100, inf.pct) : null;
+        lines.push(`XIRR ${(summary.xirr * 100).toFixed(1)}%${realX != null ? ` — real ${realX >= 0 ? "+" : ""}${realX.toFixed(1)}% after ${inf.pct!.toFixed(1)}% CPI` : ""}`);
+      }
+      if (best && worst && best.symbol !== worst.symbol) {
+        lines.push(`Best <b>${best.symbol}</b> ${best.unrealizedPct >= 0 ? "+" : ""}${(best.unrealizedPct * 100).toFixed(1)}% · worst <b>${worst.symbol}</b> ${(worst.unrealizedPct * 100).toFixed(1)}%`);
+      }
+      const exWeek = exDatesAhead.filter((e: any) => e.date <= new Date(Date.now() + 7 * 86400000).toISOString().slice(0, 10));
+      lines.push(exWeek.length ? `Ex-dates (7d): ${exWeek.map((e: any) => `${e.symbol} ${e.date.slice(5)}`).join(", ")}` : "Ex-dates (7d): none");
+      lines.push(boardAhead.length ? `Board meetings: ${boardAhead.map((e) => `${e.symbol} ${e.date.slice(5)}`).join(", ")}` : "Board meetings (7d): none");
+      if (decisionCards > 0) lines.push(`⚠ <b>${decisionCards} decision${decisionCards === 1 ? "" : "s"} waiting</b> on the Decisions page — fired triggers and due reviews don't clear themselves.`);
+      candidates.push({ key: `digest:${isoWeekKey(new Date())}`, message: lines.join("\n") });
+    }
+  } catch {
+    /* digest is best-effort — a feed being down must not sink the other alerts */
+  }
+
   // Insert-only dedup: a successful insert means this key is fresh today.
   // Scoped by userId so each user has their own daily dedupe slots.
   const myId = await uid();
@@ -135,4 +261,14 @@ async function runAlertsForCurrentUser() {
   const text = `<b>PSX Portfolio alerts</b>\n${fresh.join("\n")}`;
   const result = await sendTelegram(token, chatId, text);
   return { sent: result.ok ? fresh.length : 0, ok: result.ok, detail: result.detail, checked: candidates.length };
+}
+
+// ISO-8601 week key, e.g. "2026-W29" — dedupes the digest to once a week.
+function isoWeekKey(d: Date): string {
+  const x = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
+  const day = x.getUTCDay() || 7;
+  x.setUTCDate(x.getUTCDate() + 4 - day);
+  const y = x.getUTCFullYear();
+  const week = Math.ceil(((x.getTime() - Date.UTC(y, 0, 1)) / 86400000 + 1) / 7);
+  return `${y}-W${String(week).padStart(2, "0")}`;
 }

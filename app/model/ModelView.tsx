@@ -12,9 +12,10 @@ type Props = {
   positions: PositionRow[];
   totalValue: number;
   totalCost: number;
+  inflationPct: number | null;
 };
 
-export function ModelView({ positions, totalValue, totalCost }: Props) {
+export function ModelView({ positions, totalValue, totalCost, inflationPct }: Props) {
   const [mode, setMode] = useState<"per-holding" | "portfolio">("per-holding");
   const [symbol, setSymbol] = useState<string>(positions[0]?.symbol ?? "");
 
@@ -67,6 +68,7 @@ export function ModelView({ positions, totalValue, totalCost }: Props) {
 
             {selected && (
               <CompoundingModel
+                inflationPct={inflationPct}
                 initialShares={selected.shares}
                 currentPrice={selected.currentPrice}
                 symbol={selected.symbol}
@@ -90,6 +92,7 @@ export function ModelView({ positions, totalValue, totalCost }: Props) {
             </p>
           </Card>
           <CompoundingModel
+            inflationPct={inflationPct}
             initialShares={1}
             currentPrice={totalValue}
             totalCost={totalCost}

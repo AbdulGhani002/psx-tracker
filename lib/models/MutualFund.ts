@@ -13,6 +13,20 @@ const MutualFundSchema = new Schema(
     fundType: { type: String, default: "growth" }, // "growth" | "dailyDividend"
     annualYieldPct: { type: Number, default: 0 }, // the fund's annualised payout (for unit accrual)
     anchorDate: { type: String, default: "" }, // ISO date the `units` figure is accurate
+    // Cash is a POSITION, not the absence of one: parked money carries a
+    // purpose and a HARD review date. Past-due or purposeless cash is surfaced
+    // with its inflation drag — a silent cost made visible.
+    cashPlan: {
+      type: new Schema(
+        {
+          purpose: { type: String, default: "" }, // strategic_wait|dry_powder|emergency|default_dump
+          reviewBy: { type: String, default: "" }, // ISO date — hard expiry
+          reviewReason: { type: String, default: "" }, // "await PTL FY26 report ~Oct 2026"
+        },
+        { _id: false }
+      ),
+      default: () => ({}),
+    },
     notes: { type: String, default: "" },
   },
   { timestamps: true }

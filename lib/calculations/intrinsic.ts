@@ -11,13 +11,15 @@
 // NORMALISED through the cycle and growth is a multi-year trend, so one freak
 // year can't distort the value.
 
+import { disclosedValue, type DisclosedModel } from "./gordon";
+import { requiredReturn, explainRequiredReturn, type RequiredReturn } from "./capm";
+
 export type IntrinsicInputs = {
   symbol: string;
   price: number;
   eps: number | null; // latest annual EPS (for the displayed P/E)
   normalizedEps?: number | null; // through-cycle EPS (avg of last 3 yrs) — the earning power used by the models
   epsGrowthPct: number | null; // multi-year EPS growth (CAGR), not one freak year
-  bvps: number; // book value per share, 0 = unknown
   forwardDps: number; // forward annual dividend (from the forecast)
   dividendGrowthPct: number; // expected dividend growth %
   sbpRatePct: number; // live SBP policy rate (risk-free)
@@ -26,6 +28,8 @@ export type IntrinsicInputs = {
   aboveEarnings: boolean; // dividend is paid from reserves (exceeds EPS)
   annualVolPct: number | null; // the stock's own annualised volatility (risk)
   navPerShare: number | null; // look-through NAV/share for holding companies
+  disclosed?: DisclosedModel | null; // the company's own audited fair-value model, if it publishes one
+  betaRaw?: number | null; // this share's OWN beta vs KSE-100 (measured). null = use market risk.
   sector?: string; // PSX sector — drives the sector-appropriate fair P/E
   netMarginPct?: number | null; // latest net profit margin (quality signal, display)
   marginTrendPct?: number | null; // change in net margin vs prior year (pp)
@@ -33,7 +37,7 @@ export type IntrinsicInputs = {
   peTtm?: number | null; // PSX's reported trailing P/E (display / cross-check)
 };
 
-export type MethodKey = "nav" | "graham" | "justifiedPE" | "ddm" | "epv" | "dcf" | "earnings";
+export type MethodKey = "nav" | "ddm" | "epv" | "dcf" | "earnings" | "disclosed";
 
 export type ValuationMethod = {
   key: MethodKey;
@@ -71,51 +75,43 @@ const clamp = (x: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, x
 
 // --- normalisation helpers (take EPS in ascending year order) ---------------
 
-// Through-cycle earning power: the average of the last 3 positive annual EPS,
-// so one spike or dip doesn't define the value. Falls back to whatever exists.
+// Through-cycle earning power: the average of the last 3 REPORTED annual EPS —
+// including loss years. Filtering losses out (the old behaviour) produced a
+// "through-cycle" figure that excluded the cycle: a company earning 5, -4, 6
+// was credited with 5.5 of earning power it plainly doesn't have. If the
+// 3-year average itself is not positive there is no earning power to price —
+// return null and let the earnings-based models sit out honestly.
 export function normalizedEps(epsAsc: number[]): number | null {
-  const xs = epsAsc.filter((e) => Number.isFinite(e) && e > 0);
+  const xs = epsAsc.filter((e) => Number.isFinite(e));
   if (!xs.length) return null;
   const last3 = xs.slice(-3);
-  return last3.reduce((s, e) => s + e, 0) / last3.length;
+  const avg = last3.reduce((s, e) => s + e, 0) / last3.length;
+  return avg > 0 ? avg : null;
 }
 
 // Multi-year EPS growth (CAGR across all available years), not a single freak
 // year. Clamped to a sane band so a recovery year can't imply 90% forever.
+//
+// The span must be measured on the ORIGINAL timeline. Loss years are skipped as
+// endpoints (you can't take a root of a negative), but they still consumed real
+// calendar time: dropping them from the year count compresses the span and
+// inflates the CAGR. e.g. [5,-2,-3,8,9,10] is 5 years of elapsed time, not 3 —
+// counting survivors gave 25%/yr when the truth is 14.87%/yr, which then
+// inflated fair P/E and DCF and manufactured "buy" zones.
 export function robustGrowthPct(epsAsc: number[]): number {
-  const xs = epsAsc.filter((e) => Number.isFinite(e) && e > 0);
-  if (xs.length < 2) return 0;
-  const first = xs[0];
-  const last = xs[xs.length - 1];
-  const years = xs.length - 1;
-  const cagr = (Math.pow(last / first, 1 / years) - 1) * 100;
+  const points = epsAsc
+    .map((e, i) => ({ e, i }))
+    .filter(({ e }) => Number.isFinite(e) && e > 0);
+  if (points.length < 2) return 0;
+  const first = points[0];
+  const last = points[points.length - 1];
+  const years = last.i - first.i; // elapsed span on the real timeline
+  if (years <= 0) return 0;
+  const cagr = (Math.pow(last.e / first.e, 1 / years) - 1) * 100;
   return clamp(cagr, -10, 25);
 }
 
 // --- the individual methods ------------------------------------------------
-
-// Graham Number, RECALIBRATED for Pakistan. The classic √(22.5 × EPS × BVPS)
-// bakes in a US "fair P/E 15 × fair P/B 1.5" = 22.5. In a market with an 11%+
-// policy rate, multiples are far lower, so we rebuild the constant from the
-// LOCAL fair P/E (× a 1.2 fair P/B) instead of the US 22.5.
-function grahamNumber(eps: number | null, bvps: number, fairPE: number): number | null {
-  if (eps == null || eps <= 0 || bvps <= 0) return null;
-  const k = clamp(fairPE, 4, 12) * 1.2;
-  return Math.sqrt(k * eps * bvps);
-}
-
-// Justified (Gordon) fair P/E — the rate-aware multiple that actually fits a
-// high-interest market: fair P/E = payout × (1+g) / (r − g). A flat "fair P/E"
-// can't see the discount rate; this one falls as the SBP rate rises. Needs a
-// real payout (dividend payer); capped to a sane Pakistani 3–18× band.
-function justifiedFairValue(eps: number | null, payoutRatio: number, growthPct: number, requiredReturnPct: number): number | null {
-  if (eps == null || eps <= 0 || payoutRatio <= 0.05 || requiredReturnPct <= 0) return null;
-  const r = requiredReturnPct / 100;
-  const g = clamp(growthPct, 0, 8) / 100; // Gordon is unstable near r — keep g well below it
-  if (r - g <= 0.04) return null;
-  const fairPE = clamp((payoutRatio * (1 + g)) / (r - g), 3, 13);
-  return fairPE * eps;
-}
 
 // Dividend-discount (Gordon growth): V = D1 / (r − g). Growth is capped low —
 // the model explodes as g approaches r, so we keep a safe gap.
@@ -216,10 +212,14 @@ export function compositeIntrinsic(i: IntrinsicInputs): {
   high: number | null;
   excluded: MethodKey[];
 } {
-  const r = i.sbpRatePct + i.equityRiskPremiumPct; // required return = risk-free + equity premium
+  // Required return is now PER-COMPANY: risk-free + (this share's own adjusted
+  // beta) x your equity premium. A defensive utility and a volatile cyclical no
+  // longer clear the same hurdle. No beta measured -> beta 1, i.e. exactly the
+  // old flat risk-free + premium. See lib/calculations/capm.ts.
+  const rr = requiredReturn({ riskFreePct: i.sbpRatePct, erpPct: i.equityRiskPremiumPct, betaRaw: i.betaRaw ?? null });
+  const r = rr.requiredReturnPct;
   const g = i.epsGrowthPct ?? 0;
   const e = i.normalizedEps ?? i.eps; // earning power the models run on
-  const payoutRatio = e != null && e > 0 && i.forwardDps > 0 ? i.forwardDps / e : 0;
 
   const isHoldco = i.navPerShare != null && i.navPerShare > 0;
 
@@ -228,14 +228,35 @@ export function compositeIntrinsic(i: IntrinsicInputs): {
   // the read that matches how PK equities actually price. The no-growth EPS÷rate
   // is kept only as a low-weight downside floor, because on its own it marks
   // every PK stock "expensive".
+  // A holding company that reliably hands cash up is ALSO an income stream. NAV
+  // says what it owns; the dividend says what it actually pays you — and the
+  // market prices holdcos at a discount to NAV precisely because you only ever
+  // receive the dividends. Zeroing the DDM for every holdco threw that read away.
+  const paysDividend = i.forwardDps > 0;
+  const ddmWeight = isHoldco ? (paysDividend ? 1.0 : 0) : 0.5;
+
+  const disclosedCell = disclosedValue(i.disclosed);
+
   const methods: ValuationMethod[] = [
+    // The company's own audited assumptions beat ours. Weighted highest when present.
+    {
+      key: "disclosed",
+      label: "Company's own model (audited)",
+      value: disclosedCell?.value ?? null,
+      weight: 1.5,
+      included: false,
+      note: i.disclosed
+        ? `The company's disclosed fair value: Gordon growth at r=${i.disclosed.requiredReturnPct}%, g=${i.disclosed.growthPct}% on a Rs ${i.disclosed.baseDps} dividend. Source: ${i.disclosed.source}`
+        : "The company publishes no fair-value assumptions we've recorded.",
+    },
     { key: "nav", label: "Look-through NAV", value: i.navPerShare, weight: isHoldco ? 1 : 0, included: false, note: "Live sum-of-the-parts value of the companies it owns, per share." },
     { key: "earnings", label: "Fair P/E × EPS", value: earningsMultiple(e, i.fairPE), weight: isHoldco ? 0 : 3.0, included: false, note: `A realistic Pakistani fair multiple (${i.fairPE.toFixed(1)}×, from growth + the SBP rate) on normalised earnings.` },
     { key: "dcf", label: "Discounted earnings (DCF)", value: dcf(e, g, r), weight: isHoldco ? 0 : 0.8, included: false, note: "5 years of (faded) earnings growth + a terminal value, discounted at your required return." },
-    { key: "justifiedPE", label: "Justified P/E (Gordon)", value: justifiedFairValue(e, payoutRatio, g, r), weight: isHoldco ? 0 : 0.6, included: false, note: "Fundamental fair multiple from payout, growth and the discount rate: payout × (1+g) / (r − g) × EPS." },
-    { key: "ddm", label: "Dividend discount", value: ddm(i.forwardDps, r, i.dividendGrowthPct), weight: isHoldco ? 0 : 0.5, included: false, note: "Forward dividend grown forever, discounted (Gordon model)." },
-    { key: "epv", label: "Earnings floor (no growth)", value: epv(e, r), weight: isHoldco ? 0 : 0.3, included: false, note: "Worst-case floor: normalised EPS ÷ required return, assuming zero growth. A downside anchor, not fair value." },
-    { key: "graham", label: "Graham number (local)", value: grahamNumber(e, i.bvps, i.fairPE), weight: isHoldco ? 0 : 0.3, included: false, note: "Asset-backed floor: √(fair P/E × 1.2 × EPS × book value), from the LOCAL fair P/E. Needs a book value." },
+    { key: "ddm", label: "Dividend discount", value: ddm(i.forwardDps, r, i.dividendGrowthPct), weight: ddmWeight, included: false, note: `Valued as a pure income stream: the dividend grown forever and discounted at r = ${r.toFixed(1)}% (risk-free ${i.sbpRatePct}% + ${i.equityRiskPremiumPct}pp equity premium). Gordon: D₀(1+g)/(r−g).` },
+    // Weight 0 on purpose: EPS ÷ r at a ~16-21% required return prices zero
+    // growth forever — a stress floor, not a fair value. It is SHOWN as context
+    // but no longer mixed into the blend, where it dragged every stock down.
+    { key: "epv", label: "Worst-case floor (zero growth, reference only)", value: epv(e, r), weight: 0, included: false, note: "Normalised EPS ÷ required return with zero growth forever — the price at which the stock works even if it never grows again. Context, not fair value." },
   ];
 
   const applicable = methods.filter((m) => m.value != null && m.value > 0 && m.weight > 0);
@@ -299,7 +320,11 @@ export function requiredMarginOfSafety(annualVolPct: number | null, aboveEarning
 export function computeIntrinsic(i: IntrinsicInputs): IntrinsicResult {
   const { methods, intrinsic, low, high, excluded } = compositeIntrinsic(i);
   const basis: "earnings" | "nav" = i.navPerShare != null && i.navPerShare > 0 ? "nav" : "earnings";
-  const r = i.sbpRatePct + i.equityRiskPremiumPct;
+  // Must match what compositeIntrinsic actually discounted with — this used to
+  // recompute the flat "SBP + premium" on its own, so the rate REPORTED to the
+  // user could differ from the rate the models USED once beta entered the picture.
+  const rr = requiredReturn({ riskFreePct: i.sbpRatePct, erpPct: i.equityRiskPremiumPct, betaRaw: i.betaRaw ?? null });
+  const r = rr.requiredReturnPct;
   const g = i.epsGrowthPct ?? 0;
 
   const epsPositive = (i.normalizedEps ?? i.eps ?? 0) > 0;
@@ -342,7 +367,10 @@ export function computeIntrinsic(i: IntrinsicInputs): IntrinsicResult {
   const e = i.normalizedEps ?? i.eps;
   const earningsYieldPct = e != null && e > 0 && i.price > 0 ? (e / i.price) * 100 : null;
   const drivers: string[] = [];
-  drivers.push(`Required return ${r.toFixed(1)}% = SBP ${i.sbpRatePct.toFixed(1)}% + ${i.equityRiskPremiumPct.toFixed(0)}% equity premium. A higher rate lowers every value.`);
+  // Describe the rate we ACTUALLY used. The old line hardcoded "SBP + premium"
+  // and rounded the premium to a whole number, so it printed "11.5% + 6%" for a
+  // 17.0% rate built from 5.5% and a beta — an explanation that didn't add up.
+  drivers.push(explainRequiredReturn(rr) + " A higher rate lowers every value.");
   if (basis === "nav") {
     drivers.push("Valued on look-through NAV — its earnings are mostly revaluation of the shares it owns, so P/E is misleading.");
   } else {

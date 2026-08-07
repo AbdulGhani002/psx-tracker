@@ -11,6 +11,10 @@ import { HoldingPlaybook } from "./HoldingPlaybook";
 import { HoldingTransactions } from "./HoldingTransactions";
 import { DividendOverride } from "./DividendOverride";
 import { LookThroughPanel } from "./LookThroughPanel";
+import { BuyWhatIf } from "./BuyWhatIf";
+import { DisclosedModelEditor } from "./DisclosedModelEditor";
+import { SellPlanPanel } from "./SellPlanPanel";
+import { getSellDiscipline, getDecisionsFor } from "@/lib/data-decisions";
 import { knownHoldingCompany } from "@/lib/holding-companies";
 import { FootballField } from "@/components/charts/FootballField";
 import { ZoneBar } from "@/components/charts/ZoneBar";
@@ -22,7 +26,7 @@ import {
   getLookThroughFor,
   getMarketContext,
   getIntrinsicValuations,
-} from "@/lib/data";
+ getAppSettings,} from "@/lib/data";
 import { deriveFromTransactions } from "@/lib/calculations";
 import {
   fmtRs,
@@ -41,7 +45,7 @@ type Props = { params: { symbol: string } };
 export default async function HoldingDetail({ params }: Props) {
   const symbol = params.symbol.toUpperCase();
   // Fire every independent fetch at once instead of eight serial round-trips.
-  const [holding, transactions, lookThrough, market, prices, summary, intrinsicAll, usdPkr] = await Promise.all([
+  const [holding, transactions, lookThrough, market, prices, summary, intrinsicAll, usdPkr, settings] = await Promise.all([
     getHoldingBySymbol(symbol),
     getTransactionsBySymbol(symbol),
     getLookThroughFor(symbol).catch(() => null),
@@ -50,6 +54,7 @@ export default async function HoldingDetail({ params }: Props) {
     getPortfolioSummary(),
     getIntrinsicValuations().catch(() => null),
     getUsdPkr(),
+    getAppSettings(),
   ]);
   if (!holding) notFound();
 
@@ -62,6 +67,13 @@ export default async function HoldingDetail({ params }: Props) {
   const unrealizedPct = derived.totalCost > 0 ? unrealizedPL / derived.totalCost : 0;
   const yieldOnCost = derived.totalCost > 0 ? derived.dividendsReceived / derived.totalCost : 0;
   const h = holding as any;
+  // Sell-discipline context: fired triggers, spread, and this symbol's own
+  // decision history. Best-effort — a feed being down must not sink the page.
+  const [discipline, symbolDecisions] = await Promise.all([
+    getSellDiscipline().catch(() => null),
+    getDecisionsFor(symbol).catch(() => []),
+  ]);
+  const disc = discipline?.positions.find((x) => x.signal.symbol === symbol) ?? null;
 
   return (
     <div>
@@ -288,6 +300,98 @@ export default async function HoldingDetail({ params }: Props) {
           allowSave
         />
       </Section>
+
+      <Section
+        number="08"
+        title="What if I buy more?"
+        display="Averaging math before you place the order."
+        description="New average cost, cash needed with real PSX brokerage, and your weight against the concentration cap — the buy-side mirror of the sell-side CGT preview. Nothing is saved."
+      >
+        <BuyWhatIf
+          symbol={symbol}
+          shares={derived.shares}
+          totalCost={derived.totalCost}
+          currentPrice={currentPrice}
+          marketValue={marketValue}
+          portfolioValue={summary.totalValue}
+          concentrationCap={(settings as any).concentrationCap ?? 25}
+        />
+      </Section>
+
+      <Section
+        number="10"
+        title="Sell discipline"
+        display={disc && disc.fired.length > 0 ? `${disc.fired.length} of your rules ${disc.fired.length === 1 ? "has" : "have"} fired.` : "The exit, pre-committed."}
+        description="A position you would not buy today at today's price is a position held by inertia. Set YOUR fair-value band, falsifiable invalidators, caps and stops — the engine checks them without emotion and the Decisions page nags until you act or log a conscious hold."
+      >
+        <SellPlanPanel
+          symbol={symbol}
+          price={currentPrice}
+          weightPct={currentPercent}
+          sharesHeld={derived.shares}
+          cumPat3y={disc?.cumPat3y ?? null}
+          fired={(disc?.firedRaw ?? []).map((t) => ({ type: t.type, message: t.message, severity: t.severity }))}
+          spreadPct={disc?.spreadPct ?? null}
+          netRiskFreeLabel={discipline?.netRiskFree.label ?? "risk-free"}
+          engineFv={{ low: intrinsic?.low ?? null, base: intrinsic?.intrinsic ?? null, high: intrinsic?.high ?? null }}
+          initialPlan={{
+            classification: h.plan?.classification ?? "",
+            fvLow: h.plan?.fvLow ?? 0,
+            fvBase: h.plan?.fvBase ?? 0,
+            fvHigh: h.plan?.fvHigh ?? 0,
+            fvMethod: h.plan?.fvMethod ?? "",
+            invalidators: (h.plan?.invalidators ?? []).map((i: any) => ({ text: i.text, occurredAt: i.occurredAt ?? "" })),
+            maxWeightPct: h.plan?.maxWeightPct ?? 0,
+            timeStopMonths: h.plan?.timeStopMonths ?? 0,
+            cumOcf3y: h.plan?.cumOcf3y ?? null,
+            openedAt: h.plan?.openedAt ?? "",
+            fvHighRaisedCount: h.plan?.fvHighRaisedCount ?? 0,
+            targetRaisedCount: h.plan?.targetRaisedCount ?? 0,
+            thesisEditCount: h.plan?.thesisEditCount ?? 0,
+          }}
+          initialRebuy={{
+            active: h.rebuyRule?.active ?? false,
+            maxPrice: h.rebuyRule?.maxPrice ?? 0,
+            requiredConditions: h.rebuyRule?.requiredConditions ?? [],
+            reviewOn: h.rebuyRule?.reviewOn ?? "",
+          }}
+        />
+        {symbolDecisions.length > 0 && (
+          <div className="mt-5">
+            <div className="label-cap mb-2">Every decision you&apos;ve ever made on {symbol}</div>
+            <div className="space-y-3">
+              {symbolDecisions.map((d: any) => (
+                <div key={String(d._id)} className="border-l-2 pl-3 text-[12px]" style={{ borderColor: "var(--rule)" }}>
+                  <span className="font-mono font-medium">{String(d.timestamp).slice(0, 10)}</span>{" "}
+                  <span className="label-cap">{String(d.action).replace(/_/g, " ")}</span>{" "}
+                  <span className="font-mono text-muted">@ {Number(d.priceAtDecision).toFixed(2)}</span>
+                  <p className="mt-0.5">{d.rationale}</p>
+                  {d.outcomeReview && <p className="text-muted">Graded {d.outcomeReview.decisionQuality}/5 — {d.outcomeReview.lesson || d.outcomeReview.whatHappened}</p>}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </Section>
+
+      <Section
+        number="09"
+        title="Company's own valuation model"
+        display="The audited anchor."
+        description="If the annual report discloses the assumptions behind a fair value (a Level-3 model with its auditor's sign-off), transcribe them here with the citation. When set, the intrinsic blend weights it above every model of ours."
+      >
+        <DisclosedModelEditor
+          symbol={symbol}
+          initial={{
+            requiredReturnPct: h.disclosedValuation?.requiredReturnPct ?? 0,
+            growthPct: h.disclosedValuation?.growthPct ?? 0,
+            baseDps: h.disclosedValuation?.baseDps ?? 0,
+            source: h.disclosedValuation?.source ?? "",
+            asOf: h.disclosedValuation?.asOf ?? "",
+          }}
+        />
+      </Section>
+
     </div>
   );
 }

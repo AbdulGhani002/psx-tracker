@@ -3,6 +3,7 @@ import { z } from "zod";
 import { connectDb } from "@/lib/db";
 import { SbpRateModel } from "@/lib/models";
 import { SBP_POLICY_RATE_DEFAULTS } from "@/lib/timeseries/sbp-rate";
+import { uid } from "@/lib/auth/uid";
 
 export const dynamic = "force-dynamic";
 
@@ -14,7 +15,7 @@ const postSchema = z.object({
 
 export async function GET() {
   await connectDb();
-  const docs = await SbpRateModel.find().sort({ effectiveDate: -1 }).lean();
+  const docs = await SbpRateModel.find({ userId: await uid() }).sort({ effectiveDate: -1 }).lean();
   return NextResponse.json({ rates: docs, usingDefaults: docs.length === 0 });
 }
 
@@ -25,18 +26,20 @@ export async function POST(req: NextRequest) {
     // Special action: seed the editable table from the built-in defaults.
     if (body?.action === "seed-defaults") {
       await connectDb();
-      const count = await SbpRateModel.countDocuments();
+      const u = await uid();
+      const count = await SbpRateModel.countDocuments({ userId: u });
       if (count > 0) {
         return NextResponse.json({ error: "already_has_rates" }, { status: 409 });
       }
       await SbpRateModel.insertMany(
         SBP_POLICY_RATE_DEFAULTS.map((s) => ({
+          userId: u,
           effectiveDate: s.from,
           rate: s.rate,
           note: "Imported default",
         }))
       );
-      const docs = await SbpRateModel.find().sort({ effectiveDate: -1 }).lean();
+      const docs = await SbpRateModel.find({ userId: u }).sort({ effectiveDate: -1 }).lean();
       return NextResponse.json({ rates: docs, seeded: true }, { status: 201 });
     }
 
@@ -44,7 +47,7 @@ export async function POST(req: NextRequest) {
     await connectDb();
     // Upsert by effectiveDate so re-entering a date updates the rate.
     const doc = await SbpRateModel.findOneAndUpdate(
-      { effectiveDate: parsed.effectiveDate },
+      { effectiveDate: parsed.effectiveDate, userId: await uid() },
       { rate: parsed.rate, note: parsed.note },
       { new: true, upsert: true, setDefaultsOnInsert: true }
     ).lean();

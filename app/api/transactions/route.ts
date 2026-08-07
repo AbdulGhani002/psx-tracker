@@ -1,4 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
+import { DecisionModel } from "@/lib/models";
+import { detectCostAnchoring } from "@/lib/calculations/sell-engine";
+import { getSellDiscipline } from "@/lib/data-decisions";
+import { getPortfolioSummary } from "@/lib/data";
 import { uid } from "@/lib/auth/uid";
 import { z } from "zod";
 import { connectDb } from "@/lib/db";
@@ -17,6 +21,33 @@ const txSchema = z.object({
   fees: z.number().default(0),
   notes: z.string().default(""),
   ratio: z.string().default(""),
+  // SELLING REQUIRES A DECISION. Recording a SELL without rationale + falsifier
+  // is impossible by design — holding needs no courage; selling needs a log.
+  decision: z
+    .object({
+      rationale: z.string().min(20, "Write the actual reasoning (min 20 chars)."),
+      falsifier: z.string().min(10, "What would prove this decision wrong?"),
+      expectedOutcome: z.string().default(""),
+      reviewDate: z.string().default(""),
+      acknowledgeGuards: z.boolean().default(false),
+      rebuy: z
+        .object({
+          maxPrice: z.number().min(0).default(0),
+          requiredConditions: z.array(z.string()).default([]),
+          reviewOn: z.string().default(""),
+        })
+        .optional(),
+    })
+    .optional(),
+  // OPENING a brand-new position requires a plan: a classification, a price
+  // ceiling, and at least one falsifiable invalidator — written before emotion.
+  plan: z
+    .object({
+      classification: z.enum(["compounder", "stalwart", "cyclical", "asset_play", "turnaround", "value_trap"]),
+      fvHigh: z.number().positive("Set your price ceiling — the pre-committed sell line."),
+      invalidator: z.string().min(10, "One falsifiable invalidator, phrased so a number or event can confirm it."),
+    })
+    .optional(),
 }).refine(
   (v) => v.type !== "SPLIT" || /^\d+\s*:\s*\d+$/.test(v.ratio.trim()),
   { message: "SPLIT requires a ratio like '1:2' (old:new).", path: ["ratio"] }
@@ -57,15 +88,49 @@ export async function POST(req: NextRequest) {
     let holding = await HoldingModel.findOne({ userId: await uid(), symbol: parsed.symbol });
 
     // Guard: can't sell more than you hold (would create negative shares).
+    let heldBefore = 0;
+    let avgCostBefore = 0;
     if (parsed.type === "SELL") {
       const existing = await TransactionModel.find({ userId: await uid(), symbol: parsed.symbol, deletedAt: null }).lean();
-      const held = deriveFromTransactions(existing as any).shares;
-      if (Math.abs(parsed.shares) > held + 1e-6) {
+      const derivedBefore = deriveFromTransactions(existing as any);
+      heldBefore = derivedBefore.shares;
+      avgCostBefore = derivedBefore.avgCost;
+      if (Math.abs(parsed.shares) > heldBefore + 1e-6) {
         return NextResponse.json(
-          { error: "oversell", detail: `You hold ${held} ${parsed.symbol} shares; cannot sell ${Math.abs(parsed.shares)}.` },
+          { error: "oversell", detail: `You hold ${heldBefore} ${parsed.symbol} shares; cannot sell ${Math.abs(parsed.shares)}.` },
           { status: 400 }
         );
       }
+
+      // ENFORCEMENT: a SELL cannot be recorded without a logged decision.
+      if (!parsed.decision) {
+        return NextResponse.json(
+          {
+            error: "decision_required",
+            detail: "Selling requires a rationale and a falsifier — the decision is logged with the trade, or the trade doesn't happen.",
+          },
+          { status: 400 }
+        );
+      }
+      // Behavioural guard: anchoring to cost. Doesn't block — makes you look,
+      // then proceed with acknowledgeGuards.
+      const anchor = detectCostAnchoring(parsed.decision.rationale, avgCostBefore);
+      if (anchor && !parsed.decision.acknowledgeGuards) {
+        return NextResponse.json({ error: "guard_warnings", warnings: [anchor] }, { status: 409 });
+      }
+    }
+
+    // ENFORCEMENT: opening a NEW position requires a plan (classification,
+    // ceiling, one falsifiable invalidator). Adding to an existing one doesn't.
+    const isNewPosition = parsed.type === "BUY" && (!holding || (holding.currentShares ?? 0) <= 0);
+    if (isNewPosition && !((holding as any)?.plan?.fvHigh > 0) && !parsed.plan) {
+      return NextResponse.json(
+        {
+          error: "plan_required",
+          detail: "New position: set its class, your price ceiling, and one falsifiable invalidator — before emotion, not after.",
+        },
+        { status: 400 }
+      );
     }
 
     if (!holding) {
@@ -108,6 +173,75 @@ export async function POST(req: NextRequest) {
       notes: parsed.notes,
       ratio: parsed.ratio,
     });
+
+    // Persist the opening plan on a new position.
+    if (isNewPosition && parsed.plan) {
+      const today = new Date().toISOString().slice(0, 10);
+      await HoldingModel.updateOne(
+        { userId: await uid(), symbol: parsed.symbol },
+        {
+          $set: {
+            "plan.classification": parsed.plan.classification,
+            "plan.fvHigh": parsed.plan.fvHigh,
+            "plan.fvUpdatedAt": today,
+            "plan.openedAt": today,
+          },
+          $push: { "plan.invalidators": { text: parsed.plan.invalidator, occurredAt: "" } },
+        }
+      );
+    }
+
+    // Write the SELL's decision entry — atomically with the trade: if the log
+    // write fails, the trade is rolled back. No log, no sale.
+    if (parsed.type === "SELL" && parsed.decision) {
+      try {
+        const sharesAfter = heldBefore - Math.abs(parsed.shares);
+        const action = sharesAfter > 1e-6 ? "trim" : "sell_all";
+        const summaryBefore = await getPortfolioSummary(); // pre-tx cache = state at decision time
+        const totalBefore = summaryBefore.totalValue;
+        const soldValue = Math.abs(parsed.shares) * parsed.pricePerShare;
+        const weightBeforePct = totalBefore > 0 ? ((heldBefore * parsed.pricePerShare) / totalBefore) * 100 : 0;
+        const totalAfter = totalBefore - soldValue;
+        const weightAfterPct = totalAfter > 0 ? ((sharesAfter * parsed.pricePerShare) / totalAfter) * 100 : 0;
+        const hplan: any = (holding as any)?.plan ?? {};
+        let fired: string[] = [];
+        try {
+          const disc = await getSellDiscipline();
+          fired = (disc.positions.find((x) => x.signal.symbol === parsed.symbol)?.firedRaw ?? []).map((t) => t.type);
+        } catch { /* triggers unavailable — log proceeds without them */ }
+
+        await DecisionModel.create({
+          userId: await uid(),
+          timestamp: new Date().toISOString(),
+          symbol: parsed.symbol,
+          action,
+          priceAtDecision: parsed.pricePerShare,
+          weightBeforePct,
+          weightAfterPct,
+          fairValueSnapshot: { low: hplan.fvLow ?? 0, base: hplan.fvBase ?? 0, high: hplan.fvHigh ?? 0, method: hplan.fvMethod ?? "" },
+          firedTriggers: fired,
+          rationale: parsed.decision.rationale,
+          thesisSnapshot: (holding as any)?.thesis ?? "",
+          expectedOutcome: parsed.decision.expectedOutcome,
+          falsifier: parsed.decision.falsifier,
+          reviewDate: parsed.decision.reviewDate,
+        });
+
+        // Optional pre-committed re-buy rule on exit: the "do not chase" contract.
+        const rb = parsed.decision.rebuy;
+        if (rb && (rb.maxPrice > 0 || rb.reviewOn)) {
+          await HoldingModel.updateOne(
+            { userId: await uid(), symbol: parsed.symbol },
+            { $set: { rebuyRule: { active: true, maxPrice: rb.maxPrice, requiredConditions: rb.requiredConditions, reviewOn: rb.reviewOn, setAt: new Date().toISOString().slice(0, 10) } } }
+          );
+        }
+      } catch (e) {
+        // Compensate: no log entry -> no sale.
+        await TransactionModel.deleteOne({ _id: created._id }).catch(() => {});
+        await recomputeHolding(parsed.symbol).catch(() => {});
+        return NextResponse.json({ error: "decision_log_failed", detail: String(e).slice(0, 200) }, { status: 500 });
+      }
+    }
 
     await recomputeHolding(parsed.symbol);
     return NextResponse.json(created.toObject(), { status: 201 });

@@ -34,6 +34,10 @@ TransactionSchema.index({ deletedAt: 1 });
 // string warrantNo. Sparse alone wouldn't work because Mongoose's `default:
 // null` was storing explicit nulls — and null collides with null.
 TransactionSchema.index({ userId: 1, symbol: 1, date: 1 });
+// Serves getAllTransactions(): find({userId, deletedAt:null}).sort({date:-1, createdAt:-1}).
+// Without a compound index in exactly this shape Mongo has to fetch every one of
+// the user's transactions and sort them in memory on the app's hottest read.
+TransactionSchema.index({ userId: 1, deletedAt: 1, date: -1, createdAt: -1 });
 TransactionSchema.index(
   { userId: 1, warrantNo: 1 },
   { unique: true, partialFilterExpression: { warrantNo: { $type: "string" } } }

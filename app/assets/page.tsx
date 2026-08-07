@@ -6,22 +6,29 @@ import { Card } from "@/components/ui/Card";
 import { AllocationDonut } from "@/components/charts/AllocationDonut";
 import { FundsManager } from "./FundsManager";
 import { SavingsManager } from "./SavingsManager";
+import { StatementCard } from "./StatementCard";
 import {
   getNetWorth,
   getMutualFundsValued,
   getSavingsValued,
+  getEffectiveInflationPct,
+  getAppSettings,
   checkDataAvailability,
 } from "@/lib/data";
+import { whtPct } from "@/lib/calculations/pk-tax";
+import { CashPlans } from "./CashPlans";
 import { fmtRs, fmtPct } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
 
 export default async function AssetsPage() {
   const avail = await checkDataAvailability();
-  const [netWorth, funds, savings] = await Promise.all([
+  const [netWorth, funds, savings, inf, settings] = await Promise.all([
     getNetWorth(),
     getMutualFundsValued(),
     getSavingsValued(),
+    getEffectiveInflationPct(),
+    getAppSettings(),
   ]);
 
   return (
@@ -69,7 +76,10 @@ export default async function AssetsPage() {
         display="Units you hold, valued at today's NAV."
         description="Search any Pakistani fund (MCB, Alhamra, etc.). The NAV is pulled live from MUFAP daily — you never type a price."
       >
-        <FundsManager funds={funds} />
+        <FundsManager funds={funds} inflationPct={inf.pct} dividendWhtPct={whtPct("dividend", settings as any)} />
+        <div className="mt-4">
+          <StatementCard />
+        </div>
       </Section>
 
       <Section
@@ -78,8 +88,22 @@ export default async function AssetsPage() {
         display="Profit that accrues while you sleep."
         description="For accounts like Bank Alfalah Alfa that calculate profit daily. Set the balance + rate once; the app compounds it forward automatically. Update the anchor when you get a statement; record deposits/withdrawals as they happen."
       >
-        <SavingsManager accounts={savings} />
+        <SavingsManager accounts={savings} inflationPct={inf.pct} podWhtPct={whtPct("profit-on-debt", settings as any)} />
       </Section>
+
+      <Section
+        number="99"
+        title="Cash discipline"
+        display="Every rupee of parked cash carries a purpose and an expiry."
+        description="Cash is a position, not the absence of one. Give each vehicle a job and a review date — past-due or purposeless cash shows up on the Decisions page with its inflation drag."
+      >
+        <CashPlans
+          funds={funds.map((f) => ({ id: f._id, label: f.name, plan: (f as any).cashPlan ?? {} }))}
+          savings={savings.map((a) => ({ id: a._id, label: a.name, plan: (a as any).cashPlan ?? {} }))}
+          broker={{ purpose: (settings as any).brokerCashPurpose ?? "", reviewBy: (settings as any).brokerCashReviewBy ?? "", reviewReason: (settings as any).brokerCashReviewReason ?? "" }}
+        />
+      </Section>
+
     </div>
   );
 }

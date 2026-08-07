@@ -35,6 +35,7 @@ type Props = {
   totalCost?: number;
   savedAssumptions?: SavedAssumptions;
   allowSave?: boolean;
+  inflationPct?: number | null; // live CPI for the in-today's-rupees line
 };
 
 export function CompoundingModel({
@@ -44,6 +45,7 @@ export function CompoundingModel({
   totalCost,
   savedAssumptions,
   allowSave,
+  inflationPct = null,
 }: Props) {
   const router = useRouter();
   const [preset, setPreset] = useState<string>(savedAssumptions ? "custom" : "status-quo");
@@ -53,6 +55,7 @@ export function CompoundingModel({
   const [payoutRatio, setPayoutRatio] = useState(savedAssumptions?.payoutRatio ?? 0.4);
   const [horizonYears, setHorizonYears] = useState(savedAssumptions?.horizonYears ?? 20);
   const [useDRIP, setUseDRIP] = useState(savedAssumptions?.useDRIP ?? true);
+  const [monthlyContribution, setMonthlyContribution] = useState(0);
   const [showTable, setShowTable] = useState(false);
   const [savingModel, setSavingModel] = useState(false);
   const [savedModelAt, setSavedModelAt] = useState<number | null>(null);
@@ -107,8 +110,9 @@ export function CompoundingModel({
         payoutRatio,
         horizonYears,
         useDRIP,
+        monthlyContribution,
       }),
-    [initialShares, currentPrice, peStart, peEnd, annualGrowth, payoutRatio, horizonYears, useDRIP]
+    [initialShares, currentPrice, peStart, peEnd, annualGrowth, payoutRatio, horizonYears, useDRIP, monthlyContribution]
   );
 
   const resultNoDrip = useMemo(
@@ -122,8 +126,9 @@ export function CompoundingModel({
         payoutRatio,
         horizonYears,
         useDRIP: false,
+        monthlyContribution,
       }),
-    [initialShares, currentPrice, peStart, peEnd, annualGrowth, payoutRatio, horizonYears]
+    [initialShares, currentPrice, peStart, peEnd, annualGrowth, payoutRatio, horizonYears, monthlyContribution]
   );
 
   const chartData: ProjectionPoint[] = useMemo(() => {
@@ -264,6 +269,16 @@ export function CompoundingModel({
             format={(v) => `${v} yrs`}
             hint="How many years to compound forward."
           />
+          <Slider
+            label="Monthly contribution (SIP)"
+            value={monthlyContribution}
+            min={0}
+            max={100000}
+            step={1000}
+            onChange={setMonthlyContribution}
+            format={(v) => (v > 0 ? fmtCompact(v) : "none")}
+            hint="New money invested every month, buying at that year's price."
+          />
           <Toggle
             label="Reinvest dividends (DRIP)"
             value={useDRIP}
@@ -292,24 +307,45 @@ export function CompoundingModel({
       <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
         <OutcomeCard
           horizon={`${Math.min(5, horizonYears)}-year`}
-          multiple={fmtMultiple(outcome5.multiple)}
+          multiple={monthlyContribution > 0 ? "\u2014" : fmtMultiple(outcome5.multiple)}
           value={fmtCompact(outcome5.endValue)}
-          cagr={fmtSignedPct(outcome5.cagr, 1)}
+          cagr={monthlyContribution > 0 ? "\u2014" : fmtSignedPct(outcome5.cagr, 1)}
         />
         <OutcomeCard
           horizon={`${Math.min(10, horizonYears)}-year`}
-          multiple={fmtMultiple(outcome10.multiple)}
+          multiple={monthlyContribution > 0 ? "\u2014" : fmtMultiple(outcome10.multiple)}
           value={fmtCompact(outcome10.endValue)}
-          cagr={fmtSignedPct(outcome10.cagr, 1)}
+          cagr={monthlyContribution > 0 ? "\u2014" : fmtSignedPct(outcome10.cagr, 1)}
           emphasis
         />
         <OutcomeCard
           horizon={`${Math.min(15, horizonYears)}-year`}
-          multiple={fmtMultiple(outcome15.multiple)}
+          multiple={monthlyContribution > 0 ? "\u2014" : fmtMultiple(outcome15.multiple)}
           value={fmtCompact(outcome15.endValue)}
-          cagr={fmtSignedPct(outcome15.cagr, 1)}
+          cagr={monthlyContribution > 0 ? "\u2014" : fmtSignedPct(outcome15.cagr, 1)}
         />
       </div>
+
+      {monthlyContribution > 0 && (
+        <Card>
+          <div className="label-cap mb-2">Your SIP, honestly counted</div>
+          <p className="text-sm leading-relaxed">
+            {fmtRs(monthlyContribution)} a month for {horizonYears} years adds{" "}
+            <span className="font-mono mono-num">{fmtCompact(result.totalContributed)}</span> of new money to your{" "}
+            <span className="font-mono mono-num">{fmtCompact(result.startValue)}</span> start. The modelled end value{" "}
+            <span className="font-mono mono-num font-medium">{fmtCompact(result.endValue)}</span> is{" "}
+            <span className="font-mono mono-num">{fmtMultiple(result.multiple)}</span> of ALL the money you put in.
+            The CAGR cards go quiet with a SIP because a lump-sum CAGR would count your own contributions as growth.
+            {typeof inflationPct === "number" && (
+              <>
+                {" "}In today&apos;s rupees (at {inflationPct.toFixed(1)}% CPI) that end value buys what{" "}
+                <span className="font-mono mono-num">{fmtCompact(result.endValue / Math.pow(1 + inflationPct / 100, horizonYears))}</span>{" "}
+                buys now.
+              </>
+            )}
+          </p>
+        </Card>
+      )}
 
       <ProjectionChart data={chartData} startValue={result.startValue} />
 

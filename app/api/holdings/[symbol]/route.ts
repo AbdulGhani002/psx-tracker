@@ -53,6 +53,40 @@ const patchSchema = z.object({
     .optional(),
   bookValuePerShare: z.number().min(0).optional(),
   purificationPctOfDividend: z.number().min(0).max(100).optional(),
+  // The sell-discipline plan. Counters are SERVER-managed (see PATCH) — the
+  // client cannot reset its own goalpost-moving history.
+  plan: z
+    .object({
+      classification: z.enum(["", "compounder", "stalwart", "cyclical", "asset_play", "turnaround", "value_trap"]).default(""),
+      fvLow: z.number().min(0).default(0),
+      fvBase: z.number().min(0).default(0),
+      fvHigh: z.number().min(0).default(0),
+      fvMethod: z.string().max(200).default(""),
+      invalidators: z.array(z.object({ text: z.string().max(300), occurredAt: z.string().default("") })).max(12).default([]),
+      maxWeightPct: z.number().min(0).max(100).default(0),
+      timeStopMonths: z.number().min(0).max(120).default(0),
+      cumOcf3y: z.number().nullable().default(null),
+      openedAt: z.string().default(""),
+    })
+    .optional(),
+  rebuyRule: z
+    .object({
+      active: z.boolean().default(false),
+      maxPrice: z.number().min(0).default(0),
+      requiredConditions: z.array(z.string().max(300)).max(8).default([]),
+      reviewOn: z.string().default(""),
+    })
+    .optional(),
+  // The company's own audited fair-value assumptions, transcribed with citation.
+  disclosedValuation: z
+    .object({
+      requiredReturnPct: z.number().min(0).max(60).default(0),
+      growthPct: z.number().min(0).max(30).default(0),
+      baseDps: z.number().min(0).default(0),
+      source: z.string().max(300).default(""),
+      asOf: z.string().default(""),
+    })
+    .optional(),
   lookThrough: z
     .object({
       enabled: z.boolean().optional(),
@@ -89,6 +123,41 @@ export async function PATCH(req: NextRequest, { params }: Params) {
 
     const update: Record<string, unknown> = { ...parsed };
     delete update.refreshFromPSX;
+
+    // Behavioural-guard counters — maintained HERE so the client can't garden
+    // its own history. A raised ceiling/target and every thesis edit is counted;
+    // the escalation and drift guards read these against the decision log.
+    const existing = await HoldingModel.findOne({ userId: await uid(), symbol }).lean();
+    if (existing) {
+      const ex: any = existing;
+      if (parsed.plan) {
+        const prevPlan: any = ex.plan ?? {};
+        const merged: any = { ...prevPlan, ...parsed.plan };
+        merged.fvHighRaisedCount = prevPlan.fvHighRaisedCount ?? 0;
+        merged.targetRaisedCount = prevPlan.targetRaisedCount ?? 0;
+        merged.thesisEditCount = prevPlan.thesisEditCount ?? 0;
+        if (prevPlan.fvHigh > 0 && parsed.plan.fvHigh > prevPlan.fvHigh) merged.fvHighRaisedCount += 1;
+        if (parsed.plan.fvHigh !== prevPlan.fvHigh || parsed.plan.fvBase !== prevPlan.fvBase || parsed.plan.fvLow !== prevPlan.fvLow) {
+          merged.fvUpdatedAt = new Date().toISOString().slice(0, 10);
+        }
+        if (!merged.openedAt) merged.openedAt = prevPlan.openedAt ?? "";
+        merged.lastReviewedAt = new Date().toISOString().slice(0, 10);
+        merged.cumOcf3y = parsed.plan.cumOcf3y ?? null;
+        update.plan = merged;
+      }
+      if (
+        parsed.targetAllocationPercent != null &&
+        (ex.targetAllocationPercent ?? 0) > 0 &&
+        parsed.targetAllocationPercent > (ex.targetAllocationPercent ?? 0)
+      ) {
+        (update as any)["plan.targetRaisedCount"] = ((ex.plan?.targetRaisedCount ?? 0) as number) + 1;
+        if (update.plan) (update.plan as any).targetRaisedCount = ((ex.plan?.targetRaisedCount ?? 0) as number) + 1;
+      }
+      if (parsed.thesis != null && parsed.thesis !== (ex.thesis ?? "") && (ex.thesis ?? "") !== "") {
+        if (update.plan) (update.plan as any).thesisEditCount = ((ex.plan?.thesisEditCount ?? 0) as number) + 1;
+        else (update as any)["plan.thesisEditCount"] = ((ex.plan?.thesisEditCount ?? 0) as number) + 1;
+      }
+    }
 
     if (parsed.refreshFromPSX) {
       const info = await getCompanyInfo(symbol);

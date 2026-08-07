@@ -7,6 +7,14 @@ import { MutualFundModel } from "@/lib/models";
 export const dynamic = "force-dynamic";
 
 const patchSchema = z.object({
+  cashPlan: z
+    .object({
+      purpose: z.enum(["", "strategic_wait", "dry_powder", "emergency", "default_dump"]).default(""),
+      reviewBy: z.string().default(""),
+      reviewReason: z.string().max(300).default(""),
+    })
+    .optional(),
+
   name: z.string().optional(),
   units: z.number().min(0).optional(),
   avgCost: z.number().min(0).optional(),

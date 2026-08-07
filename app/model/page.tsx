@@ -1,11 +1,12 @@
 import { PageHeader } from "@/components/layout/PageHeader";
 import { SetupBanner } from "@/components/layout/SetupBanner";
 import { ModelView } from "./ModelView";
-import { getPortfolioSummary, checkDataAvailability } from "@/lib/data";
+import { getPortfolioSummary, getEffectiveInflationPct, checkDataAvailability } from "@/lib/data";
 
 export const dynamic = "force-dynamic";
 
 export default async function ModelPage() {
+  const inf = await getEffectiveInflationPct();
   const avail = await checkDataAvailability();
   const summary = await getPortfolioSummary();
 
@@ -17,7 +18,7 @@ export default async function ModelPage() {
         subtitle="Compound your positions under multiple growth, multiple-expansion, and payout scenarios. Pick a single stock or model the whole portfolio."
       />
       {!avail.available && <SetupBanner reason={avail.reason} />}
-      <ModelView positions={summary.positions} totalValue={summary.totalValue} totalCost={summary.totalCost} />
+      <ModelView inflationPct={inf.pct} positions={summary.positions} totalValue={summary.totalValue} totalCost={summary.totalCost} />
     </div>
   );
 }

@@ -42,7 +42,13 @@ export function NewTransactionForm({ existingSymbols, defaultSymbol }: Props) {
 
   const [symbolMode, setSymbolMode] = useState<string>(initialSymbol);
   const [customSymbol, setCustomSymbol] = useState(defaultSymbol && !existingSymbols.includes(defaultSymbol) ? defaultSymbol : "");
-  const [type, setType] = useState<TransactionType>("BUY");
+  const [type, setType] = useState<TransactionType>(() => {
+    if (typeof window !== "undefined") {
+      const t = new URLSearchParams(window.location.search).get("type");
+      if (t === "SELL" || t === "BUY" || t === "DIVIDEND") return t as TransactionType;
+    }
+    return "BUY";
+  });
   const [date, setDate] = useState<string>(new Date().toISOString().slice(0, 10));
   const [shares, setShares] = useState<number>(0);
   const [price, setPrice] = useState<number>(0);
@@ -60,6 +66,23 @@ export function NewTransactionForm({ existingSymbols, defaultSymbol }: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [feeBreakdown.fee, feesManual]);
   const [submitting, setSubmitting] = useState(false);
+  // SELL discipline: a sale cannot be recorded without its decision. These
+  // fields ARE the log entry — written before the trade, frozen with it.
+  const [rationale, setRationale] = useState("");
+  const [falsifier, setFalsifier] = useState("");
+  const [expectedOutcome, setExpectedOutcome] = useState("");
+  const [reviewDate, setReviewDate] = useState("");
+  const [guardWarnings, setGuardWarnings] = useState<string[]>([]);
+  const [ackGuards, setAckGuards] = useState(false);
+  const [attachRebuy, setAttachRebuy] = useState(false);
+  const [rebuyMax, setRebuyMax] = useState(0);
+  const [rebuyConds, setRebuyConds] = useState("");
+  const [rebuyReview, setRebuyReview] = useState("");
+  // New-position plan (asked for only when the server demands it).
+  const [planRequired, setPlanRequired] = useState(false);
+  const [planClass, setPlanClass] = useState("stalwart");
+  const [planFvHigh, setPlanFvHigh] = useState(0);
+  const [planInvalidator, setPlanInvalidator] = useState("");
   const [error, setError] = useState<string | null>(null);
 
   const [lookup, setLookup] = useState<Lookup | null>(null);
@@ -163,11 +186,44 @@ export function NewTransactionForm({ existingSymbols, defaultSymbol }: Props) {
           fees,
           notes,
           ratio,
+          ...(type === "SELL"
+            ? {
+                decision: {
+                  rationale,
+                  falsifier,
+                  expectedOutcome,
+                  reviewDate,
+                  acknowledgeGuards: ackGuards,
+                  ...(attachRebuy
+                    ? {
+                        rebuy: {
+                          maxPrice: rebuyMax,
+                          requiredConditions: rebuyConds.split("\n").map((c) => c.trim()).filter(Boolean),
+                          reviewOn: rebuyReview,
+                        },
+                      }
+                    : {}),
+                },
+              }
+            : {}),
+          ...(planRequired && type === "BUY"
+            ? { plan: { classification: planClass, fvHigh: planFvHigh, invalidator: planInvalidator } }
+            : {}),
         }),
       });
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
-        setError(body?.detail ?? body?.error ?? "Submission failed.");
+        if (res.status === 409 && body?.error === "guard_warnings") {
+          // The behavioural guard: look at what you're avoiding, then proceed.
+          setGuardWarnings(body.warnings ?? []);
+          return;
+        }
+        if (body?.error === "plan_required") {
+          setPlanRequired(true);
+          setError("New position — set its class, your price ceiling and one invalidator below, then record again.");
+          return;
+        }
+        setError(body?.issues?.[0]?.message ?? body?.detail ?? body?.error ?? "Submission failed.");
         return;
       }
       // Jump to the holdings list with a success flag so it's obvious it saved.
@@ -399,7 +455,95 @@ export function NewTransactionForm({ existingSymbols, defaultSymbol }: Props) {
       )}
 
       <div className="flex gap-3">
-        <Button type="submit" variant="solid" disabled={submitting}>
+        {type === "SELL" && (
+          <div className="border-l-[3px] pl-4 py-3 space-y-3" style={{ borderColor: "var(--accent)" }}>
+            <div className="label-cap">The decision — logged with the trade, append-only</div>
+            <label className="block">
+              <span className="label-cap block mb-1">Why sell, in your words (min 20 chars)</span>
+              <textarea value={rationale} onChange={(e) => setRationale(e.target.value)} rows={3}
+                className="w-full border border-rule bg-transparent px-2 py-1.5 text-[13px]"
+                placeholder="Which of your rules fired? What changed? Not the price story — YOUR reasoning." />
+            </label>
+            <label className="block">
+              <span className="label-cap block mb-1">Falsifier — what would prove this sale wrong?</span>
+              <input value={falsifier} onChange={(e) => setFalsifier(e.target.value)}
+                className="w-full border border-rule bg-transparent px-2 py-1.5 text-[13px]"
+                placeholder='e.g. "FY26 margins recover above 15% and it re-rates past my ceiling"' />
+            </label>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <label className="block">
+                <span className="label-cap block mb-1">What you expect to happen (optional)</span>
+                <input value={expectedOutcome} onChange={(e) => setExpectedOutcome(e.target.value)}
+                  className="w-full border border-rule bg-transparent px-2 py-1.5 text-[13px]" />
+              </label>
+              <label className="block">
+                <span className="label-cap block mb-1">Grade me on (optional)</span>
+                <input type="date" value={reviewDate} onChange={(e) => setReviewDate(e.target.value)}
+                  className="w-full border border-rule bg-transparent px-2 py-1.5 text-[13px] font-mono" />
+              </label>
+            </div>
+            <label className="flex items-center gap-2 text-[13px] cursor-pointer select-none">
+              <input type="checkbox" checked={attachRebuy} onChange={(e) => setAttachRebuy(e.target.checked)} className="w-4 h-4 accent-[var(--accent-deep)]" />
+              Attach a re-buy rule (price ceiling + conditions — enforced later so you don&apos;t chase)
+            </label>
+            {attachRebuy && (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pl-6">
+                <NumberInput label="Re-buy ceiling (Rs)" value={rebuyMax} onChange={setRebuyMax} min={0} step={0.5} hint="Above this: do not chase." />
+                <label className="block">
+                  <span className="label-cap block mb-1">Review when the data lands</span>
+                  <input type="date" value={rebuyReview} onChange={(e) => setRebuyReview(e.target.value)}
+                    className="w-full border border-rule bg-transparent px-2 py-1.5 text-[13px] font-mono" />
+                </label>
+                <label className="block md:col-span-2">
+                  <span className="label-cap block mb-1">Required conditions (one per line, falsifiable)</span>
+                  <textarea value={rebuyConds} onChange={(e) => setRebuyConds(e.target.value)} rows={3}
+                    className="w-full border border-rule bg-transparent px-2 py-1.5 text-[13px]"
+                    placeholder={"FY26 operating cash flow positive with gross margin >= 15%\nQ1 FY27 gross margin holds >= 13%"} />
+                </label>
+              </div>
+            )}
+            {guardWarnings.length > 0 && (
+              <div className="border-l-[3px] pl-3 py-2 space-y-2" style={{ borderColor: "var(--negative)" }}>
+                {guardWarnings.map((w, i) => (
+                  <p key={i} className="text-[13px]" style={{ color: "var(--negative)" }}>{w}</p>
+                ))}
+                <label className="flex items-center gap-2 text-[12px] cursor-pointer">
+                  <input type="checkbox" checked={ackGuards} onChange={(e) => setAckGuards(e.target.checked)} className="w-4 h-4 accent-[var(--accent-deep)]" />
+                  I&apos;ve looked at what I was avoiding — record it anyway.
+                </label>
+              </div>
+            )}
+          </div>
+        )}
+
+        {planRequired && type === "BUY" && (
+          <div className="border-l-[3px] pl-4 py-3 space-y-3" style={{ borderColor: "var(--accent)" }}>
+            <div className="label-cap">New position — pre-commit the exit before the entry</div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <label className="block">
+                <span className="label-cap block mb-1">Asset class (drives the sell rules)</span>
+                <select value={planClass} onChange={(e) => setPlanClass(e.target.value)}
+                  className="w-full border border-rule bg-transparent px-2 py-1.5 text-[13px]">
+                  <option value="compounder">Compounder</option>
+                  <option value="stalwart">Stalwart</option>
+                  <option value="cyclical">Cyclical</option>
+                  <option value="asset_play">Asset play</option>
+                  <option value="turnaround">Turnaround</option>
+                  <option value="value_trap">Value trap (be honest)</option>
+                </select>
+              </label>
+              <NumberInput label="Your price ceiling (Rs)" value={planFvHigh} onChange={setPlanFvHigh} min={0} step={0.5} hint="The pre-committed sell line — fair-value high." />
+            </div>
+            <label className="block">
+              <span className="label-cap block mb-1">One falsifiable invalidator</span>
+              <input value={planInvalidator} onChange={(e) => setPlanInvalidator(e.target.value)}
+                className="w-full border border-rule bg-transparent px-2 py-1.5 text-[13px]"
+                placeholder='Phrased so a number or event can confirm it: "operating cash flow negative two years running"' />
+            </label>
+          </div>
+        )}
+
+        <Button type="submit" variant="solid" disabled={submitting || (type === "SELL" && (rationale.length < 20 || falsifier.length < 10 || (guardWarnings.length > 0 && !ackGuards)))}>
           {submitting ? "Saving…" : "Record Transaction"}
         </Button>
         <Button type="button" variant="outline" onClick={() => router.back()}>

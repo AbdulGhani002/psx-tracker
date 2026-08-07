@@ -14,9 +14,20 @@ export const SESSION_COOKIE = "psx_session";
 export const SESSION_MAX_AGE_SEC = 30 * 24 * 60 * 60; // 30 days ("remember me")
 
 function secret(): string {
-  // Prefer a dedicated secret; fall back to the password so the app still works
-  // if SESSION_SECRET wasn't set. Changing either invalidates live sessions.
-  return process.env.SESSION_SECRET || process.env.AUTH_PASSWORD || "psx-tracker-dev-secret";
+  // Prefer a dedicated secret; fall back to the password. Changing either
+  // invalidates live sessions.
+  const configured = process.env.SESSION_SECRET || process.env.AUTH_PASSWORD;
+  if (configured) return configured;
+  // The old code fell back to a constant that is PUBLIC in this repo. If the env
+  // ever went missing, sessions would still be signed — with a key anyone can
+  // read — letting anyone forge a cookie for any userId. Fail loudly instead;
+  // a dev-only fallback keeps local work friction-free.
+  if (process.env.NODE_ENV === "production") {
+    throw new Error(
+      "SESSION_SECRET (or AUTH_PASSWORD) is not set. Refusing to sign sessions with the public dev constant."
+    );
+  }
+  return "psx-tracker-dev-secret";
 }
 
 function bytesToB64Url(bytes: Uint8Array): string {

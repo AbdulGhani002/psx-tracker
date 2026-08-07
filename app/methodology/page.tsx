@@ -17,7 +17,7 @@ const METHODS: Method[] = [
       <>
         Every price is scraped live from the PSX data portal. Your position value is simply that price times the
         number of shares. Whether a share is <em>cheap or expensive</em> is a separate question answered on the{" "}
-        <Link href="/valuation" className="underline hover:text-[var(--accent-deep)]">Valuation</Link> page, which
+        <Link href="/intrinsic" className="underline hover:text-[var(--accent-deep)]">Valuation</Link> page, which
         blends a dividend-discount model with an earnings multiple.
       </>
     ),

@@ -27,6 +27,11 @@ import { fetchFundamentals } from "./prices/fundamentals";
 import { fetchPayouts } from "./prices/payouts";
 import type { FundamentalsInput } from "./calculations/dividend-forecast";
 import { SBP_POLICY_RATE_DEFAULTS, policyRateOn, type RateStep } from "./timeseries/sbp-rate";
+import { fetchSbpRates, corridorAgrees, tbill12mPct, type SbpRates } from "./feeds/sbp";
+import { fetchInflation, type InflationData } from "./feeds/inflation";
+import { buildLadder, type Ladder } from "./calculations/ladder";
+import { computeAttribution, type Attribution } from "./calculations/attribution";
+import { isFiler as pkIsFiler } from "./calculations/pk-tax";
 import { fetchAllNavs, findNav, fetchFundReturns } from "./funds/mufap";
 import { valueSavings, valueFund, type SavingsValuation, type FundValuation } from "./calculations/assets";
 import { buildTaxReport, type TaxReport } from "./calculations/tax";
@@ -44,7 +49,6 @@ import {
 } from "./calculations";
 import { forecastDividends, type DividendForecast } from "./calculations/dividend-forecast";
 import { computeSotp, deriveSharesOutstanding, type SotpResult } from "./calculations/sotp";
-import { computeValuation, type Valuation } from "./calculations/valuation";
 import { computeIntrinsic, intrinsicSensitivity, normalizedEps, robustGrowthPct, sectorFairPE, type IntrinsicInputs, type IntrinsicResult, type Sensitivity } from "./calculations/intrinsic";
 import { analyzeConcentration, analyzeCorrelation, type ConcentrationResult, type CorrelationResult } from "./calculations/risk-analysis";
 import { fetchManyEod } from "./timeseries/psx-eod";
@@ -244,6 +248,20 @@ export async function getUpcomingExDates(days = 14): Promise<Array<{ symbol: str
   return out.sort((a, b) => a.date.localeCompare(b.date));
 }
 
+// Stored par (face) values for a set of symbols — read-only, no PSX fetching,
+// so market-wide pages (the dividend calendar) can use real pars where we have
+// them without triggering hundreds of scrapes. Missing symbols are simply
+// absent; callers fall back to the Rs 10 PSX standard and say so.
+export async function getFaceValues(symbols: string[]): Promise<Record<string, number>> {
+  if (!(await tryConnect())) return {};
+  const upper = [...new Set(symbols.map((s) => s.toUpperCase()))];
+  if (upper.length === 0) return {};
+  const rows: any[] = await FundamentalModel.find({ symbol: { $in: upper } }, { symbol: 1, faceValue: 1 }).lean();
+  const out: Record<string, number> = {};
+  for (const r of rows) if (r.faceValue != null && r.faceValue > 0) out[r.symbol] = r.faceValue;
+  return out;
+}
+
 export async function getDividendForecast(): Promise<DividendForecast> {
   const [holdings, transactions] = await Promise.all([getAllHoldings(), getAllTransactions()]);
   const held = holdings.filter((h) => h.currentShares > 0).map((h) => h.symbol);
@@ -253,90 +271,12 @@ export async function getDividendForecast(): Promise<DividendForecast> {
   return forecastDividends(transactions, holdings, { fundamentals, prices: priceMap });
 }
 
-export type HoldingValuation = Valuation & {
-  symbol: string;
-  name: string;
-  price: number;
-  eps: number | null;
-  bookValuePerShare: number;
-  shares: number;
-  marketValue: number;
-  basis: "earnings" | "nav"; // holding companies are valued on look-through NAV, not P/E
-  navPerShare: number | null;
-  navNote: string; // caveat when NAV is incomplete (e.g. listed stakes only)
-};
 
 // Valuation across all held stocks. EPS from cached fundamentals, forward
 // dividend + growth from the forecast, book value from the (editable) holding
 // field, required return from the live SBP rate + your equity-premium setting.
-export async function getValuations(): Promise<{ valuations: HoldingValuation[]; requiredReturnPct: number; fairPE: number; sbpRatePct: number }> {
-  return cachedSnapshot("page:valuations", 90 * 60 * 1000, computeValuations);
-}
-
-async function computeValuations(): Promise<{ valuations: HoldingValuation[]; requiredReturnPct: number; fairPE: number; sbpRatePct: number }> {
-  const [holdings, settings, sbp] = await Promise.all([getAllHoldings(), getAppSettings(), getSbpRateSteps()]);
-  const held = holdings.filter((h) => h.currentShares > 0);
-  const fairPE = (settings as any).defaultFairPE ?? 8;
-  const sbpRatePct = policyRateOn(new Date().toISOString().slice(0, 10), sbp.steps) ?? 11;
-  const requiredReturnPct = sbpRatePct + ((settings as any).equityRiskPremiumPct ?? 6);
-  if (!held.length) return { valuations: [], requiredReturnPct, fairPE, sbpRatePct };
-
-  const syms = held.map((h) => h.symbol);
-  const [prices, funds, forecast] = await Promise.all([getCurrentPrices(syms), getFundamentals(syms), getDividendForecast()]);
-  const profBySym = new Map(forecast.profiles.map((p) => [p.symbol, p]));
-
-  // Holding companies (look-through enabled) are valued on NAV, not P/E — their
-  // EPS is dominated by fair-value revaluation of the shares they own and share
-  // of associates' profits, so a P/E verdict is misleading. Fetch their
-  // sum-of-the-parts NAV/share once.
-  const lookThroughs = new Map<string, LookThrough>();
-  await Promise.all(
-    held
-      .filter((h) => (h as any).lookThrough?.enabled)
-      .map(async (h) => {
-        // Valuation only needs the top-level NAV — skip the (expensive) child drill-down.
-        const lt = await getLookThroughFor(h.symbol, { skipChildren: true }).catch(() => null);
-        if (lt) lookThroughs.set(h.symbol, lt);
-      })
-  );
-
-  const valuations = held
-    .map((h) => {
-      const price = prices.get(h.symbol) ?? 0;
-      const eps = funds[h.symbol]?.latestEps ?? null;
-      const prof = profBySym.get(h.symbol);
-      const forwardDps = prof?.forwardDpsAnnual ?? 0;
-      const dividendGrowthPct = prof?.dividendGrowthPct ?? funds[h.symbol]?.epsGrowthPct ?? 0;
-      const bookValuePerShare = (h as any).bookValuePerShare ?? 0;
-      const v = computeValuation({ price, eps, forwardDps, dividendGrowthPct, bookValuePerShare, requiredReturnPct, fairPE });
-
-      let basis: "earnings" | "nav" = "earnings";
-      let navPerShare: number | null = null;
-      let navNote = "";
-      let merged: Valuation = v;
-      const lt = lookThroughs.get(h.symbol);
-      if (lt && lt.navPerShare > 0) {
-        basis = "nav";
-        navPerShare = lt.navPerShare;
-        const mos = lt.discountPct; // (NAV − price) / NAV; positive = trading below assets
-        let verdict: Valuation["verdict"];
-        if (mos == null) verdict = "unknown";
-        else if (mos >= 20) verdict = "cheap";
-        else if (mos <= -10) verdict = "expensive";
-        else verdict = "fair";
-        merged = { ...v, fairValue: navPerShare, marginOfSafetyPct: mos, verdict };
-        if (lt.unlistedValue <= 0 && lt.netDebt <= 0) navNote = "NAV from listed stakes only — add unlisted assets & net debt";
-      }
-
-      return { symbol: h.symbol, name: h.name, price, eps, bookValuePerShare, shares: h.currentShares, marketValue: price * h.currentShares, basis, navPerShare, navNote, ...merged };
-    })
-    .sort((a, b) => b.marketValue - a.marketValue);
-
-  return { valuations, requiredReturnPct, fairPE, sbpRatePct };
-}
-
-// --- Intrinsic value + buying zones ---------------------------------------
-
+// (the old single-method valuation engine lived here — superseded by
+// computeIntrinsic/getIntrinsicValuations, which is now the ONLY fair value.)
 export type IntrinsicView = IntrinsicResult & {
   name: string;
   shares: number;
@@ -405,6 +345,10 @@ async function computeIntrinsicValuations(): Promise<IntrinsicPage> {
   ]);
   const profBySym = new Map(forecast.profiles.map((p) => [p.symbol, p]));
 
+  // Each share's own beta — so the required return is per-company, not one flat
+  // hurdle for a utility and a cyclical alike. Cached + shared across the loop.
+  const betaMap = await getBetaMap();
+
   // Look-through NAV for holding companies (top-level only — fast).
   const lookThroughs = new Map<string, LookThrough>();
   await Promise.all(
@@ -463,7 +407,6 @@ async function computeIntrinsicValuations(): Promise<IntrinsicPage> {
         eps,
         normalizedEps: epsNorm,
         epsGrowthPct: growth,
-        bvps: (h as any).bookValuePerShare ?? 0,
         forwardDps: prof?.forwardDpsAnnual ?? 0,
         dividendGrowthPct: growth,
         sbpRatePct,
@@ -472,6 +415,22 @@ async function computeIntrinsicValuations(): Promise<IntrinsicPage> {
         aboveEarnings: prof?.aboveEarnings ?? false,
         annualVolPct,
         navPerShare: lookThroughs.get(h.symbol)?.navPerShare ?? null,
+        // The company's own audited fair-value assumptions, if we've recorded
+        // them from its accounts. Only pass a model that is actually filled in —
+        // a zeroed subdoc must stay null so the method reads "not applicable"
+        // rather than valuing the share at zero.
+        betaRaw: betaMap.get(h.symbol.toUpperCase()) ?? null,
+        disclosed: (() => {
+          const d = (h as any).disclosedValuation;
+          if (!d || !(d.baseDps > 0) || !(d.requiredReturnPct > 0)) return null;
+          return {
+            requiredReturnPct: d.requiredReturnPct,
+            growthPct: d.growthPct ?? 0,
+            baseDps: d.baseDps,
+            source: d.source ?? "",
+            asOf: d.asOf ?? "",
+          };
+        })(),
         sector,
         netMarginPct: fdata?.latestNetMarginPct ?? null,
         marginTrendPct: marginTrend,
@@ -599,7 +558,6 @@ export async function cachedSnapshot<T>(key: string, ttlMs: number, compute: () 
 // runAsUser(...) scope on the cron, so the getters cache under per-user keys.
 export async function warmPageCaches(): Promise<Record<string, string>> {
   const jobs: Array<[string, () => Promise<unknown>]> = [
-    ["valuations", getValuations],
     ["intrinsic", getIntrinsicValuations],
     ["riskMetrics", getRiskMetrics],
     ["riskAnalysis", getRiskAnalysis],
@@ -927,7 +885,7 @@ export async function getDecisionLog(symbol?: string) {
   return plain<Array<{ _id: string; symbol: string; date: string; trigger: string; interpretation: string; action: string; positionBefore: number; positionAfter: number }>>(docs);
 }
 
-export async function getCashSummary(): Promise<CashSummary> {
+async function _getCashSummary(): Promise<CashSummary> {
   if (!(await tryConnect())) {
     return {
       balance: 0,
@@ -951,21 +909,258 @@ export async function getCashEntries() {
   return plain<Array<{ _id: string; date: string; type: "DEPOSIT" | "WITHDRAWAL"; amount: number; notes: string }>>(docs);
 }
 
-// SBP policy-rate steps: the user's DB entries if any exist, else the curated
-// built-in defaults. `isCustom` tells the UI which set is active.
-export async function getSbpRateSteps(): Promise<{ steps: RateStep[]; isCustom: boolean }> {
-  if (!(await tryConnect())) return { steps: SBP_POLICY_RATE_DEFAULTS, isCustom: false };
-  const docs = await SbpRateModel.find().sort({ effectiveDate: -1 }).lean();
-  if (docs.length === 0) return { steps: SBP_POLICY_RATE_DEFAULTS, isCustom: false };
+// --- SBP live rates: fetched, never guessed --------------------------------
+// The policy rate is GLOBAL data (same for everyone), so it lives in an
+// unprefixed FeedSnapshot, refreshed by the snapshots cron like fund yields.
+const SBP_TTL_MS = 12 * 60 * 60 * 1000; // serve the stored value up to 12h
+const SBP_KEY = "sbpRates";
+
+// `firstSeenFrom` = the first date we OBSERVED this policy rate. SBP publishes
+// the current rate but not its effective date, so we record when we first saw
+// it rather than inventing an MPC date. History before that keeps using the
+// real curated steps.
+type StoredSbp = { rates: SbpRates; firstSeenFrom: string };
+
+async function _getSbpLive(): Promise<StoredSbp | null> {
+  const snap = await getFeedSnapshot<StoredSbp>(SBP_KEY);
+  const age = snap.updatedAt ? Date.now() - new Date(snap.updatedAt).getTime() : Infinity;
+  if (snap.data != null && age < SBP_TTL_MS) return snap.data;
+
+  const live = await fetchSbpRates();
+  if (!live || live.policyRatePct == null) return snap.data ?? null;
+  // SBP sets the corridor exactly 100bp either side of the policy rate. If both
+  // bounds parsed but that identity fails, we grabbed the wrong cell (the old
+  // bug read the floor as the policy rate) — keep last-known-good instead.
+  const canCrossCheck = live.repoCeilingPct != null && live.repoFloorPct != null;
+  if (canCrossCheck && !corridorAgrees(live)) return snap.data ?? null;
+
+  const today = new Date().toISOString().slice(0, 10);
+  const unchanged = snap.data && snap.data.rates.policyRatePct === live.policyRatePct;
+  const next: StoredSbp = {
+    rates: live,
+    firstSeenFrom: unchanged ? snap.data!.firstSeenFrom : today,
+  };
+  await saveFeedSnapshot(SBP_KEY, next, "ok", `policy ${live.policyRatePct}%`).catch(() => {});
+  return next;
+}
+export const getSbpLive = cache(_getSbpLive);
+
+export async function refreshSbpRates(): Promise<Record<string, unknown>> {
+  if (!(await tryConnect())) return { status: "no-db" };
+  const live = await fetchSbpRates();
+  if (!live || live.policyRatePct == null) return { status: "error", note: "SBP unreachable or unparseable" };
+  const canCrossCheck = live.repoCeilingPct != null && live.repoFloorPct != null;
+  if (canCrossCheck && !corridorAgrees(live)) return { status: "error", note: "corridor cross-check failed" };
+  const snap = await getFeedSnapshot<StoredSbp>(SBP_KEY);
+  const today = new Date().toISOString().slice(0, 10);
+  const unchanged = snap.data && snap.data.rates.policyRatePct === live.policyRatePct;
+  await saveFeedSnapshot(
+    SBP_KEY,
+    { rates: live, firstSeenFrom: unchanged ? snap.data!.firstSeenFrom : today },
+    "ok",
+    `policy ${live.policyRatePct}%`
+  ).catch(() => {});
+  return { status: "ok", policyRatePct: live.policyRatePct, tbill12mPct: tbill12mPct(live), usdPkrM2M: live.usdPkrM2M };
+}
+
+// --- Inflation: fetched from PBS, never assumed ------------------------------
+// CPI is GLOBAL data. PBS publishes monthly, so a 24h TTL is generous. The app
+// used to default inflation to 0 (making every "real return" wrong by the whole
+// rate of inflation) and the income planner hardcoded 10.
+const INFLATION_TTL_MS = 24 * 60 * 60 * 1000;
+const INFLATION_KEY = "inflationPk";
+
+async function _getInflationLive(): Promise<InflationData | null> {
+  const snap = await getFeedSnapshot<InflationData>(INFLATION_KEY);
+  const age = snap.updatedAt ? Date.now() - new Date(snap.updatedAt).getTime() : Infinity;
+  if (snap.data != null && age < INFLATION_TTL_MS) return snap.data;
+  const live = await fetchInflation();
+  if (!live) return snap.data ?? null; // keep last-known-good rather than guess
+  await saveFeedSnapshot(INFLATION_KEY, live, "ok", `CPI ${live.latest?.period} YoY ${live.yoyPct?.toFixed(2)}%`).catch(() => {});
+  return live;
+}
+export const getInflationLive = cache(_getInflationLive);
+
+// Headline YoY CPI, or null when PBS is unreachable and we have nothing stored.
+// Callers MUST handle null by saying "needs a feed" — never by substituting 0,
+// which silently turns a real return into a nominal one.
+async function _getInflationPct(): Promise<number | null> {
+  if (!(await tryConnect())) return null;
+  return (await getInflationLive())?.yoyPct ?? null;
+}
+export const getInflationPct = cache(_getInflationPct);
+
+export async function refreshInflation(): Promise<Record<string, unknown>> {
+  if (!(await tryConnect())) return { status: "no-db" };
+  const live = await fetchInflation();
+  if (!live || live.yoyPct == null) return { status: "error", note: "PBS unreachable or unparseable" };
+  await saveFeedSnapshot(INFLATION_KEY, live, "ok", `CPI ${live.latest?.period} YoY ${live.yoyPct.toFixed(2)}%`).catch(() => {});
+  return { status: "ok", yoyPct: live.yoyPct, period: live.latest?.period, months: live.history.length };
+}
+
+// The published T-bill (12M MTB cut-off) yield — the real risk-free rate a saver
+// can actually lock in. null when SBP hasn't published one we could parse.
+async function _getTbill12mPct(): Promise<number | null> {
+  if (!(await tryConnect())) return null;
+  return tbill12mPct((await getSbpLive())?.rates ?? null);
+}
+export const getTbill12mPct = cache(_getTbill12mPct);
+
+// Per-stock beta vs the KSE-100, measured by the analytics service from real
+// price history. Drives the per-company required return (see calculations/capm.ts).
+// Analytics is unreachable -> empty map -> every stock falls back to beta 1
+// (plain market risk), which is the old flat behaviour. We never invent a beta.
+async function _getBetaMap(): Promise<Map<string, number>> {
+  try {
+    const { getRatings } = await import("./analytics");
+    const data = await getRatings(500);
+    const m = new Map<string, number>();
+    for (const r of data?.results ?? []) {
+      if (r.beta != null && Number.isFinite(r.beta)) m.set(r.symbol.toUpperCase(), r.beta);
+    }
+    return m;
+  } catch {
+    return new Map();
+  }
+}
+export const getBetaMap = cache(_getBetaMap);
+
+// Effective inflation: the user's manual override in Settings wins when set
+// (>0); otherwise the live PBS CPI figure. `source` lets every consumer say
+// where its number came from instead of presenting it as ambient truth.
+async function _getEffectiveInflationPct(): Promise<{ pct: number | null; source: "manual" | "pbs" | "none"; period: string | null }> {
+  const settings: any = await getAppSettings();
+  const manual = Number(settings?.inflationPct ?? 0);
+  if (manual > 0) return { pct: manual, source: "manual", period: null };
+  const live = await getInflationLive();
+  if (live?.yoyPct != null) return { pct: live.yoyPct, source: "pbs", period: live.latest?.period ?? null };
+  return { pct: null, source: "none", period: null };
+}
+export const getEffectiveInflationPct = cache(_getEffectiveInflationPct);
+
+// Everything the next-rupee ladder needs, assembled from live feeds and the
+// user's own instruments. Equity earnings/dividend yield is VALUE-WEIGHTED over
+// the user's priced holdings that the analytics service covers; if none match,
+// the equity rung is omitted (with a reason) rather than guessed.
+async function _getLadderData(): Promise<{
+  ladder: Ladder;
+  inflationSource: "manual" | "pbs" | "none";
+  inflationPeriod: string | null;
+  filer: boolean;
+  sbpAsOf: string | null;
+}> {
+  const [sbp, inf, settings, funds, savings, summary] = await Promise.all([
+    getSbpLive(),
+    getEffectiveInflationPct(),
+    getAppSettings(),
+    getMutualFundsValued(),
+    getSavingsValued(),
+    getPortfolioSummary(),
+  ]);
+
+  let equity: { label: string; earningsYieldPct: number; dividendYieldPct: number } | null = null;
+  try {
+    const { getRatings } = await import("./analytics");
+    const ratings = await getRatings(500);
+    const by = new Map((ratings?.results ?? []).map((r) => [r.symbol.toUpperCase(), r]));
+    let wEy = 0, wDy = 0, wTot = 0;
+    for (const p of summary.positions) {
+      if (p.shares <= 0 || !p.priceKnown) continue;
+      const r = by.get(p.symbol.toUpperCase());
+      if (!r || r.earnings_yield_pct == null) continue;
+      wEy += r.earnings_yield_pct * p.marketValue;
+      wDy += (r.dividend_yield_pct ?? 0) * p.marketValue;
+      wTot += p.marketValue;
+    }
+    if (wTot > 0) {
+      equity = { label: "Your equities", earningsYieldPct: wEy / wTot, dividendYieldPct: wDy / wTot };
+    }
+  } catch {
+    /* analytics down -> equity rung omitted, never guessed */
+  }
+
+  const rates = sbp?.rates ?? null;
+  const ladder = buildLadder({
+    inflationPct: inf.pct,
+    settings: settings as any,
+    tbill12mPct: tbill12mPct(rates),
+    policyRatePct: rates?.policyRatePct ?? null,
+    kibor12BidPct: rates?.kibor.find((k) => k.tenor === "12M")?.bid ?? null,
+    funds: funds
+      .map((f) => ({ name: f.name, yieldPct: f.liveAnnualYieldPct ?? f.annualYieldPct }))
+      .filter((f) => f.yieldPct > 0),
+    savings: savings
+      .map((a) => ({ name: a.name, ratePercent: a.ratePercent }))
+      .filter((a) => a.ratePercent > 0),
+    equity,
+  });
   return {
-    steps: docs.map((d) => ({ from: d.effectiveDate, rate: d.rate })),
-    isCustom: true,
+    ladder,
+    inflationSource: inf.source,
+    inflationPeriod: inf.period,
+    filer: pkIsFiler(settings as any),
+    sbpAsOf: rates?.fetchedAt?.slice(0, 10) ?? null,
   };
 }
+export const getLadderData = cache(_getLadderData);
+
+// "What moved my portfolio" — the last-N-days change split into per-holding
+// rupee contributions (price moves on current shares; see calculations/attribution).
+async function _getAttribution(days = 30): Promise<Attribution> {
+  const summary = await getPortfolioSummary();
+  const held = summary.positions.filter((x) => x.shares > 0);
+  const sinceIso = new Date(Date.now() - days * 86400000).toISOString().slice(0, 10);
+  const eod = held.length
+    ? await fetchManyEod(held.map((h) => h.symbol)).catch(() => new Map<string, { date: string; close: number }[]>())
+    : new Map<string, { date: string; close: number }[]>();
+  return computeAttribution({
+    positions: held.map((x) => ({ symbol: x.symbol, shares: x.shares, priceKnown: x.priceKnown, currentPrice: x.currentPrice })),
+    series: eod,
+    sinceIso,
+  });
+}
+export const getAttribution = cache(_getAttribution);
+
+// SBP policy-rate steps, in priority order:
+//   user  — the user's own curve from Settings (they override everything)
+//   live  — SBP's published current rate, prepended to the real history
+//   stale — live feed down: newest REAL past step, flagged so the UI can say so
+// `isCustom` tells the UI the user's curve is active; `source` tells it whether
+// today's number came from SBP or is a stale fallback.
+async function _getSbpRateSteps(): Promise<{
+  steps: RateStep[];
+  isCustom: boolean;
+  source: "user" | "live" | "stale";
+  liveAsOf: string | null;
+}> {
+  if (!(await tryConnect())) {
+    return { steps: SBP_POLICY_RATE_DEFAULTS, isCustom: false, source: "stale", liveAsOf: null };
+  }
+  const docs = await SbpRateModel.find({ userId: await meId() }).sort({ effectiveDate: -1 }).lean();
+  if (docs.length > 0) {
+    return {
+      steps: docs.map((d) => ({ from: d.effectiveDate, rate: d.rate })),
+      isCustom: true,
+      source: "user",
+      liveAsOf: null,
+    };
+  }
+  const live = await getSbpLive();
+  if (live?.rates.policyRatePct != null) {
+    return {
+      steps: [{ from: live.firstSeenFrom, rate: live.rates.policyRatePct }, ...SBP_POLICY_RATE_DEFAULTS],
+      isCustom: false,
+      source: "live",
+      liveAsOf: live.rates.fetchedAt.slice(0, 10),
+    };
+  }
+  return { steps: SBP_POLICY_RATE_DEFAULTS, isCustom: false, source: "stale", liveAsOf: null };
+}
+export const getSbpRateSteps = cache(_getSbpRateSteps);
 
 export async function getSbpRates() {
   if (!(await tryConnect())) return [];
-  const docs = await SbpRateModel.find().sort({ effectiveDate: -1 }).lean();
+  const docs = await SbpRateModel.find({ userId: await meId() }).sort({ effectiveDate: -1 }).lean();
   return plain<Array<{ _id: string; effectiveDate: string; rate: number; note: string }>>(docs);
 }
 
@@ -981,6 +1176,7 @@ export type ValuedFund = {
   notes: string;
   nav: number; // 0 if NAV unavailable
   navFound: boolean;
+  navAsOf: string; // date of the NAV used; older than today = MUFAP feed down, serving last-good
   // Live MUFAP-published trailing-12-month return (the real annual yield).
   // null when MUFAP has no figure — the UI then shows the manual value, marked.
   liveAnnualYieldPct: number | null;
@@ -1035,11 +1231,30 @@ export async function refreshAllFundYields(): Promise<Record<string, unknown>> {
   return { status: "ok", funds: names.length, updated, fresh, failed };
 }
 
-export async function getMutualFundsValued(): Promise<ValuedFund[]> {
+// Last-good MUFAP NAVs, durable. MUFAP has started 403-ing datacentre IPs
+// (same wall as NCCPL); when the live fetch fails AND the in-memory cache is
+// cold (e.g. after a restart), the previous behaviour valued funds at NAV 0 —
+// a fabricated -100% that silently dropped them from net worth. A money-market
+// NAV moves ~0.03%/day, so serving the last REAL published NAV (flagged with
+// its date) is honest; zero never is.
+const MUFAP_NAVS_KEY = "mufapNavs";
+
+async function _getMutualFundsValued(): Promise<ValuedFund[]> {
   if (!(await tryConnect())) return [];
   const docs = await MutualFundModel.find({ userId: await meId() }).sort({ name: 1 }).lean();
   if (docs.length === 0) return [];
-  const navs = await fetchAllNavs();
+  let navs = await fetchAllNavs();
+  let navAsOf = new Date().toISOString().slice(0, 10);
+  if (navs.length > 0) {
+    // Live fetch worked — refresh the durable copy.
+    await saveFeedSnapshot(MUFAP_NAVS_KEY, { at: navAsOf, navs }, "ok", `${navs.length} funds`).catch(() => {});
+  } else {
+    const snap = await getFeedSnapshot<{ at: string; navs: typeof navs }>(MUFAP_NAVS_KEY);
+    if (snap.data?.navs?.length) {
+      navs = snap.data.navs;
+      navAsOf = snap.data.at;
+    }
+  }
   const byName = new Map(navs.map((n) => [n.name.toLowerCase(), n]));
   const out: ValuedFund[] = [];
   for (const f of docs) {
@@ -1070,6 +1285,7 @@ export async function getMutualFundsValued(): Promise<ValuedFund[]> {
       anchorDate: (f as any).anchorDate ?? "",
       notes: f.notes,
       navFound: nav > 0,
+      navAsOf,
       liveAnnualYieldPct,
       liveYieldAsOf: returns?.asOf ?? "",
     });
@@ -1088,7 +1304,7 @@ export type ValuedSavings = {
   movements: Array<{ _id?: string; date: string; type: "DEPOSIT" | "WITHDRAWAL"; amount: number; note: string }>;
 } & SavingsValuation;
 
-export async function getSavingsValued(): Promise<ValuedSavings[]> {
+async function _getSavingsValued(): Promise<ValuedSavings[]> {
   if (!(await tryConnect())) return [];
   const docs = await SavingsAccountModel.find({ userId: await meId() }).sort({ name: 1 }).lean();
   return docs.map((a) => {
@@ -1497,3 +1713,9 @@ export const getTodaysMovers = cache(_getTodaysMovers);
 export const getIntrinsicValuations = cache(_getIntrinsicValuations);
 
 export const getAllHoldings = cache(_getAllHoldings);
+// These three were each running TWICE per request: the page calls them and
+// getNetWorth() calls them again. getMutualFundsValued is also the most
+// expensive of the set (a Mongo round-trip per fund), so the duplicate hurt.
+export const getCashSummary = cache(_getCashSummary);
+export const getMutualFundsValued = cache(_getMutualFundsValued);
+export const getSavingsValued = cache(_getSavingsValued);

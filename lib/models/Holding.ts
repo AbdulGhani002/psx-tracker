@@ -51,6 +51,75 @@ const HoldingSchema = new Schema(
       ),
       default: () => ({}),
     },
+    // The sell-discipline plan: MY fair-value band, falsifiable invalidators,
+    // class-specific rules and caps. Selling is the decision that needs
+    // discipline — this is where it's pre-committed, before emotion.
+    plan: {
+      type: new Schema(
+        {
+          classification: { type: String, default: "" }, // compounder|stalwart|cyclical|asset_play|turnaround|value_trap
+          fvLow: { type: Number, default: 0 },
+          fvBase: { type: Number, default: 0 },
+          fvHigh: { type: Number, default: 0 }, // the pre-committed price ceiling
+          fvMethod: { type: String, default: "" },
+          fvUpdatedAt: { type: String, default: "" },
+          // Behavioural-guard counters: raises without logged reasons = goalpost-moving.
+          fvHighRaisedCount: { type: Number, default: 0 },
+          targetRaisedCount: { type: Number, default: 0 },
+          thesisEditCount: { type: Number, default: 0 },
+          // Falsifiable invalidators; marking one occurred fires thesis_broken.
+          invalidators: {
+            type: [new Schema({ text: { type: String, default: "" }, occurredAt: { type: String, default: "" } }, { _id: false })],
+            default: [],
+          },
+          maxWeightPct: { type: Number, default: 0 }, // 0 = use the global concentration cap
+          timeStopMonths: { type: Number, default: 0 }, // 0 = off
+          // Cash-conversion inputs: PAT comes from the scraped financials, but NO
+          // free feed carries operating cash flow — the user transcribes the 3-year
+          // OCF sum from the annual report. Empty = "needs your input", never faked.
+          cumOcf3y: { type: Number, default: null },
+          openedAt: { type: String, default: "" },
+          lastReviewedAt: { type: String, default: "" },
+        },
+        { _id: false }
+      ),
+      default: () => ({}),
+    },
+    // Set on exit; the symbol (with zero shares) becomes the re-buy watchlist.
+    rebuyRule: {
+      type: new Schema(
+        {
+          active: { type: Boolean, default: false },
+          maxPrice: { type: Number, default: 0 }, // "do not chase" ceiling
+          requiredConditions: { type: [String], default: [] },
+          reviewOn: { type: String, default: "" }, // when the deciding data lands
+          setAt: { type: String, default: "" },
+        },
+        { _id: false }
+      ),
+      default: () => ({}),
+    },
+    // The company's OWN disclosed valuation model, transcribed by hand from its
+    // audited accounts (e.g. AHCL's Level-3 fair value: r=16%, g=5% on a Rs 1.35
+    // dividend, signed off by A.F. Ferguson). When a company and its auditor have
+    // published the assumptions behind a fair value, that outranks anything we
+    // model ourselves — so we record it, cite the source, and show it.
+    // Leave empty if the company discloses none. NEVER fill this with a guess:
+    // an absent disclosed model is honest, an invented one is a fabricated number
+    // wearing an auditor's name.
+    disclosedValuation: {
+      type: new Schema(
+        {
+          requiredReturnPct: { type: Number, default: 0 }, // the r the company used
+          growthPct: { type: Number, default: 0 }, // the g the company used
+          baseDps: { type: Number, default: 0 }, // the dividend it was built on
+          source: { type: String, default: "" }, // report + auditor, for citation
+          asOf: { type: String, default: "" }, // ISO date of the report
+        },
+        { _id: false }
+      ),
+      default: () => ({}),
+    },
     // Sum-of-the-parts / look-through config (holding companies).
     lookThrough: {
       type: new Schema(

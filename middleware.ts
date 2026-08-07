@@ -17,10 +17,17 @@ const LOCKOUT_MS = 15 * 60 * 1000;
 type Bucket = { fails: number; first: number; blockedUntil: number };
 const attempts = new Map<string, Bucket>();
 
+// See the note in app/api/auth/login/route.ts: X-Real-IP comes from nginx's
+// $remote_addr and can't be forged; X-Forwarded-For's first entry can.
 function clientIp(req: NextRequest): string {
+  const real = req.headers.get("x-real-ip");
+  if (real) return real.trim();
   const fwd = req.headers.get("x-forwarded-for");
-  if (fwd) return fwd.split(",")[0].trim();
-  return req.headers.get("x-real-ip") ?? "unknown";
+  if (fwd) {
+    const hops = fwd.split(",").map((s) => s.trim()).filter(Boolean);
+    if (hops.length > 0) return hops[hops.length - 1];
+  }
+  return "unknown";
 }
 
 // Public paths: the auth screens and the auth endpoints themselves.
@@ -30,14 +37,38 @@ function isPublic(pathname: string): boolean {
   return pathname.startsWith("/api/auth/");
 }
 
+// Build an absolute redirect from the FORWARDED host/proto. Behind nginx the
+// standalone server's nextUrl reflects its internal listen address
+// (localhost:8012), so we must use the Host header (real public domain) or the
+// browser bounces to localhost.
+function redirectTo(req: NextRequest, path: string): NextResponse {
+  const host = req.headers.get("x-forwarded-host") ?? req.headers.get("host");
+  const proto = req.headers.get("x-forwarded-proto") ?? "https";
+  if (host) return NextResponse.redirect(`${proto}://${host}${path}`);
+  const url = req.nextUrl.clone();
+  url.pathname = path;
+  url.search = "";
+  return NextResponse.redirect(url);
+}
+
 export async function middleware(req: NextRequest) {
+  const { pathname } = req.nextUrl;
+
+  // Already signed in and opening the login page? Send them straight home.
+  // Keyed only on a valid session cookie, so it works even in local dev where
+  // no basic-auth password is configured. A clean 307 here (before the page
+  // renders) avoids the soft/streaming redirect the page component would emit.
+  if (pathname === "/login") {
+    const session = req.cookies.get(SESSION_COOKIE)?.value;
+    if (await verifySession(session)) return redirectTo(req, "/");
+  }
+
   const expectedUser = process.env.AUTH_USERNAME ?? "";
   const expectedPass = process.env.AUTH_PASSWORD ?? "";
 
   // Auth is opt-in. If no password is set (e.g. local dev), let everything through.
   if (!expectedPass) return NextResponse.next();
 
-  const { pathname } = req.nextUrl;
   if (isPublic(pathname)) return NextResponse.next();
 
   // 1) Cookie session — the human path (login page sets a signed 30-day cookie).

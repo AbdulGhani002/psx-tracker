@@ -21,7 +21,8 @@ import {
   getRiskMetrics,
   getAppSettings,
   checkDataAvailability,
-} from "@/lib/data";
+ getEffectiveInflationPct, getAttribution,} from "@/lib/data";
+import { realPct } from "@/lib/calculations/pk-tax";
 import {
   fmtRs,
   fmtUsd,
@@ -53,20 +54,26 @@ function BlockFallback({ rows = 3 }: { rows?: number }) {
 }
 
 async function TopBlock() {
-  const [avail, summary, netWorth, movers, usdPkr] = await Promise.all([
+  const [avail, summary, netWorth, movers, usdPkr, inf] = await Promise.all([
     checkDataAvailability(),
     getPortfolioSummary(),
     getNetWorth(),
     getTodaysMovers(),
     getUsdPkr(),
+    getEffectiveInflationPct(),
   ]);
   const usd = (rs: number) => (usdPkr ? `≈ ${fmtUsd(rs, usdPkr, false)}` : undefined);
   const hasOtherAssets = netWorth.funds + netWorth.savings + netWorth.cash > 0;
   const hasMovers = movers.gainers.length + movers.losers.length > 0;
   const xirrLabel = summary.xirr != null ? fmtSignedPct(summary.xirr, 1) : "—";
+  // Real XIRR: the same annualised return with inflation taken out (Fisher). In
+  // an 11% CPI economy the nominal figure alone flatters everything.
+  const realXirr = summary.xirr != null && inf.pct != null ? realPct(summary.xirr * 100, inf.pct) : null;
   const xirrHint =
     summary.xirr != null
-      ? `Annualised over ${Math.round(summary.xirrSpanDays)} days`
+      ? `Annualised over ${Math.round(summary.xirrSpanDays)} days${
+          realXirr != null ? ` · real ${realXirr >= 0 ? "+" : ""}${realXirr.toFixed(1)}% after ${inf.pct!.toFixed(1)}% CPI` : ""
+        }`
       : summary.xirrSpanDays < 90
       ? `Needs 90+ days (you're at ${Math.round(summary.xirrSpanDays)})`
       : "Out of range";
@@ -172,6 +179,42 @@ async function TopBlock() {
         />
       </StatRow>
     </>
+  );
+}
+
+// The month's change, split by holding — so the number at the top has a WHY.
+async function AttributionBlock() {
+  const a = await getAttribution(30).catch(() => null);
+  if (!a || a.contributions.length === 0) return null;
+  const rows = a.contributions.slice(0, 6);
+  const anyPartial = rows.some((c) => c.partialWindow);
+  return (
+    <Card>
+      <div className="flex items-baseline justify-between mb-3 flex-wrap gap-2">
+        <span className="label-cap">What moved it — last 30 days (price only)</span>
+        <span className="font-mono mono-num text-[13px]" style={{ color: a.totalChangePkr >= 0 ? "var(--positive)" : "var(--negative)" }}>
+          {a.totalChangePkr >= 0 ? "+" : ""}{fmtRs(a.totalChangePkr)}
+        </span>
+      </div>
+      <div className="space-y-1.5">
+        {rows.map((c) => (
+          <div key={c.symbol} className="grid grid-cols-[64px_1fr_auto_auto] items-baseline gap-3 font-mono mono-num text-[13px]">
+            <Link href={"/holdings/" + c.symbol} className="font-medium hover:text-[var(--accent-deep)]">{c.symbol}{c.partialWindow ? "†" : ""}</Link>
+            <span className="text-[11px] text-muted truncate">{fmtRs(c.priceThen, true)} → {fmtRs(c.priceNow, true)}</span>
+            <span style={{ color: c.pricePct >= 0 ? "var(--positive)" : "var(--negative)" }}>{fmtSignedPct(c.pricePct)}</span>
+            <span className="text-right min-w-[90px]" style={{ color: c.changePkr >= 0 ? "var(--positive)" : "var(--negative)" }}>
+              {c.changePkr >= 0 ? "+" : ""}{fmtRs(c.changePkr)}
+            </span>
+          </div>
+        ))}
+      </div>
+      {(anyPartial || a.excluded.length > 0) && (
+        <p className="text-[10px] text-muted mt-3">
+          {anyPartial ? "† price history starts inside the window, so this move is measured from the first available quote. " : ""}
+          {a.excluded.length > 0 ? "Not shown (no usable prices): " + a.excluded.map((e) => e.symbol).join(", ") + "." : ""}
+        </p>
+      )}
+    </Card>
   );
 }
 
@@ -390,6 +433,10 @@ export default function Dashboard() {
 
       <Suspense fallback={<BlockFallback rows={5} />}>
         <TopBlock />
+      </Suspense>
+
+      <Suspense fallback={null}>
+        <AttributionBlock />
       </Suspense>
 
       <Suspense fallback={<BlockFallback rows={6} />}>

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getValuations, getDividendForecast, getPortfolioSummary } from "@/lib/data";
+import { getIntrinsicValuations, getDividendForecast, getPortfolioSummary } from "@/lib/data";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -39,11 +39,11 @@ export async function GET(req: NextRequest) {
       rows.push([p.symbol, p.cadence, n(p.latestEps), n(p.appliedPayoutRatioPct, 0), n(p.declaredAnnualDps), n(p.forwardDpsAnnual), n(p.forwardYieldPct, 1), p.dividendCover == null ? "" : n(p.dividendCover, 1), n(p.expectedAnnualIncome, 0), p.sustainability, p.confidence]);
     }
   } else {
-    const { valuations } = await getValuations();
+    const { items } = await getIntrinsicValuations();
     name = "valuation";
-    rows = [["Symbol", "Price", "EPS", "Book value", "P/E", "P/B", "ROE %", "Earn. yield %", "Div. yield %", "Fair value", "Margin of safety %", "Verdict"]];
-    for (const v of valuations) {
-      rows.push([v.symbol, n(v.price), n(v.eps), n(v.bookValuePerShare), n(v.pe, 1), n(v.pb, 1), n(v.roePct, 0), n(v.earningsYieldPct, 1), n(v.dividendYieldPct, 1), n(v.fairValue), n(v.marginOfSafetyPct, 0), v.verdict]);
+    rows = [["Symbol", "Price", "Intrinsic", "Low", "High", "Margin of safety %", "Buy below", "Zone", "Confidence"]];
+    for (const v of items) {
+      rows.push([v.symbol, n(v.price), n(v.intrinsic), n(v.low), n(v.high), n(v.marginOfSafetyPct, 0), n(v.buyBelow), v.zone, v.confidence]);
     }
   }
 

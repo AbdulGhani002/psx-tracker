@@ -11,6 +11,9 @@ export type PositionRow = {
   shares: number;
   avgCost: number;
   currentPrice: number;
+  // False when we have no price at all for this symbol (never scraped, or every
+  // fetch failed). "No price" is NOT "price zero" — see buildPositionRows.
+  priceKnown: boolean;
   totalCost: number;
   marketValue: number;
   unrealizedPL: number;
@@ -26,6 +29,10 @@ export type PositionRow = {
 
 export type PortfolioSummary = {
   positions: PositionRow[];
+  // Symbols we hold shares in but have NO price for. totalValue/totalCost/
+  // unrealizedPL exclude these, so a non-empty list means the totals are
+  // incomplete — the UI must say so rather than present them as the full picture.
+  unpricedSymbols: string[];
   totalValue: number;
   totalCost: number;
   unrealizedPL: number;
@@ -53,10 +60,18 @@ export function buildPositionRows({
   for (const h of holdings) {
     const txs = transactions.filter((t) => t.symbol === h.symbol);
     const derived = deriveFromTransactions(txs);
-    const currentPrice = prices.get(h.symbol) ?? 0;
-    const marketValue = derived.shares * currentPrice;
-    const unrealizedPL = marketValue - derived.totalCost;
-    const unrealizedPct = derived.totalCost > 0 ? unrealizedPL / derived.totalCost : 0;
+    // A missing price means UNKNOWN, not zero. The old `?? 0` valued the
+    // position at nothing, which reported unrealizedPL = −totalCost (a fake
+    // 100% loss) and silently dropped the holding out of the portfolio total
+    // and every weight %. When we have no price we report no gain/loss and flag
+    // it, so the UI can say "price unavailable" instead of inventing a wipeout.
+    const quoted = prices.get(h.symbol);
+    const priceKnown = quoted != null && Number.isFinite(quoted) && quoted > 0;
+    const currentPrice = priceKnown ? (quoted as number) : 0;
+    const marketValue = priceKnown ? derived.shares * currentPrice : 0;
+    const unrealizedPL = priceKnown ? marketValue - derived.totalCost : 0;
+    const unrealizedPct = priceKnown && derived.totalCost > 0 ? unrealizedPL / derived.totalCost : 0;
+    // Realised gains and dividends are BANKED — they stay true even with no quote.
     const totalReturn = unrealizedPL + derived.realizedPL + derived.dividendsReceived;
     const totalReturnPct = derived.totalCost > 0 ? totalReturn / derived.totalCost : 0;
 
@@ -68,6 +83,7 @@ export function buildPositionRows({
       shares: derived.shares,
       avgCost: derived.avgCost,
       currentPrice,
+      priceKnown,
       totalCost: derived.totalCost,
       marketValue,
       unrealizedPL,
@@ -103,9 +119,19 @@ export function summarisePortfolio({
   prices: Map<string, number>;
 }): PortfolioSummary {
   const positions = buildPositionRows({ holdings, transactions, prices });
-  const totalValue = positions.reduce((s, p) => s + p.marketValue, 0);
-  const totalCost = positions.reduce((s, p) => s + p.totalCost, 0);
+
+  // Compare like with like. An unpriced position contributes 0 to market value,
+  // so including its COST here would subtract it straight out of unrealised P/L
+  // and invent a loss at the portfolio level — the same bug as the old `?? 0`,
+  // one layer up. Value and cost must be summed over the SAME positions; the
+  // unpriced ones are reported separately via `unpricedSymbols` so the UI can
+  // tell the user their total is incomplete rather than quietly wrong.
+  const priced = positions.filter((p) => p.priceKnown);
+  const unpricedSymbols = positions.filter((p) => !p.priceKnown && p.shares > 0).map((p) => p.symbol);
+  const totalValue = priced.reduce((s, p) => s + p.marketValue, 0);
+  const totalCost = priced.reduce((s, p) => s + p.totalCost, 0);
   const unrealizedPL = totalValue - totalCost;
+  // Realised gains and dividends are banked cash — count them for every position.
   const realizedPL = positions.reduce((s, p) => s + p.realizedPL, 0);
   const dividendsTotal = positions.reduce((s, p) => s + p.dividendsReceived, 0);
 
@@ -170,6 +196,7 @@ export function summarisePortfolio({
 
   return {
     positions,
+    unpricedSymbols,
     totalValue,
     totalCost,
     unrealizedPL,

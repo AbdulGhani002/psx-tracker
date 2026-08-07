@@ -1,18 +1,23 @@
 // SBP (State Bank of Pakistan) policy-rate history as a step function.
 //
-// The rate changes only at MPC meetings (~every 6 weeks), so it is curated,
-// not fetched. These are the BUILT-IN DEFAULTS — the user can override/extend
-// them from the Settings page (stored in the SbpRate collection). When the DB
-// has any entries, those are used instead of this table.
+// This table is HISTORY ONLY — every entry is a real, past MPC decision. The
+// CURRENT rate is never hardcoded here: it is fetched live from SBP by
+// `lib/feeds/sbp.ts` and prepended to this list by `getSbpRateSteps()`.
+// The user can still override the whole curve from Settings (SbpRate
+// collection); when the DB has entries, those win.
 //
-// Source to update from: https://www.sbp.org.pk/m_policy/index.asp
-// NOTE: values dated into the future are illustrative placeholders.
+// NEVER add a future-dated or guessed entry to this table. It previously held
+// two steps commented "illustrative"; their dates passed, so a placeholder
+// became the live rate and silently drove required return, intrinsic value and
+// buy-zone alerts. (The placeholder 10.5 was in fact SBP's corridor FLOOR, not
+// the policy rate, which was 11.5.) If the live feed is down we fall back to the
+// newest real step below and label it stale — we do not invent a number.
+//
+// Source of truth: https://www.sbp.org.pk/ecodata/rates/tbill/tbill.asp
 
 export type RateStep = { from: string; rate: number };
 
 export const SBP_POLICY_RATE_DEFAULTS: RateStep[] = [
-  { from: "2026-03-09", rate: 10.5 }, // illustrative — update from SBP
-  { from: "2025-12-15", rate: 11.0 }, // illustrative
   { from: "2025-05-05", rate: 11.0 },
   { from: "2025-01-27", rate: 12.0 },
   { from: "2024-12-16", rate: 13.0 },
