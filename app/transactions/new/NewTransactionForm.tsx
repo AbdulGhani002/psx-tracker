@@ -45,12 +45,26 @@ export function NewTransactionForm({ existingSymbols, defaultSymbol }: Props) {
   const [type, setType] = useState<TransactionType>(() => {
     if (typeof window !== "undefined") {
       const t = new URLSearchParams(window.location.search).get("type");
-      if (t === "SELL" || t === "BUY" || t === "DIVIDEND") return t as TransactionType;
+      if (t === "SELL" || t === "BUY" || t === "DIVIDEND" || t === "BONUS" || t === "RIGHT") return t as TransactionType;
     }
     return "BUY";
   });
-  const [date, setDate] = useState<string>(new Date().toISOString().slice(0, 10));
-  const [shares, setShares] = useState<number>(0);
+  // Corporate-action cards deep-link with the entitlement math pre-filled —
+  // date and shares from the announcement, still fully editable here.
+  const [date, setDate] = useState<string>(() => {
+    if (typeof window !== "undefined") {
+      const d = new URLSearchParams(window.location.search).get("date");
+      if (d && /^\d{4}-\d{2}-\d{2}$/.test(d)) return d;
+    }
+    return new Date().toISOString().slice(0, 10);
+  });
+  const [shares, setShares] = useState<number>(() => {
+    if (typeof window !== "undefined") {
+      const s = Number(new URLSearchParams(window.location.search).get("shares"));
+      if (Number.isFinite(s) && s > 0) return Math.floor(s);
+    }
+    return 0;
+  });
   const [price, setPrice] = useState<number>(0);
   const [fees, setFees] = useState<number>(0);
   const [feesManual, setFeesManual] = useState<boolean>(false);

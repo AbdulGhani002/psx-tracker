@@ -16,19 +16,61 @@ import { currentTaxYear } from "@/lib/dates";
 import { fmtRs, fmtUsd, fmtSignedRs, fmtPct } from "@/lib/format";
 import { getUsdPkr } from "@/lib/fx";
 import type { PositionRow } from "@/lib/calculations";
+import { computeBenchmark } from "@/lib/feeds/benchmark";
 
 export const dynamic = "force-dynamic";
 
+type MonthlyRel = { month: string; you: number | null; kse: number | null; rel: number | null; youTR: number | null };
+
+// Month-end relative performance + drawdown, derived from the same daily
+// benchmark series the overview chart draws. Price-only vs KSE-100 is the
+// like-for-like column (the index as quoted excludes dividends); the TR column
+// is your true return with dividends reinvested.
+function monthlyRelative(points: Array<{ date: string; portfolio: number | null; portfolioTR: number | null; kse100: number | null }>) {
+  const byMonth = new Map<string, { portfolio: number | null; portfolioTR: number | null; kse100: number | null }>();
+  for (const p of points) byMonth.set(p.date.slice(0, 7), p); // last point of each month wins
+  const months = [...byMonth.keys()].sort();
+  const rows: MonthlyRel[] = [];
+  for (let i = 1; i < months.length; i++) {
+    const prev = byMonth.get(months[i - 1])!;
+    const cur = byMonth.get(months[i])!;
+    const ret = (a: number | null, b: number | null) => (a != null && b != null && b > 0 ? (a / b - 1) * 100 : null);
+    const you = ret(cur.portfolio, prev.portfolio);
+    const kse = ret(cur.kse100, prev.kse100);
+    rows.push({ month: months[i], you, kse, rel: you != null && kse != null ? you - kse : null, youTR: ret(cur.portfolioTR, prev.portfolioTR) });
+  }
+  return rows.reverse(); // newest first
+}
+
+function maxDrawdownPct(points: Array<{ portfolioTR: number | null }>): number | null {
+  let peak = -Infinity;
+  let worst = 0;
+  let seen = false;
+  for (const p of points) {
+    if (p.portfolioTR == null) continue;
+    seen = true;
+    peak = Math.max(peak, p.portfolioTR);
+    if (peak > 0) worst = Math.min(worst, (p.portfolioTR / peak - 1) * 100);
+  }
+  return seen ? worst : null;
+}
+
 export default async function WealthPage() {
   const avail = await checkDataAvailability();
-  const [netWorth, summary, funds, savings, cash, usdPkr] = await Promise.all([
+  const [netWorth, summary, funds, savings, cash, usdPkr, bench] = await Promise.all([
     getNetWorth(),
     getPortfolioSummary(),
     getMutualFundsValued(),
     getSavingsValued(),
     getCashSummary(),
     getUsdPkr(),
+    computeBenchmark("ALL").catch(() => null),
   ]);
+  const monthly = bench ? monthlyRelative(bench.points).slice(0, 12) : [];
+  const drawdown = bench ? maxDrawdownPct(bench.points) : null;
+  const cumYou = bench?.returns?.portfolio ?? null;
+  const cumTR = bench?.returns?.portfolioTR ?? null;
+  const cumKse = bench?.returns?.kse100 ?? null;
 
   const ty = currentTaxYear();
   const equityRows = summary.positions.filter((p) => p.shares > 0);
@@ -114,6 +156,55 @@ export default async function WealthPage() {
             rowKey={(a: any) => a._id}
             empty=""
           />
+        </Section>
+      )}
+
+      {monthly.length > 0 && (
+        <Section
+          number="05"
+          title="You vs KSE-100"
+          display="Did the stock-picking earn its keep?"
+          description="Month by month against the index. The like-for-like column is price-only (KSE-100 as quoted excludes dividends); 'with divs' is your true total return. A long streak of red relatives is the argument for an index-like core."
+        >
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
+            <Stat label="You (price, window)" value={cumYou != null ? `${cumYou >= 0 ? "+" : ""}${cumYou.toFixed(1)}%` : "—"} tone={cumYou != null && cumYou >= 0 ? "positive" : "negative"} />
+            <Stat label="KSE-100 (window)" value={cumKse != null ? `${cumKse >= 0 ? "+" : ""}${cumKse.toFixed(1)}%` : "—"} tone="muted" />
+            <Stat
+              label="Relative"
+              value={cumYou != null && cumKse != null ? `${cumYou - cumKse >= 0 ? "+" : ""}${(cumYou - cumKse).toFixed(1)} pp` : "—"}
+              tone={cumYou != null && cumKse != null && cumYou >= cumKse ? "positive" : "negative"}
+            />
+            <Stat label="Max drawdown (with divs)" value={drawdown != null ? `${drawdown.toFixed(1)}%` : "—"} tone="muted" hint={cumTR != null ? `total return ${cumTR >= 0 ? "+" : ""}${cumTR.toFixed(1)}%` : undefined} />
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-[13px]">
+              <thead>
+                <tr className="border-t border-b border-ink text-left">
+                  <th className="px-2 py-2 font-mono text-[10px] uppercase tracking-stat text-muted font-medium">Month</th>
+                  <th className="px-2 py-2 font-mono text-[10px] uppercase tracking-stat text-muted font-medium text-right">You (price)</th>
+                  <th className="px-2 py-2 font-mono text-[10px] uppercase tracking-stat text-muted font-medium text-right">KSE-100</th>
+                  <th className="px-2 py-2 font-mono text-[10px] uppercase tracking-stat text-muted font-medium text-right">Relative</th>
+                  <th className="px-2 py-2 font-mono text-[10px] uppercase tracking-stat text-muted font-medium text-right">You (with divs)</th>
+                </tr>
+              </thead>
+              <tbody>
+                {monthly.map((m) => {
+                  const cell = (v: number | null, signed = true) =>
+                    v == null ? <span className="text-muted">—</span> : <span style={signed ? { color: v >= 0 ? "var(--positive)" : "var(--negative)" } : undefined}>{v >= 0 ? "+" : ""}{v.toFixed(1)}%</span>;
+                  return (
+                    <tr key={m.month} className="border-b border-rule">
+                      <td className="px-2 py-1.5 font-mono">{m.month}</td>
+                      <td className="px-2 py-1.5 text-right font-mono mono-num">{cell(m.you)}</td>
+                      <td className="px-2 py-1.5 text-right font-mono mono-num">{cell(m.kse)}</td>
+                      <td className="px-2 py-1.5 text-right font-mono mono-num">{m.rel == null ? <span className="text-muted">—</span> : <span style={{ color: m.rel >= 0 ? "var(--positive)" : "var(--negative)" }}>{m.rel >= 0 ? "+" : ""}{m.rel.toFixed(1)} pp</span>}</td>
+                      <td className="px-2 py-1.5 text-right font-mono mono-num">{cell(m.youTR)}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+          <p className="text-[11px] text-muted mt-2">Partial first and current months are shown as-is. Last 12 month-ends from the daily series.</p>
         </Section>
       )}
 

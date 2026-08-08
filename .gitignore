@@ -11,3 +11,5 @@ Thumbs.db
 .vercel
 coverage/
 *.log
+
+tools/nav-relay.env

@@ -6,7 +6,7 @@ import { getUsdPkr } from "@/lib/fx";
 import { getPriceFreshness } from "@/lib/prices";
 import { getFlows, getEarningsCalendar } from "@/lib/analytics";
 import { realPct } from "@/lib/calculations/pk-tax";
-import { getDecisionInbox } from "@/lib/data-decisions";
+import { getDecisionInbox, getSellDiscipline } from "@/lib/data-decisions";
 import { runAsUser } from "@/lib/auth/current-user";
 import { uid } from "@/lib/auth/uid";
 import { sendTelegram } from "@/lib/notify/telegram";
@@ -118,6 +118,40 @@ async function runAlertsForCurrentUser(forceDigest = false) {
     }
   } catch {
     /* valuations unavailable — skip */
+  }
+
+  // 4.5 Plan proximity: your OWN pre-committed levels, approaching. The price
+  //     trigger fires AT the ceiling; this is the heads-up 3% out, so the
+  //     decision gets thought about before the day it's due. Fires only where
+  //     a plan exists (levels are never guessed), skips week-old prices, and
+  //     re-arms weekly.
+  try {
+    const { positions } = await getSellDiscipline();
+    const withPlans = positions.filter((p) => p.signal.fairValueHigh != null || p.signal.fairValueLow != null);
+    if (withPlans.length > 0) {
+      const fresh = await getPriceFreshness(withPlans.map((p) => p.signal.symbol));
+      const week = isoWeekKey(new Date());
+      for (const p of withPlans) {
+        const s = p.signal;
+        if (s.price <= 0) continue;
+        const f = fresh.get(s.symbol);
+        if (f && f.ageDays >= 7) continue;
+        if (s.fairValueHigh != null && s.price < s.fairValueHigh && s.price >= s.fairValueHigh * 0.97) {
+          candidates.push({
+            key: `near-ceiling:${s.symbol}:${week}`,
+            message: `📏 <b>${s.symbol}</b> Rs ${s.price.toFixed(2)} is within 3% of YOUR Rs ${s.fairValueHigh} ceiling. Decide the trim before the day it hits.`,
+          });
+        }
+        if (s.fairValueLow != null && s.price > s.fairValueLow && s.price <= s.fairValueLow * 1.03) {
+          candidates.push({
+            key: `near-buy:${s.symbol}:${week}`,
+            message: `📏 <b>${s.symbol}</b> Rs ${s.price.toFixed(2)} is within 3% of YOUR Rs ${s.fairValueLow} buy level.`,
+          });
+        }
+      }
+    }
+  } catch {
+    /* discipline data unavailable — skip */
   }
 
   // 5. Foreign-flow streaks (FIPI): sustained foreign buying/selling is a

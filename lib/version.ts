@@ -1,7 +1,7 @@
 // Single source of truth for the app version + changelog.
 // Bump APP_VERSION and prepend a CHANGELOG entry on every release.
 
-export const APP_VERSION = "7.1.0";
+export const APP_VERSION = "7.2.0";
 
 export const BUILD_DATE =
   process.env.NEXT_PUBLIC_BUILD_DATE ?? "";
@@ -17,6 +17,22 @@ export type ChangelogEntry = {
 
 // Reverse-chronological. Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: "7.2.0",
+    date: "2026-08-08",
+    title: "Filing season, honest fund cost basis, and the app that reports to you",
+    changes: [
+      "FBR filing pack on the Tax page: pick a tax year and get every dividend payer with gross, WHT and zakat deducted at source, plus every FIFO disposal with its exact gain — exportable as one CSV to fill the return from. Defaults to the year you're actually filing (the one that just ended).",
+      "iSave statements now read their own transaction rows. Every row's units are proven against the running balance chain (ending exactly at the statement's closing units), then cost basis updates itself: new money adds cost, reinvested dividends add units free, redemptions take cost out at your average. Anything unprovable — a broken chain, an unrecognised row type, a missing statement in between — leaves cost untouched and says why. The machine now reproduces July's hand-done reconciliation to the paisa.",
+      "Plan-proximity pings: when a price gets within 3% of YOUR ceiling or YOUR buy level, Telegram tells you before the trigger day arrives. Only fires where a plan exists, skips week-old prices, re-arms weekly.",
+      "Trim simulator on every holding: pick shares to sell and see the exact FIFO CGT this tax year (lot by lot), your new weight, the freed cash net of fees and tax, and what that cash earns parked in the MMF versus staying put. Nothing is saved — and an actual sale still goes through the decision gate.",
+      "Sector peers on every holding: the same-sector names from the live 500-stock universe with P/E, earnings yield and dividend yield, medians included, your row highlighted.",
+      "Corporate actions announced on shares you hold (bonus and right issues) now surface on the Transactions page with the entitlement math pre-filled — one click opens the form with shares and date set. Nothing records itself.",
+      "You vs KSE-100 on the Wealth page: month-by-month relative performance (like-for-like price returns, with your true with-dividends column alongside), the window totals, and your max drawdown.",
+      "A one-page PDF statement lands in your Telegram on the 1st of every month: net worth, what moved it, dividends banked, trades, decisions logged, positions. Typeset properly on the server, black and white.",
+      "Fresh NAVs are back despite MUFAP's block: the datacentre is walled, but your own PC isn't — a small daily task fetches the fund-price page at home and relays the raw HTML to the server, which parses and validates it with the same code as before. Refuses tiny or garbled pages rather than overwrite a good snapshot.",
+    ],
+  },
   {
     version: "7.1.0",
     date: "2026-08-07",

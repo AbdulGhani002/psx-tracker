@@ -3,7 +3,7 @@ import { uid } from "@/lib/auth/uid";
 import { connectDb } from "@/lib/db";
 import { MutualFundModel } from "@/lib/models";
 import { extractLines } from "@/lib/pdf/pos-text";
-import { parseIsaveStatement, ISAVE_CODE_TO_MUFAP } from "@/lib/funds/isave-parse";
+import { parseIsaveStatement, walkCost, ISAVE_CODE_TO_MUFAP } from "@/lib/funds/isave-parse";
 import { getFeedSnapshot, saveFeedSnapshot } from "@/lib/data";
 
 export const dynamic = "force-dynamic";
@@ -24,6 +24,10 @@ type FundResult = {
   unitsDelta: number | null;
   applied: boolean;
   note: string;
+  activityRows: number;
+  avgCostBefore: number | null;
+  avgCostProposed: number | null; // from the statement's own transaction rows
+  costNote: string;
 };
 
 // One statement PDF in, reconciliation out. Preview by default; ?apply=1 writes
@@ -71,7 +75,32 @@ export async function POST(req: NextRequest) {
       unitsDelta: doc ? Math.round((f.units - doc.units) * 10000) / 10000 : null,
       applied: false,
       note: "",
+      activityRows: f.activity?.rows.length ?? 0,
+      avgCostBefore: doc ? doc.avgCost : null,
+      avgCostProposed: null,
+      costNote: "",
     };
+    // Cost proposal from the statement's own rows: only meaningful when the
+    // window STARTS where our books stand (opening balance = tracked units),
+    // the unit chain reconciles, and every row's nature is classifiable.
+    let costWalk: ReturnType<typeof walkCost> | null = null;
+    if (doc && f.activity) {
+      if (Math.abs(f.activity.lastBalance - doc.units) > 0.002) {
+        r.costNote = `statement window opens at ${f.activity.lastBalance} units but you're tracked at ${doc.units} — a statement in between is missing, cost untouched`;
+      } else {
+        costWalk = walkCost(f.activity, doc.avgCost);
+        if (costWalk.ok) {
+          r.avgCostProposed = Math.round(costWalk.newAvgCost * 1e6) / 1e6;
+          const bits: string[] = [];
+          if (costWalk.moneyIn > 0) bits.push(`Rs ${costWalk.moneyIn.toFixed(2)} new money in`);
+          if (costWalk.costOut > 0) bits.push(`Rs ${costWalk.costOut.toFixed(2)} cost out at your average`);
+          if (bits.length === 0) bits.push("only reinvested dividends — units free, cost unchanged");
+          r.costNote = bits.join("; ");
+        } else {
+          r.costNote = `cost untouched: ${costWalk.reason}`;
+        }
+      }
+    }
     if (!mufapName) {
       r.note = "unknown iSave code — not applied, tell me and I'll map it";
     } else if (!doc) {
@@ -79,15 +108,17 @@ export async function POST(req: NextRequest) {
     } else if (doc.anchorDate && doc.anchorDate > f.asOf) {
       r.note = `tracked units are anchored ${doc.anchorDate}, newer than this statement (${f.asOf}) — not applied`;
     } else if (apply && canApply) {
-      await MutualFundModel.updateOne(
-        { _id: doc._id, userId },
-        { $set: { units: f.units, anchorDate: f.asOf } }
-      );
+      const set: Record<string, unknown> = { units: f.units, anchorDate: f.asOf };
+      if (r.avgCostProposed != null) set.avgCost = r.avgCostProposed;
+      await MutualFundModel.updateOne({ _id: doc._id, userId }, { $set: set });
       r.applied = true;
-      r.note =
-        r.unitsDelta === 0
-          ? "units confirmed, anchor moved"
-          : `units ${doc.units} → ${f.units} (cost basis untouched — adjust avg cost in Assets if this delta is new money, not reinvested dividends)`;
+      const costPart =
+        r.avgCostProposed != null
+          ? `, avg cost ${doc.avgCost} → ${r.avgCostProposed} from the statement's own rows`
+          : r.unitsDelta !== 0
+            ? " (cost basis untouched — no clean transaction rows to derive it from)"
+            : "";
+      r.note = (r.unitsDelta === 0 ? "units confirmed, anchor moved" : `units ${doc.units} → ${f.units}`) + costPart;
       appliedCount++;
     } else if (apply && !canApply) {
       r.note = "statement failed its own arithmetic — nothing applied";

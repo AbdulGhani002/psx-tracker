@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getIntrinsicValuations, getDividendForecast, getPortfolioSummary } from "@/lib/data";
+import { getIntrinsicValuations, getDividendForecast, getPortfolioSummary, getFbrPack } from "@/lib/data";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -31,6 +31,28 @@ export async function GET(req: NextRequest) {
     for (const p of s.positions) {
       rows.push([p.symbol, p.name, p.sector, n(p.shares, 0), n(p.avgCost), n(p.currentPrice), n(p.marketValue, 0), n(p.unrealizedPL, 0), n(p.unrealizedPct * 100, 1), n(p.currentPercent, 1)]);
     }
+  } else if (sheet === "fbr") {
+    const yearParam = Number(req.nextUrl.searchParams.get("year"));
+    const pack = await getFbrPack(Number.isFinite(yearParam) && yearParam > 2000 ? yearParam : undefined);
+    name = `fbr-${pack.year.endYear}`;
+    rows = [
+      [`FBR filing pack — ${pack.year.fbrName} (${pack.year.label}, 1 Jul ${pack.year.startYear} – 30 Jun ${pack.year.endYear})`],
+      [],
+      ["DIVIDENDS BY PAYER (Sec 150) — from recorded warrants"],
+      ["Symbol", "Payouts", "Gross", "WHT withheld", "Zakat deducted", "Net received"],
+      ...pack.dividends.map((r): (string | number | null)[] => [r.symbol, r.count, n(r.gross), n(r.wht), n(r.zakat), n(r.net)]),
+      ["TOTAL", pack.dividends.reduce((s, r) => s + r.count, 0), n(pack.divTotals.gross), n(pack.divTotals.wht), n(pack.divTotals.zakat), n(pack.divTotals.net)],
+      [],
+      ["CAPITAL GAINS — FIFO DISPOSALS"],
+      ["Sold", "Symbol", "Shares", "Acquired", "Held (days)", "Long-term", "Cost", "Proceeds", "Gain"],
+      ...pack.disposals.map((d): (string | number | null)[] => [d.soldDate, d.symbol, n(d.shares, 0), d.acquired, d.holdingDays, d.longTerm ? "yes" : "no", n(d.cost), n(d.proceeds), n(d.gain)]),
+      ["CGT SUMMARY", "", `net gain ${n(pack.cgt.netGain)}`, `long-term ${n(pack.cgt.longTermGain)}`, `short-term ${n(pack.cgt.shortTermGain)}`, `CGT @ ${pack.cgt.rate}% = ${n(pack.cgt.cgt)}`],
+      [],
+      ["NOTES"],
+      ["Savings profit-on-debt (Sec 151): file from the bank's WHT certificate — not estimated here."],
+      ["Zakat above is what payers deducted at source, per the recorded warrants."],
+      ["CGT uses FIFO lots with actual holding periods; verify rates against the current FBR schedule before filing."],
+    ];
   } else if (sheet === "forecast") {
     const f = await getDividendForecast();
     name = "dividend-forecast";

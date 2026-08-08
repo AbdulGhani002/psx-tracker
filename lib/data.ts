@@ -1577,6 +1577,129 @@ export async function getSellTodayCgt(): Promise<{
   };
 }
 
+export type CorporateActionSuggestion = {
+  symbol: string;
+  type: "BONUS" | "RIGHT";
+  pct: number; // announced % (of holding for bonus; rights ratio as announced)
+  bookClosure: string;
+  cycle: string;
+  heldShares: number; // held TODAY — the card says so
+  suggestedShares: number; // floor(held × pct / 100)
+};
+
+// Announced bonus/right issues on HELD symbols that have no matching recorded
+// transaction yet — surfaced as pre-filled suggestions, never auto-applied.
+// Window: book closures from 60 days back (you may not have recorded it) to 45
+// days ahead (it's coming). The share math uses TODAY's holding and says so —
+// entitlement actually depends on shares held AT book closure.
+export async function getCorporateActionSuggestions(): Promise<CorporateActionSuggestion[]> {
+  if (!(await tryConnect())) return [];
+  const [holdings, txs] = await Promise.all([
+    HoldingModel.find({ userId: await meId(), currentShares: { $gt: 0 } }).lean(),
+    getAllTransactions(),
+  ]);
+  const held = new Map(holdings.map((h: any) => [h.symbol, h.currentShares as number]));
+  if (held.size === 0) return [];
+  const funds: any[] = await FundamentalModel.find({ symbol: { $in: [...held.keys()] } }).lean();
+
+  const today = new Date();
+  const from = new Date(today.getTime() - 60 * 86400000).toISOString().slice(0, 10);
+  const to = new Date(today.getTime() + 45 * 86400000).toISOString().slice(0, 10);
+
+  const out: CorporateActionSuggestion[] = [];
+  for (const f of funds) {
+    for (const p of f.payouts ?? []) {
+      const t = p.payoutType === "bonus" ? "BONUS" : p.payoutType === "right" ? "RIGHT" : null;
+      const bc = p.bookClosure;
+      if (!t || !bc || bc < from || bc > to || !(p.pctOfFace > 0)) continue;
+      // Already recorded? A BONUS/RIGHT transaction within 3 weeks of the
+      // book closure counts as done.
+      const recorded = txs.some(
+        (tx) => tx.symbol === f.symbol && tx.type === t && Math.abs(new Date(tx.date).getTime() - new Date(bc).getTime()) < 21 * 86400000
+      );
+      if (recorded) continue;
+      const heldShares = held.get(f.symbol) ?? 0;
+      out.push({
+        symbol: f.symbol,
+        type: t,
+        pct: p.pctOfFace,
+        bookClosure: bc,
+        cycle: p.cycle ?? "",
+        heldShares,
+        suggestedShares: Math.floor((heldShares * p.pctOfFace) / 100),
+      });
+    }
+  }
+  return out.sort((a, b) => a.bookClosure.localeCompare(b.bookClosure));
+}
+
+export type FbrDividendRow = { symbol: string; count: number; gross: number; wht: number; zakat: number; net: number };
+
+export type FbrPack = {
+  year: import("./dates").PkTaxYear;
+  years: number[]; // endYears that have any dividend or disposal activity
+  dividends: FbrDividendRow[];
+  divTotals: { gross: number; wht: number; zakat: number; net: number };
+  disposals: Disposal[];
+  cgt: { netGain: number; longTermGain: number; shortTermGain: number; cgt: number; rate: number };
+};
+
+// Everything the FBR return needs for ONE tax year, from recorded warrants and
+// FIFO disposals. Defaults to the last COMPLETED tax year — that's the one you
+// file. Savings profit-on-debt is deliberately absent: the bank's certificate
+// is the filing document there, and we won't put an estimate next to exacts.
+export async function getFbrPack(endYear?: number): Promise<FbrPack> {
+  const { taxYearOf, currentTaxYear } = await import("./dates");
+  const [txs, settings] = await Promise.all([getAllTransactions(), getAppSettings()]);
+
+  const bySymbol = new Map<string, Transaction[]>();
+  for (const t of txs) {
+    if (!bySymbol.has(t.symbol)) bySymbol.set(t.symbol, []);
+    bySymbol.get(t.symbol)!.push(t);
+  }
+  const allDisposals: Disposal[] = [];
+  for (const [sym, list] of bySymbol) allDisposals.push(...buildLots(sym, list).disposals);
+
+  const activeYears = new Set<number>();
+  for (const t of txs) if (t.type === "DIVIDEND") activeYears.add(taxYearOf(t.date).endYear);
+  for (const d of allDisposals) activeYears.add(taxYearOf(d.soldDate).endYear);
+
+  const year = taxYearOf(new Date(Date.UTC(endYear ?? currentTaxYear().endYear - 1, 0, 15)));
+
+  const divMap = new Map<string, FbrDividendRow>();
+  for (const t of txs) {
+    if (t.type !== "DIVIDEND" || taxYearOf(t.date).endYear !== year.endYear) continue;
+    const row = divMap.get(t.symbol) ?? { symbol: t.symbol, count: 0, gross: 0, wht: 0, zakat: 0, net: 0 };
+    row.count += 1;
+    row.gross += t.totalAmount;
+    row.wht += t.taxDeducted ?? 0;
+    row.zakat += t.zakatDeducted ?? 0;
+    row.net += t.netAmount;
+    divMap.set(t.symbol, row);
+  }
+  const dividends = [...divMap.values()].sort((a, b) => b.gross - a.gross);
+  const divTotals = dividends.reduce(
+    (s, r) => ({ gross: s.gross + r.gross, wht: s.wht + r.wht, zakat: s.zakat + r.zakat, net: s.net + r.net }),
+    { gross: 0, wht: 0, zakat: 0, net: 0 }
+  );
+
+  const disposals = allDisposals
+    .filter((d) => taxYearOf(d.soldDate).endYear === year.endYear)
+    .sort((a, b) => a.soldDate.localeCompare(b.soldDate));
+  const rate = settings.filerStatus === "filer" ? settings.cgtRateFiler : settings.cgtRateNonFiler;
+  const netGain = disposals.reduce((s, d) => s + d.gain, 0);
+  const longTermGain = disposals.filter((d) => d.longTerm).reduce((s, d) => s + d.gain, 0);
+
+  return {
+    year,
+    years: [...activeYears].sort((a, b) => b - a),
+    dividends,
+    divTotals,
+    disposals,
+    cgt: { netGain, longTermGain, shortTermGain: netGain - longTermGain, cgt: Math.max(0, netGain) * (rate / 100), rate },
+  };
+}
+
 async function _getRiskMetrics(): Promise<RiskMetrics | null> {
   return cachedSnapshot("page:riskMetrics", 90 * 60 * 1000, computeRiskMetrics);
 }

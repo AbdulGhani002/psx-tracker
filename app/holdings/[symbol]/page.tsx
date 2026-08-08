@@ -12,8 +12,11 @@ import { HoldingTransactions } from "./HoldingTransactions";
 import { DividendOverride } from "./DividendOverride";
 import { LookThroughPanel } from "./LookThroughPanel";
 import { BuyWhatIf } from "./BuyWhatIf";
+import { TrimWhatIf } from "./TrimWhatIf";
 import { DisclosedModelEditor } from "./DisclosedModelEditor";
 import { SellPlanPanel } from "./SellPlanPanel";
+import { buildLots } from "@/lib/calculations/lots";
+import { currentTaxYear } from "@/lib/dates";
 import { getSellDiscipline, getDecisionsFor } from "@/lib/data-decisions";
 import { knownHoldingCompany } from "@/lib/holding-companies";
 import { FootballField } from "@/components/charts/FootballField";
@@ -74,6 +77,32 @@ export default async function HoldingDetail({ params }: Props) {
     getDecisionsFor(symbol).catch(() => []),
   ]);
   const disc = discipline?.positions.find((x) => x.signal.symbol === symbol) ?? null;
+
+  // Sector peers from the market-wide ratings universe — the opportunity-cost
+  // argument with names on it. Best-effort: analytics down → section absent.
+  let peers: Array<{ symbol: string; pe: number | null; ey: number | null; dy: number | null }> = [];
+  let peerSector = "";
+  try {
+    const { getRatings } = await import("@/lib/analytics");
+    const ratings = await getRatings(500);
+    const mine = (ratings?.results ?? []).find((x: any) => x.symbol?.toUpperCase() === symbol);
+    if (mine?.sector) {
+      peerSector = mine.sector;
+      peers = (ratings?.results ?? [])
+        .filter((x: any) => x.sector === mine.sector)
+        .map((x: any) => ({ symbol: x.symbol.toUpperCase(), pe: x.pe ?? null, ey: x.earnings_yield_pct ?? null, dy: x.dividend_yield_pct ?? null }))
+        .sort((a: any, b: any) => (b.ey ?? -1) - (a.ey ?? -1))
+        .slice(0, 14);
+    }
+  } catch {
+    /* analytics unavailable */
+  }
+  const med = (xs: Array<number | null>) => {
+    const v = xs.filter((x): x is number => x != null && Number.isFinite(x)).sort((a, b) => a - b);
+    if (v.length === 0) return null;
+    const m = Math.floor(v.length / 2);
+    return v.length % 2 ? v[m] : (v[m - 1] + v[m]) / 2;
+  };
 
   return (
     <div>
@@ -356,6 +385,23 @@ export default async function HoldingDetail({ params }: Props) {
             reviewOn: h.rebuyRule?.reviewOn ?? "",
           }}
         />
+        {derived.shares > 0 && currentPrice > 0 && (
+          <div className="mt-5">
+            <div className="label-cap mb-2">What would a trim do? (FIFO lots, exact CGT — nothing is saved)</div>
+            <TrimWhatIf
+              symbol={symbol}
+              currentPrice={currentPrice}
+              lots={buildLots(symbol, transactions as any).openLots}
+              positionValue={marketValue}
+              portfolioValue={summary.totalValue}
+              cgtRatePct={(settings as any).filerStatus === "filer" ? (settings as any).cgtRateFiler : (settings as any).cgtRateNonFiler}
+              taxYearLabel={currentTaxYear().label}
+              netRiskFreePct={discipline?.netRiskFree.pct ?? null}
+              netRiskFreeLabel={discipline?.netRiskFree.label ?? "best MMF net of WHT"}
+              equityAfterTaxPct={disc?.spreadPct != null && discipline?.netRiskFree.pct != null ? disc.spreadPct + discipline.netRiskFree.pct : null}
+            />
+          </div>
+        )}
         {symbolDecisions.length > 0 && (
           <div className="mt-5">
             <div className="label-cap mb-2">Every decision you&apos;ve ever made on {symbol}</div>
@@ -391,6 +437,52 @@ export default async function HoldingDetail({ params }: Props) {
           }}
         />
       </Section>
+
+      {peers.length > 1 && (
+        <Section
+          number="11"
+          title="Sector peers"
+          display={`${symbol} against ${peerSector}.`}
+          description="Same-sector names from the live 500-stock universe, sorted by earnings yield. Missing figures print as missing — a blank P/E usually means losses, which is information too."
+        >
+          <div className="overflow-x-auto">
+            <table className="w-full text-[13px]">
+              <thead>
+                <tr className="border-t border-b border-ink text-left">
+                  <th className="px-2 py-2 font-mono text-[10px] uppercase tracking-stat text-muted font-medium">Symbol</th>
+                  <th className="px-2 py-2 font-mono text-[10px] uppercase tracking-stat text-muted font-medium text-right">P/E</th>
+                  <th className="px-2 py-2 font-mono text-[10px] uppercase tracking-stat text-muted font-medium text-right">Earnings yield</th>
+                  <th className="px-2 py-2 font-mono text-[10px] uppercase tracking-stat text-muted font-medium text-right">Dividend yield</th>
+                </tr>
+              </thead>
+              <tbody>
+                {peers.map((p) => {
+                  const isMe = p.symbol === symbol;
+                  return (
+                    <tr key={p.symbol} className="border-b border-rule" style={isMe ? { background: "var(--paper-2)" } : undefined}>
+                      <td className="px-2 py-1.5">
+                        <Link href={`/stock/${p.symbol}`} className={`font-mono hover:text-[var(--accent-deep)] ${isMe ? "font-semibold" : ""}`}>
+                          {p.symbol}
+                        </Link>
+                        {isMe && <span className="ml-2 font-mono text-[9px] uppercase tracking-stat" style={{ color: "var(--accent-deep)" }}>you</span>}
+                      </td>
+                      <td className="px-2 py-1.5 text-right font-mono mono-num">{p.pe != null ? p.pe.toFixed(1) : <span className="text-muted">—</span>}</td>
+                      <td className="px-2 py-1.5 text-right font-mono mono-num">{p.ey != null ? `${p.ey.toFixed(1)}%` : <span className="text-muted">—</span>}</td>
+                      <td className="px-2 py-1.5 text-right font-mono mono-num">{p.dy != null ? `${p.dy.toFixed(1)}%` : <span className="text-muted">—</span>}</td>
+                    </tr>
+                  );
+                })}
+                <tr className="border-b border-ink">
+                  <td className="px-2 py-1.5 font-mono text-[10px] uppercase tracking-stat text-muted">Sector median</td>
+                  <td className="px-2 py-1.5 text-right font-mono mono-num text-muted">{med(peers.map((p) => p.pe))?.toFixed(1) ?? "—"}</td>
+                  <td className="px-2 py-1.5 text-right font-mono mono-num text-muted">{med(peers.map((p) => p.ey)) != null ? `${med(peers.map((p) => p.ey))!.toFixed(1)}%` : "—"}</td>
+                  <td className="px-2 py-1.5 text-right font-mono mono-num text-muted">{med(peers.map((p) => p.dy)) != null ? `${med(peers.map((p) => p.dy))!.toFixed(1)}%` : "—"}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </Section>
+      )}
 
     </div>
   );

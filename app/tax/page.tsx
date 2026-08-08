@@ -6,7 +6,7 @@ import { Card } from "@/components/ui/Card";
 import { Table, type Column } from "@/components/ui/Table";
 import { Badge } from "@/components/ui/Badge";
 import Link from "next/link";
-import { getTaxReport, getCgtReport, getHarvestReport, getSellTodayCgt, getAllTransactions, getAppSettings, getSavingsValued, checkDataAvailability } from "@/lib/data";
+import { getTaxReport, getCgtReport, getHarvestReport, getSellTodayCgt, getAllTransactions, getAppSettings, getSavingsValued, getFbrPack, checkDataAvailability } from "@/lib/data";
 import { whtPct } from "@/lib/calculations/pk-tax";
 import { currentTaxYear } from "@/lib/dates";
 import { dividendWhtFlags } from "@/lib/calculations/tax";
@@ -16,9 +16,10 @@ import type { Disposal } from "@/lib/calculations/lots";
 
 export const dynamic = "force-dynamic";
 
-export default async function TaxPage() {
+export default async function TaxPage({ searchParams }: { searchParams: { fbr?: string } }) {
   const avail = await checkDataAvailability();
-  const [report, cgt, harvest, sellToday, txs, settings, savingsAccts] = await Promise.all([
+  const fbrYear = searchParams?.fbr ? Number(searchParams.fbr) : undefined;
+  const [report, cgt, harvest, sellToday, txs, settings, savingsAccts, fbr] = await Promise.all([
     getTaxReport(),
     getCgtReport(),
     getHarvestReport(),
@@ -26,6 +27,7 @@ export default async function TaxPage() {
     getAllTransactions(),
     getAppSettings(),
     getSavingsValued(),
+    getFbrPack(Number.isFinite(fbrYear) ? fbrYear : undefined),
   ]);
   const flags = dividendWhtFlags(txs, settings.dividendWhtFiler);
   // Headline CGT must be THIS tax year's FIFO figure — the old stat used the
@@ -249,6 +251,61 @@ export default async function TaxPage() {
 
       <Section
         number="06"
+        title="FBR filing pack"
+        display={`Everything the return needs — ${fbr.year.fbrName}.`}
+        description="One tax year, filing-ready: every dividend payer with gross, WHT and zakat deducted at source (Sec 150), and every FIFO disposal with its exact gain. Export it and fill the return from one sheet. Savings profit-on-debt is filed from the bank's own certificate — an estimate has no place next to exact figures."
+        action={
+          <a href={`/api/export?sheet=fbr&year=${fbr.year.endYear}`} className="label-cap hover:text-[var(--accent-deep)]">
+            Export CSV →
+          </a>
+        }
+      >
+        <div className="flex flex-wrap gap-1.5 mb-4">
+          {fbr.years.map((y) => (
+            <Link key={y} href={`/tax?fbr=${y}`} className="label-cap border px-2 py-1 font-mono" style={{ borderColor: fbr.year.endYear === y ? "var(--ink)" : "var(--rule)" }}>
+              TY{y}
+            </Link>
+          ))}
+          {fbr.years.length === 0 && <span className="text-[13px] text-muted">No dividends or disposals recorded yet.</span>}
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <Card>
+            <div className="label-cap mb-2">Dividends by payer — Sec 150 ({fbr.year.label})</div>
+            <Table
+              columns={[
+                { key: "sym", header: "Symbol", render: (r: any) => <span className="font-mono font-medium">{r.symbol}</span> },
+                { key: "c", header: "Payouts", align: "right", mono: true, render: (r: any) => String(r.count) },
+                { key: "g", header: "Gross", align: "right", mono: true, render: (r: any) => fmtRs(r.gross) },
+                { key: "w", header: "WHT", align: "right", mono: true, render: (r: any) => fmtRs(r.wht) },
+                { key: "z", header: "Zakat", align: "right", mono: true, render: (r: any) => fmtRs(r.zakat) },
+                { key: "n", header: "Net", align: "right", mono: true, render: (r: any) => fmtRs(r.net) },
+              ]}
+              rows={fbr.dividends}
+              rowKey={(r: any) => r.symbol}
+              empty="No dividends in this tax year."
+            />
+            {fbr.dividends.length > 0 && (
+              <div className="mt-2 pt-2 border-t border-ink font-mono mono-num text-[12px] flex justify-between">
+                <span className="uppercase tracking-stat text-[10px] text-muted">Total</span>
+                <span>gross {fmtRs(fbr.divTotals.gross)} · WHT {fmtRs(fbr.divTotals.wht)} · zakat {fmtRs(fbr.divTotals.zakat)} · net {fmtRs(fbr.divTotals.net)}</span>
+              </div>
+            )}
+          </Card>
+          <Card>
+            <div className="label-cap mb-2">Capital gains — FIFO disposals ({fbr.year.label})</div>
+            <div className="grid grid-cols-2 gap-3 mb-3">
+              <Stat label="Net gain" value={fmtSignedRs(fbr.cgt.netGain)} tone={fbr.cgt.netGain >= 0 ? "positive" : "negative"} />
+              <Stat label={`CGT @ ${fbr.cgt.rate}%`} value={fmtRs(fbr.cgt.cgt)} tone="accent" />
+              <Stat label="Long-term" value={fmtSignedRs(fbr.cgt.longTermGain)} tone="muted" hint="held > 365d" />
+              <Stat label="Short-term" value={fmtSignedRs(fbr.cgt.shortTermGain)} tone="muted" />
+            </div>
+            <Table columns={disposalCols} rows={fbr.disposals} rowKey={(d) => `${d.symbol}-${d.soldDate}-${d.acquired}-${d.shares}`} empty="No disposals in this tax year." />
+          </Card>
+        </div>
+      </Section>
+
+      <Section
+        number="07"
         title="Savings profit — the tax you don't see"
         display={`Profit on debt, withheld at ${podWht}%`}
         description="Bank profit is 'profit on debt' (Sec 151): the bank withholds before it reaches your account, and for most individuals that is the final tax. The accrual on your Assets page is GROSS — this is the haircut at your current balances and rates."

@@ -17,6 +17,10 @@ type FundResult = {
   unitsDelta: number | null;
   applied: boolean;
   note: string;
+  activityRows: number;
+  avgCostBefore: number | null;
+  avgCostProposed: number | null;
+  costNote: string;
 };
 type StatementResponse = {
   ok: boolean;
@@ -77,8 +81,10 @@ export function StatementCard() {
         <input ref={fileRef} type="file" accept=".pdf,application/pdf" className="hidden" onChange={(e) => onFile(e.target.files?.[0])} />
       </div>
       <p className="text-[13px] text-muted max-w-[64ch]">
-        Upload the statement of account MCB emails you. Units and repurchase NAVs are read per fund, re-checked against the statement&apos;s own total,
-        and previewed against what&apos;s tracked here. Apply moves units and the NAV anchor; cost basis is never touched.
+        Upload the statement of account MCB emails you. Units and repurchase NAVs are read per fund and re-checked against the statement&apos;s own
+        total. When the window&apos;s transaction rows reconcile (every row&apos;s units proven against the balance chain), avg cost updates from them
+        too — new money adds cost, reinvested dividends add units free, redemptions take cost out at your average. Anything unprovable leaves cost
+        untouched and says why.
       </p>
 
       {file && (
@@ -129,6 +135,7 @@ export function StatementCard() {
                   <th className="px-2 py-1.5 uppercase tracking-stat text-muted text-[10px] text-right">NAV</th>
                   <th className="px-2 py-1.5 uppercase tracking-stat text-muted text-[10px] text-right">Value</th>
                   <th className="px-2 py-1.5 uppercase tracking-stat text-muted text-[10px] text-right">Δ units</th>
+                  <th className="px-2 py-1.5 uppercase tracking-stat text-muted text-[10px] text-right">Avg cost</th>
                   <th className="px-2 py-1.5 uppercase tracking-stat text-muted text-[10px]">Status</th>
                 </tr>
               </thead>
@@ -140,7 +147,19 @@ export function StatementCard() {
                     <td className="px-2 py-1.5 text-right">{f.nav}</td>
                     <td className="px-2 py-1.5 text-right">{fmt(f.value)}</td>
                     <td className="px-2 py-1.5 text-right">{f.unitsDelta == null ? "—" : f.unitsDelta > 0 ? `+${f.unitsDelta}` : `${f.unitsDelta}`}</td>
-                    <td className="px-2 py-1.5 text-[11px]">{f.applied ? <span style={{ color: "var(--positive)" }}>{f.note}</span> : f.note || (f.tracked ? "tracked" : "")}</td>
+                    <td className="px-2 py-1.5 text-right">
+                      {f.avgCostProposed != null && f.avgCostBefore != null && f.avgCostProposed !== f.avgCostBefore ? (
+                        <span style={{ color: "var(--accent-deep)" }}>{f.avgCostBefore} → {f.avgCostProposed}</span>
+                      ) : (
+                        f.avgCostBefore ?? "—"
+                      )}
+                    </td>
+                    <td className="px-2 py-1.5 text-[11px]">
+                      {f.applied ? <span style={{ color: "var(--positive)" }}>{f.note}</span> : f.note || (f.tracked ? "tracked" : "")}
+                      {f.activityRows > 0 && (
+                        <div className="text-muted">{f.activityRows} row{f.activityRows === 1 ? "" : "s"} in window{f.costNote ? ` — ${f.costNote}` : ""}</div>
+                      )}
+                    </td>
                   </tr>
                 ))}
               </tbody>
