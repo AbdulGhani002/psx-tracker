@@ -102,7 +102,22 @@ export type SeriesKey =
   | "portfolioUsd"
   | "sp500"
   | "usdpkr"
-  | "riskFree";
+  | "riskFree"
+  | WorldIndexKey;
+
+// The famous world indices, each in its OWN currency (that's how they're
+// quoted everywhere; a PKR investor's realised return would add the rupee's
+// slide on top — the USD/PKR series carries that separately).
+export const WORLD_INDICES = {
+  ndx100: { yahoo: "^NDX", label: "NASDAQ 100", ccy: "USD" },
+  ftse100: { yahoo: "^FTSE", label: "FTSE 100", ccy: "GBP" },
+  dowjones: { yahoo: "^DJI", label: "Dow Jones", ccy: "USD" },
+  dax: { yahoo: "^GDAXI", label: "DAX 40", ccy: "EUR" },
+  nikkei225: { yahoo: "^N225", label: "Nikkei 225", ccy: "JPY" },
+  sensex: { yahoo: "^BSESN", label: "Sensex", ccy: "INR" },
+} as const;
+export type WorldIndexKey = keyof typeof WORLD_INDICES;
+const WORLD_KEYS = Object.keys(WORLD_INDICES) as WorldIndexKey[];
 
 // Extra assets to fold into a total net-worth line. Funds/commodities lack daily
 // history so they're held at their current value across the window (honest
@@ -128,7 +143,7 @@ export type BenchmarkPoint = {
   sp500: number | null;
   usdpkr: number | null;
   riskFree: number | null;
-};
+} & Record<WorldIndexKey, number | null>;
 
 export type BenchmarkSeries = {
   range: { from: string; to: string; key: string };
@@ -175,7 +190,7 @@ export async function buildBenchmarkSeries({
   );
 
   // Fetch everything in parallel. Each failure degrades to an empty series.
-  const [kseSeries, kmiSeries, usdpkrSeries, sp500Series, goldSeries, symbolMap] =
+  const [kseSeries, kmiSeries, usdpkrSeries, sp500Series, goldSeries, symbolMap, ...worldSeries] =
     await Promise.all([
       fetchEodSeries("KSE100"),
       fetchEodSeries("KMI30"),
@@ -183,7 +198,14 @@ export async function buildBenchmarkSeries({
       fetchYahooDaily("^GSPC", yahooRange),
       fetchYahooDaily("GC=F", yahooRange), // gold, USD per troy ounce
       fetchManyEod(symbols),
-    ]);
+      ...WORLD_KEYS.map((k) => fetchYahooDaily(WORLD_INDICES[k].yahoo, yahooRange)),
+    ] as const);
+  const worldLookup = new Map(
+    WORLD_KEYS.map((k, i) => {
+      const s = worldSeries[i] ?? [];
+      return [k, { idx: indexBySeries(s), dates: s.map((p) => p.date) }] as const;
+    })
+  );
 
   if (kseSeries.length === 0) return null;
 
@@ -218,6 +240,7 @@ export async function buildBenchmarkSeries({
     usd: number | null;
     sp: number | null;
     goldPkr: number | null; // gold price converted to PKR
+    world: Record<WorldIndexKey, number | null>;
   };
   const raws: Raw[] = datesInRange.map((date) => {
     const shares = sharesHeldAt(date, transactions);
@@ -232,6 +255,12 @@ export async function buildBenchmarkSeries({
     }
     const usdHere = closeOnOrBefore(usdIdx, usdDates, date);
     const goldUsd = closeOnOrBefore(goldIdx, goldDates, date);
+    const world = Object.fromEntries(
+      WORLD_KEYS.map((k) => {
+        const w = worldLookup.get(k)!;
+        return [k, closeOnOrBefore(w.idx, w.dates, date)];
+      })
+    ) as Record<WorldIndexKey, number | null>;
     return {
       date,
       portfolioValue: pVal,
@@ -240,6 +269,7 @@ export async function buildBenchmarkSeries({
       usd: usdHere,
       sp: closeOnOrBefore(spIdx, spDates, date),
       goldPkr: goldUsd != null && usdHere != null ? goldUsd * usdHere : null,
+      world,
     };
   });
 
@@ -256,6 +286,9 @@ export async function buildBenchmarkSeries({
     usd: trimmed.find((r) => r.usd != null)?.usd ?? 0,
     gold: trimmed.find((r) => r.goldPkr != null)?.goldPkr ?? 0,
   };
+  const worldBase = Object.fromEntries(
+    WORLD_KEYS.map((k) => [k, trimmed.find((r) => r.world[k] != null)?.world[k] ?? 0])
+  ) as Record<WorldIndexKey, number>;
 
   // Value a given share map at a given date (carry-forward close).
   const valueOfSharesAt = (shares: Map<string, number>, date: string): number => {
@@ -411,6 +444,7 @@ export async function buildBenchmarkSeries({
     sp500: idx100(r.sp, base.sp),
     usdpkr: idx100(r.usd, base.usd),
     riskFree: riskFree[i] ?? null,
+    ...(Object.fromEntries(WORLD_KEYS.map((k) => [k, idx100(r.world[k], worldBase[k])])) as Record<WorldIndexKey, number | null>),
   }));
 
   const last = points[points.length - 1];
@@ -421,7 +455,7 @@ export async function buildBenchmarkSeries({
 
   const returns: Partial<Record<SeriesKey, number>> = {};
   const available: SeriesKey[] = [];
-  for (const k of ["portfolio", "portfolioTR", "portfolioReal", "netWorth", "kse100", "kmi30", "gold", "portfolioUsd", "sp500", "usdpkr", "riskFree"] as SeriesKey[]) {
+  for (const k of ["portfolio", "portfolioTR", "portfolioReal", "netWorth", "kse100", "kmi30", "gold", "portfolioUsd", "sp500", "usdpkr", "riskFree", ...WORLD_KEYS] as SeriesKey[]) {
     const r = ret(k);
     if (r !== undefined) {
       returns[k] = r;

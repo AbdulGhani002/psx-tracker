@@ -191,8 +191,8 @@ export function BenchmarkChartLoader() {
 
           <BenchmarkChart points={data.points} visible={visibleList} />
           <p className="text-[11px] text-muted font-mono">
-            All series indexed to 100 at {data.range.from}. USD/PKR &amp; S&amp;P 500 via Yahoo;
-            KSE-100 &amp; KMI-30 via PSX; risk-free compounds the SBP policy rate.
+            All series indexed to 100 at {data.range.from}. World indices (S&amp;P 500, NASDAQ 100, FTSE 100, Dow, DAX, Nikkei 225, Sensex) each in
+            their own currency via Yahoo; KSE-100 &amp; KMI-30 via PSX; risk-free compounds the SBP policy rate.
           </p>
         </>
       )}

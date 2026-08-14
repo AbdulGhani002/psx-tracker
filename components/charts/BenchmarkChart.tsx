@@ -27,6 +27,13 @@ export type BenchmarkPoint = {
   sp500: number | null;
   usdpkr: number | null;
   riskFree: number | null;
+  // World indices, each in its own currency.
+  ndx100: number | null;
+  ftse100: number | null;
+  dowjones: number | null;
+  dax: number | null;
+  nikkei225: number | null;
+  sensex: number | null;
 };
 
 type Props = {

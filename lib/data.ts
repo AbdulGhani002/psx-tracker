@@ -3,50 +3,28 @@ import { cache } from "react";
 import { connectDb } from "./db";
 import { getCurrentUserId } from "./auth/current-user";
 import { knownHoldingCompany } from "./holding-companies";
-import {
-  HoldingModel,
-  TransactionModel,
-  TargetAllocationModel,
-  DecisionLogModel,
-  ScenarioProjectionModel,
-  CashEntryModel,
-  WatchlistEntryModel,
-  SbpRateModel,
-  MutualFundModel,
-  SavingsAccountModel,
-  AppSettingsModel,
-  CommodityTradeModel,
-  FundamentalModel,
-  FeedSnapshotModel,
-  UserModel,
-  DEFAULT_SETTINGS,
-  type Holding,
-  type Transaction,
-} from "./models";
+import { HoldingModel, TransactionModel, CashEntryModel, WatchlistEntryModel, SbpRateModel, MutualFundModel, SavingsAccountModel, AppSettingsModel, CommodityTradeModel, FundamentalModel, FeedSnapshotModel, UserModel, DEFAULT_SETTINGS, type Holding, type Transaction } from "./models";
 import { fetchFundamentals } from "./prices/fundamentals";
 import { fetchPayouts } from "./prices/payouts";
 import type { FundamentalsInput } from "./calculations/dividend-forecast";
 import { SBP_POLICY_RATE_DEFAULTS, policyRateOn, type RateStep } from "./timeseries/sbp-rate";
 import { fetchSbpRates, corridorAgrees, tbill12mPct, type SbpRates } from "./feeds/sbp";
 import { fetchInflation, type InflationData } from "./feeds/inflation";
-import { buildLadder, type Ladder } from "./calculations/ladder";
+
 import { computeAttribution, type Attribution } from "./calculations/attribution";
-import { isFiler as pkIsFiler } from "./calculations/pk-tax";
+
 import { fetchAllNavs, findNav, fetchFundReturns } from "./funds/mufap";
 import { valueSavings, valueFund, type SavingsValuation, type FundValuation } from "./calculations/assets";
-import { buildTaxReport, type TaxReport } from "./calculations/tax";
-import { buildLots, summariseCgt, type Disposal, type CgtSummary, type Lot } from "./calculations/lots";
+
+import { buildLots, type Disposal, type CgtSummary } from "./calculations/lots";
 import { computeRisk, type RiskMetrics } from "./calculations/risk";
-import { valueTrade, type TradeValuation } from "./calculations/pmex";
+import { valueTrade, expiryStatus, type TradeValuation } from "./calculations/pmex";
+import { summarisePmex, fyWindow, financialYearOf, activeFinancialYears, type PmexSummary, type FyWindow } from "./calculations/pmex-summary";
+import { getCommodityRef } from "./commodities/refs";
 import { buildBenchmarkSeries } from "./timeseries/portfolio-history";
 import { fetchEodSeries } from "./timeseries/psx-eod";
 import { getPrices } from "./prices";
-import {
-  summarisePortfolio,
-  computeCashBalance,
-  type PortfolioSummary,
-  type CashSummary,
-} from "./calculations";
+import { summarisePortfolio, computeCashBalance, type PortfolioSummary, type CashSummary } from "./calculations";
 import { forecastDividends, type DividendForecast } from "./calculations/dividend-forecast";
 import { computeSotp, deriveSharesOutstanding, type SotpResult } from "./calculations/sotp";
 import { computeIntrinsic, intrinsicSensitivity, normalizedEps, robustGrowthPct, sectorFairPE, type IntrinsicInputs, type IntrinsicResult, type Sensitivity } from "./calculations/intrinsic";
@@ -54,8 +32,7 @@ import { analyzeConcentration, analyzeCorrelation, type ConcentrationResult, typ
 import { fetchManyEod } from "./timeseries/psx-eod";
 import { fetchMarketWatch, indexLabel, isInIndex } from "./prices/marketwatch";
 import { taxYearOf } from "./dates";
-import { compareSectors, type SectorComparison } from "./calculations/sector-weights";
-import type { SectorWeightsSnapshot } from "./feeds/sector-weights";
+import { type SectorComparison } from "./calculations/sector-weights";
 
 function plain<T>(v: unknown): T {
   return JSON.parse(JSON.stringify(v));
@@ -248,20 +225,6 @@ export async function getUpcomingExDates(days = 14): Promise<Array<{ symbol: str
   return out.sort((a, b) => a.date.localeCompare(b.date));
 }
 
-// Stored par (face) values for a set of symbols — read-only, no PSX fetching,
-// so market-wide pages (the dividend calendar) can use real pars where we have
-// them without triggering hundreds of scrapes. Missing symbols are simply
-// absent; callers fall back to the Rs 10 PSX standard and say so.
-export async function getFaceValues(symbols: string[]): Promise<Record<string, number>> {
-  if (!(await tryConnect())) return {};
-  const upper = [...new Set(symbols.map((s) => s.toUpperCase()))];
-  if (upper.length === 0) return {};
-  const rows: any[] = await FundamentalModel.find({ symbol: { $in: upper } }, { symbol: 1, faceValue: 1 }).lean();
-  const out: Record<string, number> = {};
-  for (const r of rows) if (r.faceValue != null && r.faceValue > 0) out[r.symbol] = r.faceValue;
-  return out;
-}
-
 export async function getDividendForecast(): Promise<DividendForecast> {
   const [holdings, transactions] = await Promise.all([getAllHoldings(), getAllTransactions()]);
   const held = holdings.filter((h) => h.currentShares > 0).map((h) => h.symbol);
@@ -270,7 +233,6 @@ export async function getDividendForecast(): Promise<DividendForecast> {
   for (const [k, v] of prices) priceMap[k] = v;
   return forecastDividends(transactions, holdings, { fundamentals, prices: priceMap });
 }
-
 
 // Valuation across all held stocks. EPS from cached fundamentals, forward
 // dividend + growth from the forecast, book value from the (editable) holding
@@ -595,36 +557,6 @@ export type SectorComparisonResult = {
   yourEquityValue: number;
 };
 
-// Your sector mix vs the KSE-100's, served from the stored snapshot (instant).
-// "Your" side is computed live from current holdings (cheap); the index side is
-// the precomputed market-cap weighting.
-export async function getSectorComparison(): Promise<SectorComparisonResult> {
-  const [snap, summary] = await Promise.all([
-    getFeedSnapshot<SectorWeightsSnapshot>("kse100SectorWeights"),
-    getPortfolioSummary().catch(() => null),
-  ]);
-
-  const yours = (summary?.positions ?? [])
-    .filter((p) => p.marketValue > 0)
-    .map((p) => ({ sector: p.sector || "Unclassified", value: p.marketValue }));
-  const yourEquityValue = yours.reduce((s, y) => s + y.value, 0);
-
-  const indexSectors = snap.data?.sectors ?? [];
-  const comparison = compareSectors(yours, indexSectors);
-
-  return {
-    comparison,
-    index: snap.data?.index ?? "KSE100",
-    asOf: snap.data?.asOf ?? null,
-    updatedAt: snap.updatedAt,
-    status: snap.status,
-    note: snap.note,
-    membersPriced: snap.data?.priced ?? 0,
-    membersTotal: snap.data?.members ?? 0,
-    yourEquityValue,
-  };
-}
-
 export type LookThrough = SotpResult & { symbol: string; name: string; children?: LookThrough[]; partial?: boolean };
 
 // Look-through (sum-of-the-parts) valuation for a single holding company.
@@ -740,19 +672,6 @@ export async function getLookThroughFor(
   }
 
   return base;
-}
-
-// Look-through breakdowns for every holding company in the portfolio (anything
-// with look-through configured). Powers the "How it's valued" methodology page.
-export async function getAllLookThroughs(): Promise<LookThrough[]> {
-  if (!(await tryConnect())) return [];
-  const holdings = await HoldingModel.find({ userId: await meId(), "lookThrough.enabled": true }).lean();
-  const out = await Promise.all(
-    holdings.map((h: any) => getLookThroughFor(h.symbol).catch(() => null))
-  );
-  return out
-    .filter((x): x is LookThrough => x != null && x.navPerShare > 0)
-    .sort((a, b) => b.yourMarketValue - a.yourMarketValue);
 }
 
 export type MarketContext = {
@@ -871,20 +790,6 @@ export async function getMarketContext(symbol: string): Promise<MarketContext> {
   return { symbol: sym, price, week52High, week52Low, positionPct, indices };
 }
 
-export async function getTargetAllocations() {
-  if (!(await tryConnect())) return [];
-  const docs = await TargetAllocationModel.find({ userId: await meId() }).lean();
-  return plain<Array<{ _id: string; symbol: string; targetPercent: number; rebalanceBand: number; rationale: string }>>(docs);
-}
-
-export async function getDecisionLog(symbol?: string) {
-  if (!(await tryConnect())) return [];
-  const filter: Record<string, unknown> = { userId: await meId() };
-  if (symbol) filter.symbol = symbol.toUpperCase();
-  const docs = await DecisionLogModel.find(filter).sort({ date: -1 }).lean();
-  return plain<Array<{ _id: string; symbol: string; date: string; trigger: string; interpretation: string; action: string; positionBefore: number; positionAfter: number }>>(docs);
-}
-
 async function _getCashSummary(): Promise<CashSummary> {
   if (!(await tryConnect())) {
     return {
@@ -981,15 +886,6 @@ async function _getInflationLive(): Promise<InflationData | null> {
 }
 export const getInflationLive = cache(_getInflationLive);
 
-// Headline YoY CPI, or null when PBS is unreachable and we have nothing stored.
-// Callers MUST handle null by saying "needs a feed" — never by substituting 0,
-// which silently turns a real return into a nominal one.
-async function _getInflationPct(): Promise<number | null> {
-  if (!(await tryConnect())) return null;
-  return (await getInflationLive())?.yoyPct ?? null;
-}
-export const getInflationPct = cache(_getInflationPct);
-
 export async function refreshInflation(): Promise<Record<string, unknown>> {
   if (!(await tryConnect())) return { status: "no-db" };
   const live = await fetchInflation();
@@ -1037,72 +933,6 @@ async function _getEffectiveInflationPct(): Promise<{ pct: number | null; source
   return { pct: null, source: "none", period: null };
 }
 export const getEffectiveInflationPct = cache(_getEffectiveInflationPct);
-
-// Everything the next-rupee ladder needs, assembled from live feeds and the
-// user's own instruments. Equity earnings/dividend yield is VALUE-WEIGHTED over
-// the user's priced holdings that the analytics service covers; if none match,
-// the equity rung is omitted (with a reason) rather than guessed.
-async function _getLadderData(): Promise<{
-  ladder: Ladder;
-  inflationSource: "manual" | "pbs" | "none";
-  inflationPeriod: string | null;
-  filer: boolean;
-  sbpAsOf: string | null;
-}> {
-  const [sbp, inf, settings, funds, savings, summary] = await Promise.all([
-    getSbpLive(),
-    getEffectiveInflationPct(),
-    getAppSettings(),
-    getMutualFundsValued(),
-    getSavingsValued(),
-    getPortfolioSummary(),
-  ]);
-
-  let equity: { label: string; earningsYieldPct: number; dividendYieldPct: number } | null = null;
-  try {
-    const { getRatings } = await import("./analytics");
-    const ratings = await getRatings(500);
-    const by = new Map((ratings?.results ?? []).map((r) => [r.symbol.toUpperCase(), r]));
-    let wEy = 0, wDy = 0, wTot = 0;
-    for (const p of summary.positions) {
-      if (p.shares <= 0 || !p.priceKnown) continue;
-      const r = by.get(p.symbol.toUpperCase());
-      if (!r || r.earnings_yield_pct == null) continue;
-      wEy += r.earnings_yield_pct * p.marketValue;
-      wDy += (r.dividend_yield_pct ?? 0) * p.marketValue;
-      wTot += p.marketValue;
-    }
-    if (wTot > 0) {
-      equity = { label: "Your equities", earningsYieldPct: wEy / wTot, dividendYieldPct: wDy / wTot };
-    }
-  } catch {
-    /* analytics down -> equity rung omitted, never guessed */
-  }
-
-  const rates = sbp?.rates ?? null;
-  const ladder = buildLadder({
-    inflationPct: inf.pct,
-    settings: settings as any,
-    tbill12mPct: tbill12mPct(rates),
-    policyRatePct: rates?.policyRatePct ?? null,
-    kibor12BidPct: rates?.kibor.find((k) => k.tenor === "12M")?.bid ?? null,
-    funds: funds
-      .map((f) => ({ name: f.name, yieldPct: f.liveAnnualYieldPct ?? f.annualYieldPct }))
-      .filter((f) => f.yieldPct > 0),
-    savings: savings
-      .map((a) => ({ name: a.name, ratePercent: a.ratePercent }))
-      .filter((a) => a.ratePercent > 0),
-    equity,
-  });
-  return {
-    ladder,
-    inflationSource: inf.source,
-    inflationPeriod: inf.period,
-    filer: pkIsFiler(settings as any),
-    sbpAsOf: rates?.fetchedAt?.slice(0, 10) ?? null,
-  };
-}
-export const getLadderData = cache(_getLadderData);
 
 // "What moved my portfolio" — the last-N-days change split into per-holding
 // rupee contributions (price moves on current shares; see calculations/attribution).
@@ -1392,38 +1222,11 @@ async function _getAppSettings(): Promise<AppSettings> {
   } as AppSettings;
 }
 
-export async function getTaxReport(): Promise<TaxReport> {
-  const [txs, summary, settings] = await Promise.all([
-    getAllTransactions(),
-    getPortfolioSummary(),
-    getAppSettings(),
-  ]);
-  return buildTaxReport(txs, summary.realizedPL, settings);
-}
-
 export type CgtReport = {
   summary: CgtSummary;
   recentDisposals: Disposal[];
   rate: number;
 };
-
-export async function getCgtReport(): Promise<CgtReport> {
-  const [txs, settings] = await Promise.all([getAllTransactions(), getAppSettings()]);
-  const bySymbol = new Map<string, Transaction[]>();
-  for (const t of txs) {
-    if (!bySymbol.has(t.symbol)) bySymbol.set(t.symbol, []);
-    bySymbol.get(t.symbol)!.push(t);
-  }
-  const allDisposals: Disposal[] = [];
-  for (const [sym, list] of bySymbol) {
-    const { disposals } = buildLots(sym, list);
-    allDisposals.push(...disposals);
-  }
-  allDisposals.sort((a, b) => b.soldDate.localeCompare(a.soldDate));
-  const rate = settings.filerStatus === "filer" ? settings.cgtRateFiler : settings.cgtRateNonFiler;
-  const summary = summariseCgt(allDisposals, rate);
-  return { summary, recentDisposals: allDisposals.slice(0, 25), rate };
-}
 
 export type HarvestCandidate = {
   symbol: string;
@@ -1444,58 +1247,6 @@ export type HarvestReport = {
   rate: number;
 };
 
-export async function getHarvestReport(): Promise<HarvestReport> {
-  const [txs, settings] = await Promise.all([getAllTransactions(), getAppSettings()]);
-  const bySymbol = new Map<string, Transaction[]>();
-  for (const t of txs) {
-    if (!bySymbol.has(t.symbol)) bySymbol.set(t.symbol, []);
-    bySymbol.get(t.symbol)!.push(t);
-  }
-  const symbols = [...bySymbol.keys()];
-  const prices = await getCurrentPrices(symbols);
-
-  const rate = settings.filerStatus === "filer" ? settings.cgtRateFiler : settings.cgtRateNonFiler;
-  const thisTaxYear = (await import("./dates")).taxYearOf(new Date()).endYear;
-
-  const candidates: HarvestCandidate[] = [];
-  let realizedGainThisYear = 0;
-  for (const [sym, list] of bySymbol) {
-    const { openLots, disposals } = buildLots(sym, list);
-    for (const d of disposals) {
-      const ty = (await import("./dates")).taxYearOf(d.soldDate).endYear;
-      if (ty === thisTaxYear) realizedGainThisYear += d.gain;
-    }
-    const shares = openLots.reduce((s, l) => s + l.shares, 0);
-    if (shares <= 0) continue;
-    const cost = openLots.reduce((s, l) => s + l.shares * l.costPerShare, 0);
-    const price = prices.get(sym) ?? 0;
-    const marketValue = shares * price;
-    const unrealized = marketValue - cost;
-    if (unrealized < 0 && price > 0) {
-      candidates.push({
-        symbol: sym,
-        shares,
-        avgCost: shares > 0 ? cost / shares : 0,
-        currentPrice: price,
-        marketValue,
-        cost,
-        unrealizedLoss: unrealized,
-      });
-    }
-  }
-  candidates.sort((a, b) => a.unrealizedLoss - b.unrealizedLoss);
-  const totalHarvestableLoss = candidates.reduce((s, c) => s + c.unrealizedLoss, 0);
-  const offsetPotential = Math.min(Math.abs(totalHarvestableLoss), Math.max(0, realizedGainThisYear));
-  return {
-    candidates,
-    totalHarvestableLoss,
-    realizedGainThisYear,
-    offsetPotential,
-    cgtSaved: (offsetPotential * rate) / 100,
-    rate,
-  };
-}
-
 export type SellTodayRow = {
   symbol: string;
   shares: number;
@@ -1509,73 +1260,6 @@ export type SellTodayRow = {
   longTermShares: number; // held > 365 days
   cgtIfSold: number;
 };
-
-// "If you sold everything today": per open position, the holding period and the
-// CGT you'd owe on the gain at your current rate — plus how many days are left
-// in the FBR tax year (ends 30 June) to harvest losses against this year's gains.
-export async function getSellTodayCgt(): Promise<{
-  rows: SellTodayRow[];
-  totalGain: number;
-  totalCgt: number;
-  rate: number;
-  daysToYearEnd: number;
-  yearEnd: string;
-}> {
-  const [txs, settings] = await Promise.all([getAllTransactions(), getAppSettings()]);
-  const rate = settings.filerStatus === "filer" ? settings.cgtRateFiler : settings.cgtRateNonFiler;
-  const bySymbol = new Map<string, Transaction[]>();
-  for (const t of txs) {
-    if (!bySymbol.has(t.symbol)) bySymbol.set(t.symbol, []);
-    bySymbol.get(t.symbol)!.push(t);
-  }
-  const prices = await getCurrentPrices([...bySymbol.keys()]);
-  const todayIso = new Date().toISOString().slice(0, 10);
-  const dayMs = 86400000;
-  const daysHeld = (acq: string) => Math.max(0, Math.round((new Date(todayIso).getTime() - new Date(acq).getTime()) / dayMs));
-
-  const rows: SellTodayRow[] = [];
-  for (const [sym, list] of bySymbol) {
-    const { openLots } = buildLots(sym, list);
-    const shares = openLots.reduce((s, l) => s + l.shares, 0);
-    if (shares <= 1e-6) continue;
-    const price = prices.get(sym) ?? 0;
-    if (price <= 0) continue;
-    const cost = openLots.reduce((s, l) => s + l.shares * l.costPerShare, 0);
-    const marketValue = shares * price;
-    const gain = marketValue - cost;
-    const weightedDays = openLots.reduce((s, l) => s + l.shares * daysHeld(l.acquired), 0) / shares;
-    const longTermShares = openLots.filter((l) => daysHeld(l.acquired) > 365).reduce((s, l) => s + l.shares, 0);
-    rows.push({
-      symbol: sym,
-      shares,
-      avgCost: cost / shares,
-      price,
-      marketValue,
-      cost,
-      gain,
-      gainPct: cost > 0 ? gain / cost : 0,
-      weightedDays,
-      longTermShares,
-      cgtIfSold: gain > 0 ? (gain * rate) / 100 : 0,
-    });
-  }
-  rows.sort((a, b) => b.marketValue - a.marketValue);
-
-  // Days to the FBR tax-year end (30 June).
-  const now = new Date(todayIso);
-  let ye = new Date(Date.UTC(now.getUTCFullYear(), 5, 30)); // 30 June this year
-  if (now.getTime() > ye.getTime()) ye = new Date(Date.UTC(now.getUTCFullYear() + 1, 5, 30));
-  const daysToYearEnd = Math.max(0, Math.round((ye.getTime() - now.getTime()) / dayMs));
-
-  return {
-    rows,
-    totalGain: rows.reduce((s, r) => s + r.gain, 0),
-    totalCgt: rows.reduce((s, r) => s + r.cgtIfSold, 0),
-    rate,
-    daysToYearEnd,
-    yearEnd: ye.toISOString().slice(0, 10),
-  };
-}
 
 export type CorporateActionSuggestion = {
   symbol: string;
@@ -1735,7 +1419,10 @@ export type ValuedTrade = {
   currentPrice: number | null;
   status: string;
   notes: string;
-} & TradeValuation;
+  expiryDate: string | null;
+  contractType: string;
+  marginPosted: number;
+} & TradeValuation & { expiry: import("./calculations/pmex").ExpiryStatus };
 
 export async function getCommodityTradesValued(): Promise<{ trades: ValuedTrade[]; settings: AppSettings }> {
   const settings = await getAppSettings();
@@ -1751,6 +1438,7 @@ export async function getCommodityTradesValued(): Promise<{ trades: ValuedTrade[
         exitPrice: t.exitPrice ?? null,
         currentPrice: t.currentPrice ?? null,
         status: t.status,
+        marginPosted: t.marginPosted ?? 0,
       },
       settings.pmexCommissionPerLot,
       settings.pmexCgtPercent
@@ -1769,10 +1457,61 @@ export async function getCommodityTradesValued(): Promise<{ trades: ValuedTrade[
       currentPrice: t.currentPrice ?? null,
       status: t.status,
       notes: t.notes,
+      expiryDate: t.expiryDate ?? null,
+      contractType: t.contractType ?? "CASH_SETTLED",
+      marginPosted: t.marginPosted ?? 0,
+      expiry: expiryStatus(
+        { status: t.status, expiryDate: t.expiryDate ?? null, contractType: t.contractType ?? "CASH_SETTLED" },
+        new Date().toISOString().slice(0, 10)
+      ),
       ...v,
     };
   });
   return { trades, settings };
+}
+
+export type PmexOverview = {
+  trades: ValuedTrade[];
+  settings: AppSettings;
+  summary: PmexSummary;
+  years: FyWindow[];
+  // Live international reference per open instrument, so a stale mark is
+  // obvious at a glance. These NEVER feed P/L — PMEX settles on its own
+  // prices, so only the mark the user entered is treated as truth.
+  refs: Array<{ symbol: string; label: string; pkr: number | null; unit: string; kind: string }>;
+};
+
+export async function getPmexOverview(endYear?: number): Promise<PmexOverview> {
+  const { trades, settings } = await getCommodityTradesValued();
+  const asPure = trades.map((t) => ({
+    symbol: t.symbol,
+    side: t.side,
+    lots: t.lots,
+    lotSize: t.lotSize,
+    entryPrice: t.entryPrice,
+    exitPrice: t.exitPrice,
+    currentPrice: t.currentPrice,
+    status: t.status,
+    entryDate: t.entryDate,
+    exitDate: t.exitDate,
+    expiryDate: t.expiryDate,
+    contractType: t.contractType,
+    marginPosted: t.marginPosted,
+  }));
+  const today = new Date().toISOString().slice(0, 10);
+  const fy = endYear ? fyWindow(endYear) : financialYearOf(today);
+  const summary = summarisePmex(asPure, settings.pmexCommissionPerLot, settings.pmexCgtPercent, fy, today);
+  const years = activeFinancialYears(asPure);
+  if (!years.some((y) => y.endYear === fy.endYear)) years.unshift(fy);
+
+  const openSymbols = [...new Set(trades.filter((t) => t.isOpen).map((t) => t.symbol))];
+  const settled = await Promise.allSettled(openSymbols.map((s) => getCommodityRef(s)));
+  const refs = settled
+    .map((r) => (r.status === "fulfilled" ? r.value : null))
+    .filter((r): r is NonNullable<typeof r> => r != null)
+    .map((r) => ({ symbol: r.symbol, label: r.label, pkr: r.pkr, unit: r.unit, kind: r.kind }));
+
+  return { trades, settings, summary, years, refs };
 }
 
 export type Mover = { symbol: string; price: number; prevClose: number; changePct: number };
@@ -1811,12 +1550,6 @@ export async function getWatchlist() {
   if (!(await tryConnect())) return [];
   const docs = await WatchlistEntryModel.find({ userId: await meId() }).sort({ createdAt: -1 }).lean();
   return plain<Array<{ _id: string; symbol: string; name: string; sector: string; notes: string; targetBuyPrice: number | null; targetSellPrice: number | null; createdAt: string }>>(docs);
-}
-
-export async function getScenariosForSymbol(symbol: string | null) {
-  if (!(await tryConnect())) return [];
-  const docs = await ScenarioProjectionModel.find({ userId: await meId(), symbol }).lean();
-  return plain<Array<{ _id: string; name: string; symbol: string | null; assumptions: { annualGrowthRate: number; endingPE: number; payoutRatio: number; horizonYears: number; useDRIP: boolean; customNotes: string } }>>(docs);
 }
 
 export const checkDataAvailability = cache(_checkDataAvailability);

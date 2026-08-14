@@ -16,6 +16,12 @@ const postSchema = z.object({
   entryDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   currentPrice: z.number().nullable().optional(),
   notes: z.string().default(""),
+  // Futures mechanics. All optional: an older trade may predate them, and a
+  // missing expiry is reported as "not recorded" rather than invented.
+  expiryDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
+  contractType: z.enum(["CASH_SETTLED", "DELIVERABLE"]).optional(),
+  marginPosted: z.number().min(0).optional(),
+  rolledFromId: z.string().nullable().optional(),
 });
 
 export async function GET() {

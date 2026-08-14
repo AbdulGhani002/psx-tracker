@@ -19,9 +19,14 @@ export function Select({ label, value, options, onChange, hint }: Props) {
           value={value}
           onChange={(e) => onChange(e.target.value)}
           className="w-full bg-transparent text-[14px] py-1.5 pr-5 focus:outline-none appearance-none"
+          style={{ color: "var(--ink)" }}
         >
+          {/* The dropdown popup is painted by the OS, not by this box. A
+              transparent select left the options inheriting a colour that
+              disappeared against the dark popup, so paint each one explicitly
+              in theme tokens. */}
           {options.map((o) => (
-            <option key={o.value} value={o.value}>
+            <option key={o.value} value={o.value} style={{ background: "var(--paper)", color: "var(--ink)" }}>
               {o.label}
             </option>
           ))}

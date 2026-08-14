@@ -2,13 +2,10 @@ import { PageHeader } from "@/components/layout/PageHeader";
 import { Section } from "@/components/layout/Section";
 import { SetupBanner } from "@/components/layout/SetupBanner";
 import { Stat, StatRow } from "@/components/ui/Stat";
-import { Card } from "@/components/ui/Card";
-import { AllocationDonut } from "@/components/charts/AllocationDonut";
 import { FundsManager } from "./FundsManager";
 import { SavingsManager } from "./SavingsManager";
 import { StatementCard } from "./StatementCard";
 import {
-  getNetWorth,
   getMutualFundsValued,
   getSavingsValued,
   getEffectiveInflationPct,
@@ -17,58 +14,46 @@ import {
 } from "@/lib/data";
 import { whtPct } from "@/lib/calculations/pk-tax";
 import { CashPlans } from "./CashPlans";
-import { fmtRs, fmtPct } from "@/lib/format";
+import { fmtRs, fmtSignedRs } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
 
-export default async function AssetsPage() {
+export default async function FundsPage() {
   const avail = await checkDataAvailability();
-  const [netWorth, funds, savings, inf, settings] = await Promise.all([
-    getNetWorth(),
+  const [funds, savings, inf, settings] = await Promise.all([
     getMutualFundsValued(),
     getSavingsValued(),
     getEffectiveInflationPct(),
     getAppSettings(),
   ]);
 
+  const fundValue = funds.reduce((s, f) => s + f.value, 0);
+  const fundCost = funds.reduce((s, f) => s + f.cost, 0);
+  const fundPL = fundValue - fundCost;
+  const savingsValue = savings.reduce((s, a) => s + a.balance, 0);
+  // Value-weighted published yield, so a big fund at 10% is not averaged flat
+  // against a dust holding at 20%.
+  const weightedYield =
+    fundValue > 0 ? funds.reduce((s, f) => s + (f.annualYieldPct ?? 0) * f.value, 0) / fundValue : 0;
+  const navAsOf = funds.map((f) => f.navAsOf).filter(Boolean).sort().slice(-1)[0];
+
   return (
     <div>
       <PageHeader
-        eyebrow="Assets"
-        title="Everything you own, in one place."
-        subtitle="PSX equities, mutual funds (live NAV from MUFAP), and profit-bearing savings — combined into your net worth. Fund NAVs and the savings accrual update automatically; you only enter what you bought."
+        eyebrow="Mutual funds & savings"
+        title="What the funds hold, at today's NAV."
+        subtitle="Your MCB iSave and Alhamra units, valued live from MUFAP. Upload an iSave statement and it reconciles itself against what is recorded here. Savings accounts accrue profit daily on their own."
       />
       {!avail.available && <SetupBanner reason={avail.reason} />}
 
       <StatRow>
-        <Stat label="Net Worth" value={fmtRs(netWorth.total)} size="lg" />
-        <Stat label="PSX Equities" value={fmtRs(netWorth.equity)} />
-        <Stat label="Mutual Funds" value={fmtRs(netWorth.funds)} />
-        <Stat label="Savings" value={fmtRs(netWorth.savings)} />
-        <Stat label="Cash" value={fmtRs(netWorth.cash)} />
-        <Stat
-          label="Allocation"
-          value={netWorth.total > 0 ? fmtPct(netWorth.equity / netWorth.total, 0) + " eq" : "—"}
-          tone="muted"
-        />
+        <Stat label="Fund value" value={fmtRs(fundValue)} size="lg" />
+        <Stat label="Cost" value={fmtRs(fundCost)} tone="muted" />
+        <Stat label="Unrealised" value={fmtSignedRs(fundPL)} tone={fundPL >= 0 ? "positive" : "negative"} />
+        <Stat label="Yield (weighted)" value={weightedYield > 0 ? weightedYield.toFixed(2) + "%" : "—"} tone="muted" />
+        <Stat label="Savings" value={fmtRs(savingsValue)} />
+        <Stat label="NAV as of" value={navAsOf ? String(navAsOf) : "live"} tone="muted" />
       </StatRow>
-
-      {netWorth.total > 0 && (
-        <Card className="mt-6">
-          <div className="label-cap mb-4">Net worth composition</div>
-          <AllocationDonut
-            slices={[
-              { label: "PSX Equities", value: netWorth.equity },
-              { label: "Mutual Funds", value: netWorth.funds },
-              { label: "Savings", value: netWorth.savings },
-              { label: "Cash", value: netWorth.cash },
-            ]}
-            maxSlices={6}
-            centerValue={fmtRs(netWorth.total, true)}
-            centerLabel="Net worth"
-          />
-        </Card>
-      )}
 
       <Section
         number="01"
@@ -92,7 +77,7 @@ export default async function AssetsPage() {
       </Section>
 
       <Section
-        number="99"
+        number="03"
         title="Cash discipline"
         display="Every rupee of parked cash carries a purpose and an expiry."
         description="Cash is a position, not the absence of one. Give each vehicle a job and a review date — past-due or purposeless cash shows up on the Decisions page with its inflation drag."
@@ -103,7 +88,6 @@ export default async function AssetsPage() {
           broker={{ purpose: (settings as any).brokerCashPurpose ?? "", reviewBy: (settings as any).brokerCashReviewBy ?? "", reviewReason: (settings as any).brokerCashReviewReason ?? "" }}
         />
       </Section>
-
     </div>
   );
 }

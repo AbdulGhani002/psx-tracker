@@ -11,7 +11,13 @@ export type SeriesKey =
   | "portfolioUsd"
   | "sp500"
   | "usdpkr"
-  | "riskFree";
+  | "riskFree"
+  | "ndx100"
+  | "ftse100"
+  | "dowjones"
+  | "dax"
+  | "nikkei225"
+  | "sensex";
 
 export type SeriesMeta = {
   key: SeriesKey;
@@ -135,6 +141,66 @@ export const SERIES_META: Record<SeriesKey, SeriesMeta> = {
     defaultOn: false,
     hint: "What cash would earn compounding at the SBP policy rate.",
   },
+  ndx100: {
+    key: "ndx100",
+    label: "NASDAQ 100 (USD)",
+    short: "NASDAQ",
+    stroke: "#7ea6a0",
+    width: 1.5,
+    dash: "3 2",
+    defaultOn: false,
+    hint: "US big-tech benchmark, in USD.",
+  },
+  ftse100: {
+    key: "ftse100",
+    label: "FTSE 100 (GBP)",
+    short: "FTSE",
+    stroke: "#a695b8",
+    width: 1.5,
+    dash: "2 2",
+    defaultOn: false,
+    hint: "UK large-cap benchmark, in GBP.",
+  },
+  dowjones: {
+    key: "dowjones",
+    label: "Dow Jones (USD)",
+    short: "Dow",
+    stroke: "#b8a06b",
+    width: 1.5,
+    dash: "6 2",
+    defaultOn: false,
+    hint: "The 30 US industrial blue chips, in USD.",
+  },
+  dax: {
+    key: "dax",
+    label: "DAX 40 (EUR)",
+    short: "DAX",
+    stroke: "#88a4c0",
+    width: 1.5,
+    dash: "5 4",
+    defaultOn: false,
+    hint: "German large-cap benchmark, in EUR.",
+  },
+  nikkei225: {
+    key: "nikkei225",
+    label: "Nikkei 225 (JPY)",
+    short: "Nikkei",
+    stroke: "#c0888e",
+    width: 1.5,
+    dash: "3 4",
+    defaultOn: false,
+    hint: "Japan's headline index, in JPY.",
+  },
+  sensex: {
+    key: "sensex",
+    label: "Sensex (INR)",
+    short: "Sensex",
+    stroke: "#93b183",
+    width: 1.5,
+    dash: "1 2",
+    defaultOn: false,
+    hint: "India's BSE 30 — the neighbour to measure PSX against, in INR.",
+  },
 };
 
 export const SERIES_ORDER: SeriesKey[] = [
@@ -147,6 +213,12 @@ export const SERIES_ORDER: SeriesKey[] = [
   "gold",
   "portfolioUsd",
   "sp500",
+  "ndx100",
+  "ftse100",
+  "dowjones",
+  "dax",
+  "nikkei225",
+  "sensex",
   "usdpkr",
   "riskFree",
 ];

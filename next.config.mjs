@@ -5,13 +5,44 @@ const nextConfig = {
   // links working.
   async redirects() {
     return [
-      { source: "/valuation", destination: "/intrinsic", permanent: true },
-      // Removed pages with ZERO recorded use (verified in the database):
-      // the decision log (0 entries ever; the per-stock Playbook covers the
-      // "why did I buy" job) and PMEX commodities (0 trades ever, and PMEX
-      // blocks live prices anyway). Models and backups remain intact.
+      // 14 Aug: the app was cut back to what Abdul actually uses — holdings,
+      // PMEX contracts, decisions, transactions, wealth, funds. 20 screens were
+      // removed in one pass. EVERY removed path redirects to a page that still
+      // exists; nothing chains through another redirect (Next does not follow
+      // its own redirects, so a hop to a deleted page would 404).
+      //
+      // The LIBRARIES behind these pages are deliberately KEPT: the alert cron
+      // still reads intrinsic buy-zones, Shariah/KMI status and the earnings
+      // calendar, and the sell-discipline engine still reads analytics ratings
+      // for sector-median PE. Only the screens are gone.
       { source: "/log", destination: "/transactions", permanent: true },
-      { source: "/commodities", destination: "/assets", permanent: true },
+      { source: "/model", destination: "/wealth", permanent: true },
+      { source: "/news", destination: "/", permanent: true },
+      { source: "/patterns", destination: "/holdings", permanent: true },
+      { source: "/backtest", destination: "/holdings", permanent: true },
+      { source: "/watchlist", destination: "/holdings", permanent: true },
+      { source: "/glossary", destination: "/", permanent: true },
+      { source: "/valuation", destination: "/holdings", permanent: true },
+      { source: "/intrinsic", destination: "/holdings", permanent: true },
+      { source: "/ratings", destination: "/holdings", permanent: true },
+      { source: "/screener", destination: "/holdings", permanent: true },
+      { source: "/compare", destination: "/holdings", permanent: true },
+      { source: "/shariah", destination: "/holdings", permanent: true },
+      { source: "/methodology", destination: "/", permanent: true },
+      { source: "/flows", destination: "/", permanent: true },
+      { source: "/earnings-calendar", destination: "/", permanent: true },
+      { source: "/optimize", destination: "/rebalance", permanent: true },
+      { source: "/dividend-calendar", destination: "/dividends", permanent: true },
+      { source: "/forecast", destination: "/dividends", permanent: true },
+      { source: "/assets", destination: "/funds", permanent: true },
+      { source: "/ladder", destination: "/funds", permanent: true },
+      // Tax, CGT, risk, income and cash all reported on total wealth; /wealth
+      // now carries the financial-year reconciliation that replaces them.
+      { source: "/tax", destination: "/wealth", permanent: true },
+      { source: "/cgt-simulator", destination: "/wealth", permanent: true },
+      { source: "/risk", destination: "/wealth", permanent: true },
+      { source: "/income", destination: "/wealth", permanent: true },
+      { source: "/cash", destination: "/wealth", permanent: true },
       // Removed at the user's request (fundamentals/income investor — chart
       // pattern and backtest toys, an empty watchlist, and the glossary index;
       // the Urdu Term tooltips on other pages remain).

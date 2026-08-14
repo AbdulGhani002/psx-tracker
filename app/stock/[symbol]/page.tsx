@@ -144,7 +144,6 @@ export default async function StockPage({ params }: { params: { symbol: string }
         ) : (
           <p className="text-muted text-sm">No recent coverage tagged to {sym} — its news score stays neutral (50) rather than guessed.</p>
         )}
-        <Link href="/news" className="inline-block mt-4 font-mono text-[11px] uppercase tracking-stat text-muted hover:text-[var(--accent-deep)]">All market news →</Link>
       </Section>
     </div>
   );

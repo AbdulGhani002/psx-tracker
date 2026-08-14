@@ -6,6 +6,7 @@ export type CommodityTradeInput = {
   exitPrice: number | null;
   currentPrice: number | null;
   status: string; // OPEN | CLOSED
+  marginPosted?: number;
 };
 
 export type TradeValuation = {
@@ -17,7 +18,12 @@ export type TradeValuation = {
   netPL: number;
   cgt: number; // only on closed, positive net
   netAfterTax: number;
-  returnPct: number; // net / exposure
+  returnPct: number; // net / exposure — understates a futures result
+  // The return a futures trader actually earned: net over the cash posted to
+  // hold the position. Null when no margin was recorded, never faked from a
+  // guessed margin rate.
+  returnOnMarginPct: number | null;
+  leverage: number | null; // exposure / margin
   isOpen: boolean;
 };
 
@@ -39,6 +45,7 @@ export function valueTrade(
   // Commodity-futures CGT only crystallises on close, on a positive net gain.
   const cgt = !isOpen && netPL > 0 ? (netPL * cgtPercent) / 100 : 0;
   const netAfterTax = netPL - cgt;
+  const margin = t.marginPosted ?? 0;
   return {
     units,
     exposure,
@@ -49,6 +56,38 @@ export function valueTrade(
     cgt,
     netAfterTax,
     returnPct: exposure > 0 ? netPL / exposure : 0,
+    returnOnMarginPct: margin > 0 ? netPL / margin : null,
+    leverage: margin > 0 ? exposure / margin : null,
     isOpen,
+  };
+}
+
+export type ExpiryState = "none" | "ok" | "near" | "expired";
+
+export type ExpiryStatus = {
+  state: ExpiryState;
+  daysToExpiry: number | null;
+  // True when an open DELIVERABLE contract is at or past expiry: PMEX settles
+  // it by actual delivery of the commodity unless it is squared off first.
+  deliveryRisk: boolean;
+};
+
+// How urgent an open contract is. Closed contracts are never urgent.
+export function expiryStatus(
+  t: { status: string; expiryDate?: string | null; contractType?: string },
+  todayIso: string,
+  nearDays = 7
+): ExpiryStatus {
+  if (t.status === "CLOSED" || !t.expiryDate) {
+    return { state: "none", daysToExpiry: null, deliveryRisk: false };
+  }
+  const ms =
+    new Date(t.expiryDate + "T00:00:00Z").getTime() - new Date(todayIso + "T00:00:00Z").getTime();
+  const days = Math.round(ms / 86_400_000);
+  const state: ExpiryState = days < 0 ? "expired" : days <= nearDays ? "near" : "ok";
+  return {
+    state,
+    daysToExpiry: days,
+    deliveryRisk: days <= 0 && t.contractType === "DELIVERABLE",
   };
 }

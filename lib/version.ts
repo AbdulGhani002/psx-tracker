@@ -1,7 +1,7 @@
 // Single source of truth for the app version + changelog.
 // Bump APP_VERSION and prepend a CHANGELOG entry on every release.
 
-export const APP_VERSION = "7.2.0";
+export const APP_VERSION = "8.0.0";
 
 export const BUILD_DATE =
   process.env.NEXT_PUBLIC_BUILD_DATE ?? "";
@@ -17,6 +17,31 @@ export type ChangelogEntry = {
 
 // Reverse-chronological. Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: "8.0.0",
+    date: "2026-08-14",
+    title: "Two pillars: equities and PMEX",
+    changes: [
+      "The app is now 16 pages instead of 34. Removed AI Ratings, Screener, Compare, Foreign flows, Portfolio optimiser, Next rupee, Dividend and Earnings calendars, CGT simulator, Tax, Dividend forecast, Intrinsic, Methodology, Shariah, Risk, Income planner, Cash, Assets, Model and News. Every old link redirects to a page that still exists, and the libraries behind them stay — the alert cron still reads intrinsic buy-zones, Shariah status and the earnings calendar.",
+      "PMEX is a first-class pillar again, covering commodities, currency pairs and the KSE-100 future. Seven FX pairs added (EUR/USD, GBP/USD, AUD/USD, NZD/USD, USD/JPY, USD/CHF, USD/CAD) with the quote direction handled per pair, so USD/JPY converts to rupees per yen rather than multiplying into nonsense.",
+      "Contracts are now grouped by Pakistan's financial year, 1 July to 30 June. A contract counts in the year you CLOSED it, not the year you opened it. The page shows realised versus open, per-instrument attribution, and win rate, average win and loss, expectancy and profit factor.",
+      "Futures mechanics: every contract can carry an expiry date, a settlement type (cash settled or deliverable) and the margin you posted. Contracts near or past expiry are surfaced for a decision, and a deliverable contract left open past expiry is flagged as actual delivery. Margin gives you return-on-margin and leverage, which is the number a futures trader actually earns.",
+      "An open contract with no mark is reported separately rather than valued at entry, because a confident zero is worse than an honest gap. Live world reference prices sit beside your own mark as a staleness check and never feed profit — PMEX settles on its own prices.",
+      "New Mutual funds & savings page carries the MCB iSave holdings, the statement reconciler and cash discipline. The Wealth page gained a financial-year reconciliation across equities, funds and PMEX in one table, current year against prior year.",
+      "Dropdown options were nearly invisible against the dark popup; they now paint in theme colours at 14.5:1 contrast.",
+      "Dead code removed: 8 unused files, 12 unused data functions, a dead tax report builder and the ladder module, plus their unused imports.",
+    ],
+  },
+  {
+    version: "7.2.1",
+    date: "2026-08-08",
+    title: "You vs the world",
+    changes: [
+      "The benchmark now carries the famous world indices alongside KSE-100 and the S&P 500: NASDAQ 100, FTSE 100, Dow Jones, DAX 40, Nikkei 225, and India's Sensex. All seven appear as toggles on the overview chart, and the Wealth page's monthly table gains S&P, NASDAQ and FTSE columns plus a full-window world scoreboard.",
+      "Honesty note built in: each index is quoted in its own currency, so the comparison measures stock-picking, not currencies — and the caption tells you how much USD/PKR moved in the same window, which is what a dollar asset would have added for a rupee investor.",
+      "The Wealth page now shares the overview's 3-hour benchmark cache instead of refetching a dozen external series on every load.",
+    ],
+  },
   {
     version: "7.2.0",
     date: "2026-08-08",

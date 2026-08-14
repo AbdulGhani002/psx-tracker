@@ -12,6 +12,9 @@ const patchSchema = z.object({
   exitDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
   close: z.boolean().optional(), // close the trade with exitPrice/exitDate
   notes: z.string().optional(),
+  expiryDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
+  contractType: z.enum(["CASH_SETTLED", "DELIVERABLE"]).optional(),
+  marginPosted: z.number().min(0).optional(),
 });
 
 export async function PATCH(req: NextRequest, { params }: { params: { id: string } }) {
@@ -21,6 +24,9 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
     const doc = await CommodityTradeModel.findOne({ _id: params.id, userId: await uid() });
     if (!doc) return NextResponse.json({ error: "not_found" }, { status: 404 });
     if (parsed.currentPrice !== undefined) doc.currentPrice = parsed.currentPrice;
+    if (parsed.expiryDate !== undefined) doc.expiryDate = parsed.expiryDate;
+    if (parsed.contractType !== undefined) doc.contractType = parsed.contractType;
+    if (parsed.marginPosted !== undefined) doc.marginPosted = parsed.marginPosted;
     if (parsed.notes !== undefined) doc.notes = parsed.notes;
     if (parsed.close && parsed.exitPrice) {
       doc.exitPrice = parsed.exitPrice;
