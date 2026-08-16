@@ -6,6 +6,7 @@ import { Badge } from "@/components/ui/Badge";
 import { NumberInput } from "@/components/ui/NumberInput";
 import { fmtRs, fmtNum, fmtSignedRs } from "@/lib/format";
 import { computePSXFees } from "@/lib/calculations/fees";
+import { planKeepPct } from "@/lib/calculations/keep-model";
 
 type Lot = { acquired: string; shares: number; costPerShare: number };
 
@@ -24,8 +25,11 @@ type Props = {
 
 // Sell-side what-if: FIFO lots consumed oldest-first, the exact CGT this tax
 // year, the new weight, and what the freed cash would earn at your real
-// alternative vs staying invested. Pure arithmetic on data already on the
-// page — nothing is fetched or stored, and nothing here places a trade.
+// alternative vs staying invested. Works in both directions: type the shares
+// to sell, or type the percentage of the position you want to KEEP and the
+// whole-share sell quantity that lands nearest solves itself. Pure arithmetic
+// on data already on the page — nothing is fetched or stored, and nothing
+// here places a trade.
 export function TrimWhatIf({
   symbol,
   currentPrice,
@@ -40,12 +44,20 @@ export function TrimWhatIf({
 }: Props) {
   const totalShares = lots.reduce((s, l) => s + l.shares, 0);
   const [qty, setQty] = useState(0);
+  const [keepPct, setKeepPct] = useState(100);
+  // Whichever box was touched last drives the other one.
+  const [driver, setDriver] = useState<"shares" | "keep">("shares");
   const [price, setPrice] = useState(currentPrice > 0 ? Number(currentPrice.toFixed(2)) : 0);
 
+  const plan = driver === "keep" ? planKeepPct(totalShares, keepPct) : null;
+  const sellQty = driver === "keep" ? plan?.sellShares ?? 0 : qty;
+  const keptShares = Math.max(0, totalShares - sellQty);
+  const keptPct = totalShares > 0 ? (keptShares / totalShares) * 100 : 0;
+
   const r = useMemo(() => {
-    if (qty <= 0 || price <= 0 || qty > totalShares) return null;
+    if (sellQty <= 0 || price <= 0 || sellQty > totalShares) return null;
     // Consume lots oldest-first — exactly how the CGT report will see it.
-    let remaining = qty;
+    let remaining = sellQty;
     const consumed: Array<Lot & { taken: number; gain: number; longTerm: boolean }> = [];
     const today = new Date();
     for (const lot of lots) {
@@ -55,8 +67,8 @@ export function TrimWhatIf({
       const days = Math.round((today.getTime() - new Date(lot.acquired).getTime()) / 86400000);
       consumed.push({ ...lot, taken, gain: (price - lot.costPerShare) * taken, longTerm: days > 365 });
     }
-    const proceeds = qty * price;
-    const fees = computePSXFees({ shares: qty, price, type: "SELL" }).fee;
+    const proceeds = sellQty * price;
+    const fees = computePSXFees({ shares: sellQty, price, type: "SELL" }).fee;
     const netGain = consumed.reduce((s, c) => s + c.gain, 0);
     const cgt = Math.max(0, netGain) * (cgtRatePct / 100);
     const freedCash = proceeds - fees - cgt;
@@ -68,37 +80,82 @@ export function TrimWhatIf({
     const mmfPerYear = netRiskFreePct != null ? (freedCash * netRiskFreePct) / 100 : null;
     const stayPerYear = equityAfterTaxPct != null ? (freedCash * equityAfterTaxPct) / 100 : null;
     return { proceeds, fees, netGain, cgt, freedCash, newValue, newWeightPct, consumed, mmfPerYear, stayPerYear };
-  }, [qty, price, totalShares, lots, positionValue, portfolioValue, cgtRatePct, netRiskFreePct, equityAfterTaxPct]);
+  }, [sellQty, price, totalShares, lots, positionValue, portfolioValue, cgtRatePct, netRiskFreePct, equityAfterTaxPct]);
 
   return (
     <Card>
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
         <div>
           <div className="label-cap mb-1.5">Shares to sell</div>
-          <NumberInput value={qty} onChange={setQty} min={0} max={totalShares} step={1} />
+          <NumberInput
+            value={sellQty}
+            onChange={(v) => {
+              setQty(v);
+              setDriver("shares");
+            }}
+            min={0}
+            max={totalShares}
+            step={1}
+          />
           <div className="text-[10px] text-muted mt-1">of {fmtNum(totalShares)} held</div>
+        </div>
+        <div>
+          <div className="label-cap mb-1.5">% of position to keep</div>
+          <NumberInput
+            value={driver === "keep" ? keepPct : Number(keptPct.toFixed(2))}
+            onChange={(v) => {
+              setKeepPct(v);
+              setDriver("keep");
+            }}
+            min={0}
+            max={100}
+            step={0.1}
+            suffix="%"
+          />
+          <div className="text-[10px] text-muted mt-1">
+            {driver === "keep" && plan
+              ? `nearest whole shares: sell ${fmtNum(plan.sellShares)}, keep ${fmtNum(plan.keepShares)}`
+              : "type a % — the shares solve themselves"}
+          </div>
         </div>
         <div>
           <div className="label-cap mb-1.5">At price</div>
           <NumberInput value={price} onChange={setPrice} min={0} step={0.01} />
         </div>
-        {r && (
-          <>
-            <div>
-              <div className="label-cap mb-1.5">Freed cash (net)</div>
-              <div className="font-mono mono-num text-[18px]">{fmtRs(r.freedCash)}</div>
-              <div className="text-[10px] text-muted mt-1">
-                {fmtRs(r.proceeds)} − fees {fmtRs(r.fees)} − CGT {fmtRs(r.cgt)}
-              </div>
-            </div>
-            <div>
-              <div className="label-cap mb-1.5">New weight</div>
-              <div className="font-mono mono-num text-[18px]">{r.newWeightPct.toFixed(1)}%</div>
-              <div className="text-[10px] text-muted mt-1">position {fmtRs(r.newValue)}</div>
-            </div>
-          </>
-        )}
       </div>
+
+      {sellQty > 0 && sellQty <= totalShares && totalShares > 0 && (
+        <div className="mt-3 text-[13px]">
+          Sell <span className="font-mono mono-num font-medium">{fmtNum(sellQty)}</span> of {fmtNum(totalShares)} → you keep{" "}
+          <span className="font-mono mono-num font-medium">{fmtNum(keptShares)}</span> shares ={" "}
+          <span className="font-mono mono-num font-medium">{keptPct.toFixed(2)}%</span> of the position
+          {driver === "keep" && plan && Math.abs(plan.targetKeepPct - keptPct) > 0.005 && (
+            <span className="text-muted"> (target {plan.targetKeepPct}% — whole shares land here)</span>
+          )}
+        </div>
+      )}
+
+      {r && (
+        <div className="grid grid-cols-2 md:grid-cols-3 gap-4 mt-4 pt-3 border-t border-rule">
+          <div>
+            <div className="label-cap mb-1.5">Freed cash (net)</div>
+            <div className="font-mono mono-num text-[18px]">{fmtRs(r.freedCash)}</div>
+            <div className="text-[10px] text-muted mt-1">
+              {fmtRs(r.proceeds)} − fees {fmtRs(r.fees)} − CGT {fmtRs(r.cgt)}
+            </div>
+          </div>
+          <div>
+            <div className="label-cap mb-1.5">New weight</div>
+            <div className="font-mono mono-num text-[18px]">{r.newWeightPct.toFixed(1)}%</div>
+            <div className="text-[10px] text-muted mt-1">position {fmtRs(r.newValue)}</div>
+          </div>
+          <div>
+            <div className="label-cap mb-1.5">Kept position</div>
+            <div className="font-mono mono-num text-[18px]">{fmtRs(keptShares * price)}</div>
+            <div className="text-[10px] text-muted mt-1">{fmtNum(keptShares)} sh at this price</div>
+          </div>
+        </div>
+      )}
 
       {r && (
         <>
@@ -154,7 +211,7 @@ export function TrimWhatIf({
           </div>
         </>
       )}
-      {qty > totalShares && <p className="text-[12px] mt-2" style={{ color: "var(--negative)" }}>You hold {fmtNum(totalShares)} shares.</p>}
+      {sellQty > totalShares && <p className="text-[12px] mt-2" style={{ color: "var(--negative)" }}>You hold {fmtNum(totalShares)} shares.</p>}
     </Card>
   );
 }

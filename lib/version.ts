@@ -1,7 +1,7 @@
 // Single source of truth for the app version + changelog.
 // Bump APP_VERSION and prepend a CHANGELOG entry on every release.
 
-export const APP_VERSION = "8.0.0";
+export const APP_VERSION = "8.1.0";
 
 export const BUILD_DATE =
   process.env.NEXT_PUBLIC_BUILD_DATE ?? "";
@@ -17,6 +17,15 @@ export type ChangelogEntry = {
 
 // Reverse-chronological. Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: "8.1.0",
+    date: "2026-08-16",
+    title: "The keep-percent sell model",
+    changes: [
+      "The trim simulator now works backwards from the number you actually have in your head: type the percentage of a position you want to KEEP and the shares-to-sell box fills itself with the whole-share quantity that lands nearest. PSX trades whole shares, so the exact percentage is usually unreachable — the card states the percentage you really end up keeping, and a dead-even tie rounds toward selling fewer shares.",
+      "Both directions stay live: type shares and the kept percentage follows; type a percentage and the shares follow. FIFO CGT, fees, freed cash and the new weight all run off whichever box you touched last, and a new Kept position figure shows what stays invested at that price. Nothing is saved, and a real sale still goes through the decision gate.",
+    ],
+  },
   {
     version: "8.0.0",
     date: "2026-08-14",

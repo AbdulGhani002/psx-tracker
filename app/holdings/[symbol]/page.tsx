@@ -387,7 +387,7 @@ export default async function HoldingDetail({ params }: Props) {
         />
         {derived.shares > 0 && currentPrice > 0 && (
           <div className="mt-5">
-            <div className="label-cap mb-2">What would a trim do? (FIFO lots, exact CGT — nothing is saved)</div>
+            <div className="label-cap mb-2">What would a trim do? Type shares to sell — or the % you want to keep. (FIFO lots, exact CGT — nothing is saved)</div>
             <TrimWhatIf
               symbol={symbol}
               currentPrice={currentPrice}
