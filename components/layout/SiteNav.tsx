@@ -18,6 +18,7 @@ const PRIMARY = [
 const MORE = [
   { href: "/funds", label: "Mutual funds & savings" },
   { href: "/dividends", label: "Dividends" },
+  { href: "/watchlist", label: "Watchlist" },
   { href: "/rebalance", label: "Rebalance" },
   { href: "/heatmap", label: "Heatmap" },
   { href: "/rotation", label: "Sector rotation" },

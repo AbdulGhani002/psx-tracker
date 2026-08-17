@@ -20,7 +20,6 @@ const nextConfig = {
       { source: "/news", destination: "/", permanent: true },
       { source: "/patterns", destination: "/holdings", permanent: true },
       { source: "/backtest", destination: "/holdings", permanent: true },
-      { source: "/watchlist", destination: "/holdings", permanent: true },
       { source: "/glossary", destination: "/", permanent: true },
       { source: "/valuation", destination: "/holdings", permanent: true },
       { source: "/intrinsic", destination: "/holdings", permanent: true },
@@ -48,7 +47,6 @@ const nextConfig = {
       // the Urdu Term tooltips on other pages remain).
       { source: "/patterns", destination: "/screener", permanent: true },
       { source: "/backtest", destination: "/screener", permanent: true },
-      { source: "/watchlist", destination: "/holdings", permanent: true },
       { source: "/glossary", destination: "/", permanent: true },
     ];
   },

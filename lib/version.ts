@@ -1,7 +1,7 @@
 // Single source of truth for the app version + changelog.
 // Bump APP_VERSION and prepend a CHANGELOG entry on every release.
 
-export const APP_VERSION = "8.1.0";
+export const APP_VERSION = "8.2.0";
 
 export const BUILD_DATE =
   process.env.NEXT_PUBLIC_BUILD_DATE ?? "";
@@ -17,6 +17,20 @@ export type ChangelogEntry = {
 
 // Reverse-chronological. Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: "8.2.0",
+    date: "2026-08-17",
+    title: "Buy zones, sell zones, and the fund as your cash account",
+    changes: [
+      "The watchlist is back, and it now holds price BANDS rather than single targets: the range you would buy in, the range you would sell in, and a minimum position size per stock. Set the numbers on the calm day; the app watches for them every half hour and messages Telegram when one is reached.",
+      "The minimum stops the nagging. Below the floor you set for a symbol, no sell is ever suggested — being told to sell eight shares is noise the brokerage eats. Exactly at the floor is not above it, so a position you have decided to keep at 50 shares stays quiet at 50.",
+      "Contradictory bands never produce an instruction. If a sell zone starts at or below where the buy zone ends, the row is refused at the API and flagged on screen and in Telegram, because a price that means both buy and sell means neither. Bands set before this release keep working: an unset bound falls back to the old single-price target.",
+      "Rebalance now answers the question you actually ask it. Buy zones that are live today are sized against your target weights, paid for out of the money-market fund, and reported as whole-share orders with the exact redemption to request — plus what deliberately stays behind.",
+      "A permanent reserve, 5% by default and editable in Settings, never leaves the fund. It is subtracted before anything is deployable, so a buying day cannot quietly eat the buffer. Brokerage cash is always spent before the fund is touched.",
+      "Nothing is sized on price alone. A stock in its buy zone with no target weight is listed and named, never given an invented position size, and a name already at its target is not bought just because it is cheap. Stale quotes (a week or older) are skipped rather than treated as band hits.",
+      "Sale proceeds are deliberately excluded from the buying budget. A sale is not money until it has been through the decision gate, and budgeting unsold shares would be spending money you do not have yet.",
+    ],
+  },
   {
     version: "8.1.0",
     date: "2026-08-16",

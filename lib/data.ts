@@ -24,6 +24,9 @@ import { getCommodityRef } from "./commodities/refs";
 import { buildBenchmarkSeries } from "./timeseries/portfolio-history";
 import { fetchEodSeries } from "./timeseries/psx-eod";
 import { getPrices } from "./prices";
+import { getPriceFreshness } from "./prices";
+import { evaluateZone, shouldSuggestSell, distanceToZonePct, type ZoneEntry, type ZoneStatus } from "./calculations/zones";
+import { planDeployment, type DeployCandidate, type DeployPlan } from "./calculations/deploy-plan";
 import { summarisePortfolio, computeCashBalance, type PortfolioSummary, type CashSummary } from "./calculations";
 import { forecastDividends, type DividendForecast } from "./calculations/dividend-forecast";
 import { computeSotp, deriveSharesOutstanding, type SotpResult } from "./calculations/sotp";
@@ -1213,6 +1216,7 @@ async function _getAppSettings(): Promise<AppSettings> {
     pmexCommissionPerLot: doc?.pmexCommissionPerLot ?? DEFAULT_SETTINGS.pmexCommissionPerLot,
     pmexCgtPercent: doc?.pmexCgtPercent ?? DEFAULT_SETTINGS.pmexCgtPercent,
     concentrationCap: doc?.concentrationCap ?? DEFAULT_SETTINGS.concentrationCap,
+    mfCashReservePct: (doc as any)?.mfCashReservePct ?? DEFAULT_SETTINGS.mfCashReservePct,
     equityRiskPremiumPct: (doc as any)?.equityRiskPremiumPct ?? DEFAULT_SETTINGS.equityRiskPremiumPct,
     defaultFairPE: (doc as any)?.defaultFairPE ?? DEFAULT_SETTINGS.defaultFairPE,
     targetMonthlyIncome: (doc as any)?.targetMonthlyIncome ?? DEFAULT_SETTINGS.targetMonthlyIncome,
@@ -1549,7 +1553,7 @@ async function computeTodaysMovers(): Promise<{ gainers: Mover[]; losers: Mover[
 export async function getWatchlist() {
   if (!(await tryConnect())) return [];
   const docs = await WatchlistEntryModel.find({ userId: await meId() }).sort({ createdAt: -1 }).lean();
-  return plain<Array<{ _id: string; symbol: string; name: string; sector: string; notes: string; targetBuyPrice: number | null; targetSellPrice: number | null; createdAt: string }>>(docs);
+  return plain<Array<{ _id: string; symbol: string; name: string; sector: string; notes: string; targetBuyPrice: number | null; targetSellPrice: number | null; buyZoneLow: number | null; buyZoneHigh: number | null; sellZoneLow: number | null; sellZoneHigh: number | null; minSellShares: number; alertsOn: boolean; createdAt: string }>>(docs);
 }
 
 export const checkDataAvailability = cache(_checkDataAvailability);
@@ -1575,3 +1579,162 @@ export const getAllHoldings = cache(_getAllHoldings);
 export const getCashSummary = cache(_getCashSummary);
 export const getMutualFundsValued = cache(_getMutualFundsValued);
 export const getSavingsValued = cache(_getSavingsValued);
+
+// --- Zones: the watchlist joined to prices, positions and targets -----------
+// One place computes zone status, so the Telegram alert, the watchlist table
+// and the rebalance deployment plan can never disagree about whether a stock
+// is in its band.
+
+export type ZoneBoardRow = {
+  _id: string;
+  symbol: string;
+  name: string;
+  sector: string;
+  notes: string;
+  price: number | null; // null = no usable price; NEVER shown as 0
+  priceAgeDays: number | null;
+  priceStale: boolean; // 7 days or older — alerts skip these
+  buyZoneLow: number | null;
+  buyZoneHigh: number | null;
+  sellZoneLow: number | null;
+  sellZoneHigh: number | null;
+  minSellShares: number;
+  alertsOn: boolean;
+  status: ZoneStatus;
+  sharesHeld: number;
+  positionValue: number;
+  targetPct: number;
+  suggestSell: boolean; // in the sell band AND above the size floor
+  toBuyPct: number | null; // % above the buy ceiling (negative = inside)
+  toSellPct: number | null; // % below the sell floor
+  warnings: string[];
+};
+
+export type ZoneBoard = {
+  rows: ZoneBoardRow[];
+  buys: ZoneBoardRow[]; // inside the buy band
+  sells: ZoneBoardRow[]; // inside the sell band AND past the size floor
+  heldBelowFloor: ZoneBoardRow[]; // in the sell band but too small to bother
+  conflicts: ZoneBoardRow[]; // contradictory bands — no instruction given
+  unpriced: string[];
+};
+
+async function _getZoneBoard(): Promise<ZoneBoard> {
+  const watch = await getWatchlist();
+  if (watch.length === 0) {
+    return { rows: [], buys: [], sells: [], heldBelowFloor: [], conflicts: [], unpriced: [] };
+  }
+  const symbols = watch.map((w) => w.symbol);
+  const [prices, freshness, summary] = await Promise.all([
+    getCurrentPrices(symbols),
+    getPriceFreshness(symbols).catch(() => new Map()),
+    getPortfolioSummary(),
+  ]);
+  const posBySymbol = new Map(summary.positions.map((p) => [p.symbol, p]));
+
+  const rows: ZoneBoardRow[] = watch.map((w) => {
+    // A zone bound falls back to the older single-point target, so rows created
+    // before zones existed keep working instead of silently going quiet.
+    const buyZoneHigh = w.buyZoneHigh ?? w.targetBuyPrice ?? null;
+    const sellZoneLow = w.sellZoneLow ?? w.targetSellPrice ?? null;
+    const entry: ZoneEntry = {
+      symbol: w.symbol,
+      buyZoneLow: w.buyZoneLow ?? null,
+      buyZoneHigh,
+      sellZoneLow,
+      sellZoneHigh: w.sellZoneHigh ?? null,
+      minSellShares: w.minSellShares ?? 0,
+    };
+    const raw = prices.get(w.symbol) ?? 0;
+    const verdict = evaluateZone(raw > 0 ? raw : null, entry);
+    const f = freshness.get(w.symbol) as { ageDays: number } | undefined;
+    const pos = posBySymbol.get(w.symbol);
+    const sharesHeld = pos?.shares ?? 0;
+    const dist = verdict.price != null ? distanceToZonePct(verdict.price, entry) : { toBuyPct: null, toSellPct: null };
+    return {
+      _id: String(w._id),
+      symbol: w.symbol,
+      name: w.name,
+      sector: w.sector,
+      notes: w.notes ?? "",
+      price: verdict.price,
+      priceAgeDays: f?.ageDays ?? null,
+      priceStale: (f?.ageDays ?? 0) >= 7,
+      buyZoneLow: entry.buyZoneLow,
+      buyZoneHigh: entry.buyZoneHigh,
+      sellZoneLow: entry.sellZoneLow,
+      sellZoneHigh: entry.sellZoneHigh,
+      minSellShares: entry.minSellShares,
+      alertsOn: w.alertsOn !== false,
+      status: verdict.status,
+      sharesHeld,
+      positionValue: pos?.marketValue ?? 0,
+      targetPct: pos?.targetPercent ?? 0,
+      suggestSell: shouldSuggestSell(verdict.status, sharesHeld, entry.minSellShares),
+      toBuyPct: dist.toBuyPct,
+      toSellPct: dist.toSellPct,
+      warnings: verdict.warnings,
+    };
+  });
+
+  return {
+    rows,
+    buys: rows.filter((r) => r.status === "buy"),
+    sells: rows.filter((r) => r.suggestSell),
+    heldBelowFloor: rows.filter((r) => r.status === "sell" && !r.suggestSell && r.sharesHeld > 0),
+    conflicts: rows.filter((r) => r.status === "conflict"),
+    unpriced: rows.filter((r) => r.price == null).map((r) => r.symbol),
+  };
+}
+
+export type DeploymentPlan = DeployPlan & {
+  board: ZoneBoard;
+  fundsLabel: string; // which fund(s) the money would come from
+};
+
+// What to buy right now with the money parked in the fund, and what stays put.
+// Sell candidates are reported by the board but their proceeds are deliberately
+// NOT added to the budget: a sale is not a fact until it goes through the
+// decision gate, and budgeting unsold shares would be spending money you do not
+// have yet.
+async function _getDeploymentPlan(): Promise<DeploymentPlan> {
+  const [board, summary, funds, cash, settings] = await Promise.all([
+    getZoneBoard(),
+    getPortfolioSummary(),
+    getMutualFundsValued().catch(() => []),
+    getCashSummary(),
+    getAppSettings(),
+  ]);
+  const fundsValue = funds.reduce((s, f) => s + (f.value ?? 0), 0);
+  const candidates: DeployCandidate[] = board.buys
+    .filter((r) => !r.priceStale) // a week-old quote is not a live band hit
+    .map((r) => ({
+      symbol: r.symbol,
+      price: r.price ?? 0,
+      targetPct: r.targetPct,
+      currentValue: r.positionValue,
+    }));
+  const plan = planDeployment({
+    candidates,
+    equityValue: summary.totalValue,
+    fundsValue,
+    brokerCash: cash.balance,
+    reservePct: (settings as any).mfCashReservePct ?? 5,
+    concentrationCap: (settings as any).concentrationCap ?? 25,
+    unpriced: board.unpriced,
+  });
+  const staleBuys = board.buys.filter((r) => r.priceStale).map((r) => r.symbol);
+  if (staleBuys.length > 0) {
+    plan.warnings.push(
+      `Skipped on stale prices: ${staleBuys.join(", ")}. The last quote is a week or more old, so the band hit cannot be trusted — refresh prices first.`
+    );
+  }
+  return {
+    ...plan,
+    board,
+    fundsLabel: funds.length === 1 ? funds[0].name : funds.length > 1 ? `${funds.length} funds` : "your fund",
+  };
+}
+
+export const getZoneBoard = cache(_getZoneBoard);
+export const getDeploymentPlan = cache(_getDeploymentPlan);

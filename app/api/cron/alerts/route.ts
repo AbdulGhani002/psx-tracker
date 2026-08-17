@@ -1,8 +1,9 @@
 import { NextResponse } from "next/server";
 import { connectDb } from "@/lib/db";
 import { AlertLogModel } from "@/lib/models";
-import { getAppSettings, getWatchlist, getCurrentPrices, getPortfolioSummary, getAllHoldings, getUpcomingExDates, getAllUserIds, getIntrinsicValuations, getShariahStatus, getFeedSnapshot, saveFeedSnapshot, getNetWorth, getEffectiveInflationPct } from "@/lib/data";
+import { getAppSettings, getZoneBoard, getDeploymentPlan, getPortfolioSummary, getAllHoldings, getUpcomingExDates, getAllUserIds, getIntrinsicValuations, getShariahStatus, getFeedSnapshot, saveFeedSnapshot, getNetWorth, getEffectiveInflationPct } from "@/lib/data";
 import { getUsdPkr } from "@/lib/fx";
+import { describeZone } from "@/lib/calculations/zones";
 import { getPriceFreshness } from "@/lib/prices";
 import { getFlows, getEarningsCalendar } from "@/lib/analytics";
 import { realPct } from "@/lib/calculations/pk-tax";
@@ -52,17 +53,47 @@ async function runAlertsForCurrentUser(forceDigest = false) {
   const today = new Date().toISOString().slice(0, 10);
   const candidates: Candidate[] = [];
 
-  // 1. Watchlist target hits
-  const watch = await getWatchlist();
-  const wlPrices = await getCurrentPrices(watch.map((w) => w.symbol));
-  for (const w of watch) {
-    const px = wlPrices.get(w.symbol) ?? 0;
-    if (px <= 0) continue;
-    if (w.targetBuyPrice && px <= w.targetBuyPrice) {
-      candidates.push({ key: `watch-buy:${w.symbol}:${today}`, message: `🎯 <b>${w.symbol}</b> hit your BUY target — Rs ${px.toFixed(2)} ≤ Rs ${w.targetBuyPrice}` });
+  // 1. Watchlist ZONES — the bands decided in advance, on the calm day.
+  //    A buy ping carries the sized order when the deployment plan could size
+  //    it (target weight set, money above the fund reserve). A sell ping fires
+  //    ONLY when the position is bigger than the floor set for that symbol:
+  //    being told to sell 8 shares is noise the brokerage eats.
+  //    Stale quotes never fire — a week-old price is not a band hit.
+  const board = await getZoneBoard();
+  const monthKey = today.slice(0, 7);
+  const plan = board.buys.length > 0 ? await getDeploymentPlan().catch(() => null) : null;
+  for (const r of board.rows) {
+    if (!r.alertsOn || r.priceStale || r.price == null) continue;
+    if (r.status === "buy") {
+      const sized = plan?.rows.find((x) => x.symbol === r.symbol);
+      const how = sized
+        ? `\n   → Plan: buy <b>${sized.shares.toLocaleString("en-PK")}</b> shares for Rs ${Math.round(sized.rupees).toLocaleString("en-PK")}` +
+          (plan && plan.pullFromFunds > 0 ? ` (redeem Rs ${Math.round(plan.pullFromFunds).toLocaleString("en-PK")} from the fund)` : "")
+        : r.targetPct > 0
+        ? `\n   → No cash above your ${plan?.reservePct ?? 5}% fund reserve to size it today.`
+        : `\n   → No target weight set, so it cannot be sized. Set one on Rebalance.`;
+      candidates.push({
+        key: `zone-buy:${r.symbol}:${today}`,
+        message: `🟢 <b>${r.symbol}</b> is in your BUY zone — Rs ${r.price.toFixed(2)} (${describeZone(r.buyZoneLow, r.buyZoneHigh, "buy")})${how}`,
+      });
     }
-    if (w.targetSellPrice && px >= w.targetSellPrice) {
-      candidates.push({ key: `watch-sell:${w.symbol}:${today}`, message: `📈 <b>${w.symbol}</b> hit your SELL target — Rs ${px.toFixed(2)} ≥ Rs ${w.targetSellPrice}` });
+    if (r.suggestSell) {
+      candidates.push({
+        key: `zone-sell:${r.symbol}:${today}`,
+        message:
+          `🔴 <b>${r.symbol}</b> is in your SELL zone — Rs ${r.price.toFixed(2)} (${describeZone(r.sellZoneLow, r.sellZoneHigh, "sell")}). ` +
+          `You hold ${r.sharesHeld.toLocaleString("en-PK")} shares worth Rs ${Math.round(r.positionValue).toLocaleString("en-PK")}` +
+          (r.minSellShares > 0 ? `, above your ${r.minSellShares.toLocaleString("en-PK")}-share floor` : "") +
+          `.\n   → Decide the trim on the holding page; the sale still needs a logged rationale.`,
+      });
+    }
+    // Contradictory bands cannot produce an instruction, so say so — monthly,
+    // not daily, because it is a config fix rather than a market event.
+    if (r.status === "conflict" && r.warnings.length > 0) {
+      candidates.push({
+        key: `zone-conflict:${r.symbol}:${monthKey}`,
+        message: `⚠️ <b>${r.symbol}</b>: ${r.warnings[0]} No buy or sell signal is given until that is fixed.`,
+      });
     }
   }
 
@@ -100,7 +131,7 @@ async function runAlertsForCurrentUser(forceDigest = false) {
   //    stays cheap doesn't ping every single day.
   try {
     const month = today.slice(0, 7);
-    const mine = new Set([...watch.map((w) => w.symbol), ...summary.positions.filter((p) => p.shares > 0).map((p) => p.symbol)]);
+    const mine = new Set([...board.rows.map((r) => r.symbol), ...summary.positions.filter((p) => p.shares > 0).map((p) => p.symbol)]);
     const iv = await getIntrinsicValuations();
     // A "buy zone" verdict is price ÷ intrinsic — if the price is a week-old
     // fallback snapshot, the verdict is stale arithmetic, not a signal. Skip.

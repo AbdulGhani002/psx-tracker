@@ -1,19 +1,22 @@
+import Link from "next/link";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { Section } from "@/components/layout/Section";
 import { SetupBanner } from "@/components/layout/SetupBanner";
 import { RebalanceView } from "./RebalanceView";
 import { TargetsEditor } from "./TargetsEditor";
 import { AddCompany } from "./AddCompany";
-import { getPortfolioSummary, getAllHoldings, getCashSummary, checkDataAvailability } from "@/lib/data";
+import { DeploymentPlan } from "./DeploymentPlan";
+import { getPortfolioSummary, getAllHoldings, getCashSummary, getDeploymentPlan, checkDataAvailability } from "@/lib/data";
 
 export const dynamic = "force-dynamic";
 
 export default async function RebalancePage() {
   const avail = await checkDataAvailability();
-  const [summary, holdings, cashSummary] = await Promise.all([
+  const [summary, holdings, cashSummary, plan] = await Promise.all([
     getPortfolioSummary(),
     getAllHoldings(),
     getCashSummary(),
+    getDeploymentPlan(),
   ]);
 
   const bandBySymbol = new Map<string, number>();
@@ -51,6 +54,20 @@ export default async function RebalancePage() {
 
       <Section
         number="02"
+        title="Buy zones & your cash"
+        display="What to buy today, and what stays in the fund."
+        description={`Your watchlist bands, checked against live prices, sized against your target weights, and paid for out of the money-market fund — with ${plan.reservePct}% of total wealth always left behind as the reserve. Nothing here places an order.`}
+        action={
+          <Link href="/watchlist" className="font-mono text-[11px] uppercase tracking-stat text-muted hover:text-[var(--accent-deep)]">
+            Edit zones →
+          </Link>
+        }
+      >
+        <DeploymentPlan plan={plan} />
+      </Section>
+
+      <Section
+        number="03"
         title="Rebalance"
         display="Deploy cash. Buy integers."
         description={`Cash available in your brokerage balance: ${cashSummary.balance >= 0 ? "Rs " + cashSummary.balance.toLocaleString("en-PK", { maximumFractionDigits: 0 }) : "negative — you need to record a deposit"}. Share counts are integers, so the leftover rupees never get spent and stay as cash.`}

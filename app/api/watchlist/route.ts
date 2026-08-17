@@ -4,15 +4,32 @@ import { z } from "zod";
 import { connectDb } from "@/lib/db";
 import { WatchlistEntryModel } from "@/lib/models";
 import { getCompanyInfo } from "@/lib/prices";
+import { zoneWarningsFrom } from "@/lib/calculations/zones";
 
 export const dynamic = "force-dynamic";
 
+const price = z.number().positive().nullable().optional();
+
+const zoneFields = {
+  notes: z.string().default(""),
+  targetBuyPrice: price,
+  targetSellPrice: price,
+  buyZoneLow: price,
+  buyZoneHigh: price,
+  sellZoneLow: price,
+  sellZoneHigh: price,
+  minSellShares: z.number().min(0).optional(),
+  alertsOn: z.boolean().optional(),
+};
+
 const postSchema = z.object({
   symbol: z.string().min(1).transform((s) => s.toUpperCase().trim()),
-  notes: z.string().default(""),
-  targetBuyPrice: z.number().nullable().optional(),
-  targetSellPrice: z.number().nullable().optional(),
+  ...zoneFields,
 });
+
+// Contradictory bands must never reach the database: a row that says both buy
+// and sell at the same price would make the alert engine pick a side, and it
+// has no business picking one. Rejected at the edge with the reason.
 
 export async function GET() {
   await connectDb();
@@ -24,6 +41,10 @@ export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
     const parsed = postSchema.parse(body);
+    const problems = zoneWarningsFrom(parsed.symbol, parsed);
+    if (problems.length > 0) {
+      return NextResponse.json({ error: "zone_conflict", problems }, { status: 400 });
+    }
     await connectDb();
 
     const exists = await WatchlistEntryModel.findOne({ userId: await uid(), symbol: parsed.symbol });
@@ -42,6 +63,12 @@ export async function POST(req: NextRequest) {
       notes: parsed.notes,
       targetBuyPrice: parsed.targetBuyPrice ?? null,
       targetSellPrice: parsed.targetSellPrice ?? null,
+      buyZoneLow: parsed.buyZoneLow ?? null,
+      buyZoneHigh: parsed.buyZoneHigh ?? null,
+      sellZoneLow: parsed.sellZoneLow ?? null,
+      sellZoneHigh: parsed.sellZoneHigh ?? null,
+      minSellShares: parsed.minSellShares ?? 0,
+      alertsOn: parsed.alertsOn ?? true,
     });
     return NextResponse.json(created.toObject(), { status: 201 });
   } catch (err) {
