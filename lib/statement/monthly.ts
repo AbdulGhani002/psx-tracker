@@ -55,7 +55,7 @@ export async function assembleMonthlyStatement(now = new Date()): Promise<Monthl
     netWorthTotal: netWorth.total,
     equity: netWorth.equity,
     funds: netWorth.funds,
-    savingsAndCash: netWorth.savings + netWorth.cash,
+    savingsAndCash: netWorth.savings,
     usdEquivalent: usdPkr ? netWorth.total / usdPkr : null,
     unrealizedPL: summary.unrealizedPL,
     unrealizedPct: summary.totalCost > 0 ? (summary.unrealizedPL / summary.totalCost) * 100 : null,

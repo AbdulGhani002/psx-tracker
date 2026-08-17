@@ -304,7 +304,7 @@ async function runAlertsForCurrentUser(forceDigest = false) {
       const lines: string[] = ["📬 <b>Weekly digest</b>"];
       if (netWorth) {
         const usd = usdPkr ? ` (≈ $${Math.round(netWorth.total / usdPkr).toLocaleString()})` : "";
-        lines.push(`Net worth <b>Rs ${Math.round(netWorth.total).toLocaleString()}</b>${usd} — equities ${Math.round(netWorth.equity).toLocaleString()}, funds ${Math.round(netWorth.funds).toLocaleString()}, cash ${Math.round(netWorth.cash).toLocaleString()}`);
+        lines.push(`Net worth <b>Rs ${Math.round(netWorth.total).toLocaleString()}</b>${usd} — equities ${Math.round(netWorth.equity).toLocaleString()}, funds ${Math.round(netWorth.funds).toLocaleString()}, savings ${Math.round(netWorth.savings).toLocaleString()}`);
       }
       const plPct = summary.totalCost > 0 ? (summary.unrealizedPL / summary.totalCost) * 100 : null;
       lines.push(`Unrealised ${summary.unrealizedPL >= 0 ? "+" : ""}Rs ${Math.round(summary.unrealizedPL).toLocaleString()}${plPct != null ? ` (${plPct >= 0 ? "+" : ""}${plPct.toFixed(1)}%)` : ""} · dividends banked Rs ${Math.round(summary.dividendsTotal).toLocaleString()}`);

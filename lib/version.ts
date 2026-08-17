@@ -1,7 +1,7 @@
 // Single source of truth for the app version + changelog.
 // Bump APP_VERSION and prepend a CHANGELOG entry on every release.
 
-export const APP_VERSION = "8.3.0";
+export const APP_VERSION = "8.3.1";
 
 export const BUILD_DATE =
   process.env.NEXT_PUBLIC_BUILD_DATE ?? "";
@@ -17,6 +17,17 @@ export type ChangelogEntry = {
 
 // Reverse-chronological. Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: "8.3.1",
+    date: "2026-08-17",
+    title: "The cash that was never there",
+    changes: [
+      "Brokerage cash is no longer counted as an asset. The balance was DERIVED — deposits plus sells plus dividends, minus buys and withdrawals — so it was only ever as true as the deposit ledger was complete. This book was rebuilt from an NCCPL tax certificate, which carries every trade but no cash movements, so seven deposits from two weeks in 2026 were standing against years of buys. The Rs 32,042 it produced was arithmetic residue, not money in an account.",
+      "It has been taken out of net worth, the FBR wealth statement, the printable statement, the overview, the monthly PDF and the weekly Telegram digest. It is also out of the zakat base, where a residue was quietly inflating an obligation, and out of the decisions inbox, which was nagging about parking cash that did not exist.",
+      "It can no longer fund a purchase either: the deployment plan and the rebalance page took it as spendable money and would have sized orders against it. Cash to deploy is now only what you type in.",
+      "The ledger itself is untouched — the entries, the Cash summary and the API all still work. If every deposit and withdrawal is ever recorded, counting it again is a small change.",
+    ],
+  },
   {
     version: "8.3.0",
     date: "2026-08-17",

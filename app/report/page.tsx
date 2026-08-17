@@ -57,7 +57,7 @@ export default async function ReportPage() {
         <Stat label="Net worth" value={fmtRs(netWorth.total)} size="lg" hint={usd(netWorth.total)} />
         <Stat label="Equities" value={fmtRs(netWorth.equity)} hint={usd(netWorth.equity)} />
         <Stat label="Funds" value={fmtRs(netWorth.funds)} hint={usd(netWorth.funds)} />
-        <Stat label="Savings + cash" value={fmtRs(netWorth.savings + netWorth.cash)} hint={usd(netWorth.savings + netWorth.cash)} />
+        <Stat label="Savings" value={fmtRs(netWorth.savings)} hint={usd(netWorth.savings)} />
         <Stat label="Unrealised P/L" value={fmtSignedRs(summary.unrealizedPL)} tone={summary.unrealizedPL >= 0 ? "positive" : "negative"} />
         <Stat label="Total return" value={fmtSignedRs(totalReturn)} tone={totalReturn >= 0 ? "positive" : "negative"} hint={summary.totalCost > 0 ? fmtSignedPct(totalReturn / summary.totalCost, 1) : undefined} />
       </StatRow>
@@ -114,11 +114,7 @@ export default async function ReportPage() {
             ))}
           </div>
           <div>
-            <div className="label-cap mb-2">Cash</div>
-            <div className="flex justify-between gap-3 py-1 border-b border-rule">
-              <span>Brokerage + bank cash</span>
-              <span className="font-mono mono-num">{fmtRs(netWorth.cash)}</span>
-            </div>
+            <div className="label-cap mb-2">Income</div>
             <div className="flex justify-between gap-3 py-1 border-b border-rule">
               <span>Dividends this tax year</span>
               <span className="font-mono mono-num">{fmtRs(summary.dividendsYTD)}</span>

@@ -244,14 +244,6 @@ async function _getDecisionInbox(): Promise<{
     for (const c of cashFlags({ label: a.name, purpose: plan.purpose ?? "", reviewBy: plan.reviewBy ?? "", netYieldPct: net }, today, inf.pct))
       cards.push({ ...c, kind: "cash" });
   }
-  if (netWorth && netWorth.cash > 0) {
-    for (const c of cashFlags(
-      { label: `Brokerage cash (Rs ${Math.round(netWorth.cash).toLocaleString()})`, purpose: (settings.brokerCashPurpose ?? "") as any, reviewBy: settings.brokerCashReviewBy ?? "", netYieldPct: 0 },
-      today,
-      inf.pct
-    ))
-      cards.push({ ...c, kind: "cash" });
-  }
 
   // Re-buy reviews: exited symbols with an active rule.
   const rebuys = holdings.filter((h: any) => h.rebuyRule?.active && (h.currentShares ?? 0) <= 0);

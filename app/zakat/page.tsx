@@ -18,13 +18,6 @@ export default async function ZakatPage() {
 
   const categories = [
     {
-      key: "cash",
-      label: "Brokerage cash",
-      amount: netWorth.cash,
-      included: true,
-      note: "Fully zakatable.",
-    },
-    {
       key: "savings",
       label: "Bank savings (accrued)",
       amount: netWorth.savings,

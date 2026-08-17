@@ -63,7 +63,7 @@ async function TopBlock() {
     getEffectiveInflationPct(),
   ]);
   const usd = (rs: number) => (usdPkr ? `≈ ${fmtUsd(rs, usdPkr, false)}` : undefined);
-  const hasOtherAssets = netWorth.funds + netWorth.savings + netWorth.cash > 0;
+  const hasOtherAssets = netWorth.funds + netWorth.savings > 0;
   const hasMovers = movers.gainers.length + movers.losers.length > 0;
   const xirrLabel = summary.xirr != null ? fmtSignedPct(summary.xirr, 1) : "—";
   // Real XIRR: the same annualised return with inflation taken out (Fisher). In
@@ -142,10 +142,6 @@ async function TopBlock() {
                 <div>
                   <div className="text-[10px] tracking-stat uppercase text-muted">Savings</div>
                   <div>{fmtRs(netWorth.savings)}</div>
-                </div>
-                <div>
-                  <div className="text-[10px] tracking-stat uppercase text-muted">Cash</div>
-                  <div>{fmtRs(netWorth.cash)}</div>
                 </div>
               </div>
             </div>
@@ -228,7 +224,7 @@ async function AllocationBlock() {
   const active = summary.positions.filter((p) => p.shares > 0);
   const topPos = [...active].sort((a, b) => b.currentPercent - a.currentPercent)[0];
   const topSector = summary.sectorBreakdown[0];
-  const cashBufferPct = netWorth.total > 0 ? ((netWorth.cash + netWorth.savings) / netWorth.total) * 100 : 0;
+  const cashBufferPct = netWorth.total > 0 ? (netWorth.savings / netWorth.total) * 100 : 0;
   const signals: Array<{ ok: boolean; text: string }> = [];
   if (topPos) {
     signals.push({

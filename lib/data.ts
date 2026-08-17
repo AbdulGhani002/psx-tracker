@@ -460,7 +460,10 @@ async function computeRiskAnalysis(): Promise<RiskAnalysis> {
     equity: (nw as any)?.equity ?? summary.totalValue ?? 0,
     funds: (nw as any)?.funds ?? 0,
     savings: (nw as any)?.savings ?? 0,
-    cash: (nw as any)?.cash ?? 0,
+    // Brokerage cash is not part of net worth — see _getNetWorth. Stated as an
+    // explicit zero rather than an absent field, so the stress test is not
+    // quietly reading `undefined` off a type that no longer carries it.
+    cash: 0,
   };
 
   return { concentration, correlation, stressBase, safeRatePct: 3, concentrationCap: cap };
@@ -1166,34 +1169,43 @@ export type NetWorth = {
   equity: number; // PSX holdings market value
   funds: number; // mutual funds value
   savings: number; // savings accounts accrued value
-  cash: number; // brokerage cash balance
   total: number;
   breakdown: { label: string; value: number }[];
 };
 
+// Brokerage cash is deliberately NOT an asset here.
+//
+// The balance in lib/calculations/cash.ts is DERIVED — deposits + sells +
+// dividends − buys − withdrawals — so it is only as true as the deposit ledger
+// is complete. This book was rebuilt from an NCCPL tax certificate, which
+// carries every trade but no cash movements, so the deposits recorded cover a
+// few weeks against years of buys. What comes out the other end is arithmetic
+// residue, not money in an account, and putting it in net worth states a
+// balance nobody measured. Same principle as an unpriced position: a number
+// that cannot be known is left out rather than asserted.
+//
+// The ledger itself is untouched — CashEntry rows, /api/cash and the Cash
+// summary all still work. If every deposit and withdrawal is ever recorded,
+// counting it again is a small change.
 async function _getNetWorth(): Promise<NetWorth> {
-  const [summary, funds, savings, cash] = await Promise.all([
+  const [summary, funds, savings] = await Promise.all([
     getPortfolioSummary(),
     getMutualFundsValued(),
     getSavingsValued(),
-    getCashSummary(),
   ]);
   const equity = summary.totalValue;
   const fundsTotal = funds.reduce((s, f) => s + f.value, 0);
   const savingsTotal = savings.reduce((s, a) => s + a.balance, 0);
-  const cashTotal = Math.max(0, cash.balance);
-  const total = equity + fundsTotal + savingsTotal + cashTotal;
+  const total = equity + fundsTotal + savingsTotal;
   return {
     equity,
     funds: fundsTotal,
     savings: savingsTotal,
-    cash: cashTotal,
     total,
     breakdown: [
       { label: "PSX equities", value: equity },
       { label: "Mutual funds", value: fundsTotal },
       { label: "Savings", value: savingsTotal },
-      { label: "Cash", value: cashTotal },
     ].filter((b) => b.value > 0),
   };
 }
@@ -1753,11 +1765,10 @@ export type DeploymentPlan = DeployPlan & {
 // is not a fact until it goes through the decision gate, and budgeting unsold
 // shares would be spending money you do not have yet.
 async function _getDeploymentPlan(): Promise<DeploymentPlan> {
-  const [board, summary, funds, cash, settings] = await Promise.all([
+  const [board, summary, funds, settings] = await Promise.all([
     getZoneBoard(),
     getPortfolioSummary(),
     getMutualFundsValued().catch(() => []),
-    getCashSummary(),
     getAppSettings(),
   ]);
   const fundsValue = funds.reduce((s, f) => s + (f.value ?? 0), 0);
@@ -1790,7 +1801,10 @@ async function _getDeploymentPlan(): Promise<DeploymentPlan> {
     candidates,
     equityValue: summary.totalValue,
     fundsValue,
-    brokerCash: cash.balance,
+    // Zero on purpose: the derived brokerage balance is not money anyone
+    // counted, so it must never fund an order. Real cash to deploy is typed
+    // into the box on the Rebalance page.
+    brokerCash: 0,
     reservePct: (settings as any).mfCashReservePct ?? 5,
     concentrationCap: (settings as any).concentrationCap ?? 25,
     unpriced: board.unpriced,

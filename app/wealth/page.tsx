@@ -9,7 +9,6 @@ import {
   getPortfolioSummary,
   getMutualFundsValued,
   getSavingsValued,
-  getCashSummary,
   getFbrPack,
   getPmexOverview,
   checkDataAvailability,
@@ -81,12 +80,11 @@ function maxDrawdownPct(points: Array<{ portfolioTR: number | null }>): number |
 
 export default async function WealthPage() {
   const avail = await checkDataAvailability();
-  const [netWorth, summary, funds, savings, cash, usdPkr, benchWrap] = await Promise.all([
+  const [netWorth, summary, funds, savings, usdPkr, benchWrap] = await Promise.all([
     getNetWorth(),
     getPortfolioSummary(),
     getMutualFundsValued(),
     getSavingsValued(),
-    getCashSummary(),
     getUsdPkr(),
     getCurrentUserId()
       .then((uid) => (uid ? computeBenchmarkCached("ALL", uid) : null))
@@ -187,7 +185,7 @@ export default async function WealthPage() {
         <Stat label="Equity value" value={fmtRs(netWorth.equity)} hint={usd(netWorth.equity)} />
         <Stat label="Unrealised gain" value={fmtSignedRs(totalGain)} tone={totalGain >= 0 ? "positive" : "negative"} />
         <Stat label="Funds" value={fmtRs(netWorth.funds)} />
-        <Stat label="Cash + savings" value={fmtRs(netWorth.savings + netWorth.cash)} />
+        <Stat label="Savings" value={fmtRs(netWorth.savings)} />
       </StatRow>
 
       <Section number="01" title="Assets at a glance" display="Where it all sits.">
@@ -428,7 +426,8 @@ export default async function WealthPage() {
 
       <p className="text-[11px] text-muted font-mono mt-8">
         Values are current (not as-of 30 June). For a precise year-end statement, snapshot this page on 30 June.
-        Cash balance: {fmtRs(cash.balance)}.
+        Brokerage cash is not counted: the balance is derived from a deposit ledger that was never completed, so it
+        would be a figure nobody measured. Add it by hand if you are declaring one.
       </p>
     </div>
   );
