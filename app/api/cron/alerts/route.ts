@@ -59,7 +59,17 @@ async function runAlertsForCurrentUser(forceDigest = false) {
   //    ONLY when the position is bigger than the floor set for that symbol:
   //    being told to sell 8 shares is noise the brokerage eats.
   //    Stale quotes never fire — a week-old price is not a band hit.
-  const board = await getZoneBoard();
+  //    Guarded like every other section: the watchlist now pulls prices, fund
+  //    NAVs and the deployment plan, and none of that may take down the
+  //    ex-dividend, board-meeting or digest alerts if a feed misbehaves.
+  let board: Awaited<ReturnType<typeof getZoneBoard>> = {
+    rows: [], buys: [], sells: [], heldBelowFloor: [], conflicts: [], unpriced: [],
+  };
+  try {
+    board = await getZoneBoard();
+  } catch {
+    /* watchlist or price feed unavailable — the other alerts still run */
+  }
   const monthKey = today.slice(0, 7);
   const plan = board.buys.length > 0 ? await getDeploymentPlan().catch(() => null) : null;
   for (const r of board.rows) {
