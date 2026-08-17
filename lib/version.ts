@@ -1,7 +1,7 @@
 // Single source of truth for the app version + changelog.
 // Bump APP_VERSION and prepend a CHANGELOG entry on every release.
 
-export const APP_VERSION = "8.2.0";
+export const APP_VERSION = "8.3.0";
 
 export const BUILD_DATE =
   process.env.NEXT_PUBLIC_BUILD_DATE ?? "";
@@ -17,6 +17,18 @@ export type ChangelogEntry = {
 
 // Reverse-chronological. Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: "8.3.0",
+    date: "2026-08-17",
+    title: "A core you keep, and buying that scales with the price",
+    changes: [
+      "The per-stock minimum is now a MINIMUM HOLDING, not a minimum sale: the share count you always keep, whatever the price does. Only the excess above it is ever offered. Hold 1,200 with a core of 1,000 and the instruction is sell 200 — a number, not a nudge. A position already at or under its core stays silent inside the sell band.",
+      "The sell alert now carries the money. Proceeds, the realised gain on those exact FIFO lots, CGT at your filer rate, PSX brokerage, and what actually lands in the account — in the Telegram message and on the watchlist and rebalance pages. When the lots cannot be matched to the position it says so instead of printing a confident figure.",
+      "Rebalance takes an amount. Type what you are depositing and the plan re-sizes live in the browser: which names, how many whole shares, what to redeem from the fund. New money is spent first, then brokerage cash, and the fund last because it is the part still earning.",
+      "Zone status now WEIGHTS a buy instead of gating it. Inside its band a name is bought at full weight; above the band it is bought less, tapering with distance until it is a trickle 25 points out; in its own sell band it is not bought at all. Every row shows the weight and the reason, so a smaller order is never mysterious.",
+      "Names that are not on the watchlist at all are still considered, at a reduced weight, because an unproven price deserves less money rather than none. Your existing floors carry over unchanged — the number always meant the size below which nothing happens.",
+    ],
+  },
   {
     version: "8.2.0",
     date: "2026-08-17",

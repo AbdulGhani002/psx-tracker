@@ -22,13 +22,16 @@ export type Row = {
   buyZoneHigh: number | null;
   sellZoneLow: number | null;
   sellZoneHigh: number | null;
-  minSellShares: number;
+  minHoldingShares: number;
   alertsOn: boolean;
   status: ZoneStatus;
   sharesHeld: number;
   positionValue: number;
   targetPct: number;
-  suggestSell: boolean;
+  sellableShares: number;
+  sell: { shares: number; proceeds: number; fees: number; gain: number; cgt: number; net: number; cgtRatePct: number; remainingShares: number } | null;
+  buyFactor: number;
+  buyReason: string;
   toBuyPct: number | null;
   toSellPct: number | null;
   warnings: string[];
@@ -39,7 +42,7 @@ type Draft = {
   buyZoneHigh: string;
   sellZoneLow: string;
   sellZoneHigh: string;
-  minSellShares: string;
+  minHoldingShares: string;
 };
 
 const numOrNull = (s: string): number | null => {
@@ -55,14 +58,14 @@ function draftOf(r: Row): Draft {
     buyZoneHigh: r.buyZoneHigh?.toString() ?? "",
     sellZoneLow: r.sellZoneLow?.toString() ?? "",
     sellZoneHigh: r.sellZoneHigh?.toString() ?? "",
-    minSellShares: r.minSellShares ? String(r.minSellShares) : "",
+    minHoldingShares: r.minHoldingShares ? String(r.minHoldingShares) : "",
   };
 }
 
 function StatusBadge({ r }: { r: Row }) {
   if (r.status === "buy") return <Badge tone="positive">BUY ZONE</Badge>;
-  if (r.suggestSell) return <Badge tone="negative">SELL ZONE</Badge>;
-  if (r.status === "sell") return <Badge tone="amber">SELL — TOO SMALL</Badge>;
+  if (r.sellableShares > 0) return <Badge tone="negative">SELL {r.sellableShares.toLocaleString("en-PK")}</Badge>;
+  if (r.status === "sell") return <Badge tone="amber">AT YOUR CORE</Badge>;
   if (r.status === "conflict") return <Badge tone="amber">CHECK ZONES</Badge>;
   if (r.status === "unknown") return <Badge tone="default">NO PRICE</Badge>;
   if (r.status === "no_zone") return <Badge tone="default">NO ZONES SET</Badge>;
@@ -77,7 +80,7 @@ export function WatchlistManager({ rows }: { rows: Row[] }) {
   const [msg, setMsg] = useState<{ kind: "ok" | "err"; text: string } | null>(null);
   const [adding, setAdding] = useState(false);
   const [newSymbol, setNewSymbol] = useState("");
-  const [newDraft, setNewDraft] = useState<Draft>({ buyZoneLow: "", buyZoneHigh: "", sellZoneLow: "", sellZoneHigh: "", minSellShares: "" });
+  const [newDraft, setNewDraft] = useState<Draft>({ buyZoneLow: "", buyZoneHigh: "", sellZoneLow: "", sellZoneHigh: "", minHoldingShares: "" });
 
   function payload(d: Draft) {
     return {
@@ -85,7 +88,7 @@ export function WatchlistManager({ rows }: { rows: Row[] }) {
       buyZoneHigh: numOrNull(d.buyZoneHigh),
       sellZoneLow: numOrNull(d.sellZoneLow),
       sellZoneHigh: numOrNull(d.sellZoneHigh),
-      minSellShares: d.minSellShares.trim() === "" ? 0 : Math.max(0, Number(d.minSellShares)),
+      minHoldingShares: d.minHoldingShares.trim() === "" ? 0 : Math.max(0, Number(d.minHoldingShares)),
     };
   }
 
@@ -140,7 +143,7 @@ export function WatchlistManager({ rows }: { rows: Row[] }) {
       });
       if (await handle(res, `${sym} added.`)) {
         setNewSymbol("");
-        setNewDraft({ buyZoneLow: "", buyZoneHigh: "", sellZoneLow: "", sellZoneHigh: "", minSellShares: "" });
+        setNewDraft({ buyZoneLow: "", buyZoneHigh: "", sellZoneLow: "", sellZoneHigh: "", minHoldingShares: "" });
         setAdding(false);
       }
     } catch {
@@ -184,14 +187,14 @@ export function WatchlistManager({ rows }: { rows: Row[] }) {
         ["buyZoneHigh", "Buy up to"],
         ["sellZoneLow", "Sell from"],
         ["sellZoneHigh", "Sell up to (optional)"],
-        ["minSellShares", "Min shares to sell"],
+        ["minHoldingShares", "Always keep (shares)"],
       ] as Array<[keyof Draft, string]>).map(([k, label]) => (
         <div key={k}>
           <label className="label-cap block mb-1">{label}</label>
           <div className="border-b border-ink">
             <input
               type="number"
-              step={k === "minSellShares" ? 1 : 0.01}
+              step={k === "minHoldingShares" ? 1 : 0.01}
               min={0}
               value={d[k]}
               onChange={(e) => set({ ...d, [k]: e.target.value })}
@@ -239,8 +242,8 @@ export function WatchlistManager({ rows }: { rows: Row[] }) {
             <p className="text-[11px] text-muted max-w-[70ch]">
               Leave a bound blank for an open end: a buy zone with only an upper bound means
               &ldquo;buy at or under this&rdquo;, and a sell zone with only a lower bound means
-              &ldquo;sell at or above this&rdquo;. The minimum is a size floor — no sell is ever
-              suggested unless you hold MORE than that many shares.
+              &ldquo;sell at or above this&rdquo;. The keep figure is your core: only shares ABOVE it are
+              ever offered for sale, so hold 1,200 with a core of 1,000 and the answer is sell 200.
             </p>
             <Button variant="solid" onClick={add} disabled={busy || !newSymbol.trim()}>
               {busy ? "Saving…" : "Add to watchlist"}
@@ -261,7 +264,7 @@ export function WatchlistManager({ rows }: { rows: Row[] }) {
           <table className="w-full border-collapse text-[13px]">
             <thead>
               <tr className="border-t border-b border-ink">
-                {["Symbol", "Price", "Buy zone", "Sell zone", "Min sell", "Held", "Status", ""].map((h, i) => (
+                {["Symbol", "Price", "Buy zone", "Sell zone", "Always keep", "Held", "Status", ""].map((h, i) => (
                   <th
                     key={h || i}
                     className="px-2 py-2 font-mono text-[10px] uppercase tracking-stat text-muted font-medium"
@@ -301,7 +304,7 @@ export function WatchlistManager({ rows }: { rows: Row[] }) {
                         {describeZone(r.sellZoneLow, r.sellZoneHigh, "sell")}
                       </td>
                       <td className="px-2 py-2.5 text-right font-mono mono-num text-muted">
-                        {r.minSellShares > 0 ? fmtNum(r.minSellShares) : "—"}
+                        {r.minHoldingShares > 0 ? fmtNum(r.minHoldingShares) : "—"}
                       </td>
                       <td className="px-2 py-2.5 text-right font-mono mono-num">
                         {r.sharesHeld > 0 ? fmtNum(r.sharesHeld) : <span className="text-muted">—</span>}

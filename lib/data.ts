@@ -16,8 +16,9 @@ import { computeAttribution, type Attribution } from "./calculations/attribution
 import { fetchAllNavs, findNav, fetchFundReturns } from "./funds/mufap";
 import { valueSavings, valueFund, type SavingsValuation, type FundValuation } from "./calculations/assets";
 
-import { buildLots, type Disposal, type CgtSummary } from "./calculations/lots";
+import { buildLots, previewSell, type Disposal, type CgtSummary } from "./calculations/lots";
 import { computeRisk, type RiskMetrics } from "./calculations/risk";
+import { computePSXFees } from "./calculations/fees";
 import { valueTrade, expiryStatus, type TradeValuation } from "./calculations/pmex";
 import { summarisePmex, fyWindow, financialYearOf, activeFinancialYears, type PmexSummary, type FyWindow } from "./calculations/pmex-summary";
 import { getCommodityRef } from "./commodities/refs";
@@ -25,7 +26,7 @@ import { buildBenchmarkSeries } from "./timeseries/portfolio-history";
 import { fetchEodSeries } from "./timeseries/psx-eod";
 import { getPrices } from "./prices";
 import { getPriceFreshness } from "./prices";
-import { evaluateZone, shouldSuggestSell, distanceToZonePct, type ZoneEntry, type ZoneStatus } from "./calculations/zones";
+import { evaluateZone, sellableShares, zoneBuyFactor, distanceToZonePct, NO_ZONE_FACTOR, type ZoneEntry, type ZoneStatus } from "./calculations/zones";
 import { planDeployment, type DeployCandidate, type DeployPlan } from "./calculations/deploy-plan";
 import { summarisePortfolio, computeCashBalance, type PortfolioSummary, type CashSummary } from "./calculations";
 import { forecastDividends, type DividendForecast } from "./calculations/dividend-forecast";
@@ -1553,7 +1554,7 @@ async function computeTodaysMovers(): Promise<{ gainers: Mover[]; losers: Mover[
 export async function getWatchlist() {
   if (!(await tryConnect())) return [];
   const docs = await WatchlistEntryModel.find({ userId: await meId() }).sort({ createdAt: -1 }).lean();
-  return plain<Array<{ _id: string; symbol: string; name: string; sector: string; notes: string; targetBuyPrice: number | null; targetSellPrice: number | null; buyZoneLow: number | null; buyZoneHigh: number | null; sellZoneLow: number | null; sellZoneHigh: number | null; minSellShares: number; alertsOn: boolean; createdAt: string }>>(docs);
+  return plain<Array<{ _id: string; symbol: string; name: string; sector: string; notes: string; targetBuyPrice: number | null; targetSellPrice: number | null; buyZoneLow: number | null; buyZoneHigh: number | null; sellZoneLow: number | null; sellZoneHigh: number | null; minHoldingShares: number; minSellShares: number; alertsOn: boolean; createdAt: string }>>(docs);
 }
 
 export const checkDataAvailability = cache(_checkDataAvailability);
@@ -1583,7 +1584,19 @@ export const getSavingsValued = cache(_getSavingsValued);
 // --- Zones: the watchlist joined to prices, positions and targets -----------
 // One place computes zone status, so the Telegram alert, the watchlist table
 // and the rebalance deployment plan can never disagree about whether a stock
-// is in its band.
+// is in its band or how many shares that frees.
+
+export type SellEconomics = {
+  shares: number; // whole shares above the minimum holding
+  price: number;
+  proceeds: number;
+  fees: number;
+  gain: number; // realised gain on those exact FIFO lots
+  cgt: number;
+  net: number; // what actually reaches the account
+  cgtRatePct: number;
+  remainingShares: number; // the core you keep
+};
 
 export type ZoneBoardRow = {
   _id: string;
@@ -1598,13 +1611,16 @@ export type ZoneBoardRow = {
   buyZoneHigh: number | null;
   sellZoneLow: number | null;
   sellZoneHigh: number | null;
-  minSellShares: number;
+  minHoldingShares: number; // the core you always keep
   alertsOn: boolean;
   status: ZoneStatus;
   sharesHeld: number;
   positionValue: number;
   targetPct: number;
-  suggestSell: boolean; // in the sell band AND above the size floor
+  sellableShares: number; // shares above the floor, 0 when not in a sell band
+  sell: SellEconomics | null; // what selling them actually returns
+  buyFactor: number; // 0..1 — how hard to buy at today's price
+  buyReason: string;
   toBuyPct: number | null; // % above the buy ceiling (negative = inside)
   toSellPct: number | null; // % below the sell floor
   warnings: string[];
@@ -1613,8 +1629,8 @@ export type ZoneBoardRow = {
 export type ZoneBoard = {
   rows: ZoneBoardRow[];
   buys: ZoneBoardRow[]; // inside the buy band
-  sells: ZoneBoardRow[]; // inside the sell band AND past the size floor
-  heldBelowFloor: ZoneBoardRow[]; // in the sell band but too small to bother
+  sells: ZoneBoardRow[]; // in the sell band with shares above the floor
+  heldAtCore: ZoneBoardRow[]; // in the sell band but already at/under the floor
   conflicts: ZoneBoardRow[]; // contradictory bands — no instruction given
   unpriced: string[];
 };
@@ -1622,19 +1638,23 @@ export type ZoneBoard = {
 async function _getZoneBoard(): Promise<ZoneBoard> {
   const watch = await getWatchlist();
   if (watch.length === 0) {
-    return { rows: [], buys: [], sells: [], heldBelowFloor: [], conflicts: [], unpriced: [] };
+    return { rows: [], buys: [], sells: [], heldAtCore: [], conflicts: [], unpriced: [] };
   }
   const symbols = watch.map((w) => w.symbol);
-  const [prices, freshness, summary] = await Promise.all([
+  const [prices, freshness, summary, settings] = await Promise.all([
     getCurrentPrices(symbols),
     getPriceFreshness(symbols).catch(() => new Map()),
     getPortfolioSummary(),
+    getAppSettings(),
   ]);
   const posBySymbol = new Map(summary.positions.map((p) => [p.symbol, p]));
+  const cgtRatePct =
+    (settings as any).filerStatus === "filer" ? (settings as any).cgtRateFiler : (settings as any).cgtRateNonFiler;
 
   const rows: ZoneBoardRow[] = watch.map((w) => {
     // A zone bound falls back to the older single-point target, so rows created
-    // before zones existed keep working instead of silently going quiet.
+    // before zones existed keep working instead of silently going quiet. The
+    // holding floor likewise reads its pre-8.3 name until the migration runs.
     const buyZoneHigh = w.buyZoneHigh ?? w.targetBuyPrice ?? null;
     const sellZoneLow = w.sellZoneLow ?? w.targetSellPrice ?? null;
     const entry: ZoneEntry = {
@@ -1643,7 +1663,7 @@ async function _getZoneBoard(): Promise<ZoneBoard> {
       buyZoneHigh,
       sellZoneLow,
       sellZoneHigh: w.sellZoneHigh ?? null,
-      minSellShares: w.minSellShares ?? 0,
+      minHoldingShares: (w as any).minHoldingShares ?? (w as any).minSellShares ?? 0,
     };
     const raw = prices.get(w.symbol) ?? 0;
     const verdict = evaluateZone(raw > 0 ? raw : null, entry);
@@ -1651,6 +1671,7 @@ async function _getZoneBoard(): Promise<ZoneBoard> {
     const pos = posBySymbol.get(w.symbol);
     const sharesHeld = pos?.shares ?? 0;
     const dist = verdict.price != null ? distanceToZonePct(verdict.price, entry) : { toBuyPct: null, toSellPct: null };
+    const weight = zoneBuyFactor(verdict.price, entry);
     return {
       _id: String(w._id),
       symbol: w.symbol,
@@ -1664,24 +1685,56 @@ async function _getZoneBoard(): Promise<ZoneBoard> {
       buyZoneHigh: entry.buyZoneHigh,
       sellZoneLow: entry.sellZoneLow,
       sellZoneHigh: entry.sellZoneHigh,
-      minSellShares: entry.minSellShares,
-      alertsOn: w.alertsOn !== false,
+      minHoldingShares: entry.minHoldingShares,
+      alertsOn: (w as any).alertsOn !== false,
       status: verdict.status,
       sharesHeld,
       positionValue: pos?.marketValue ?? 0,
       targetPct: pos?.targetPercent ?? 0,
-      suggestSell: shouldSuggestSell(verdict.status, sharesHeld, entry.minSellShares),
+      sellableShares: sellableShares(verdict.status, sharesHeld, entry.minHoldingShares),
+      sell: null, // filled below, only where something is actually sellable
+      buyFactor: weight.factor,
+      buyReason: weight.reason,
       toBuyPct: dist.toBuyPct,
       toSellPct: dist.toSellPct,
       warnings: verdict.warnings,
     };
   });
 
+  // What the excess would actually return: FIFO lots, real PSX brokerage, CGT
+  // at your filer rate. Computed only for rows that free shares — usually none
+  // or one — so the common path costs nothing.
+  const needEconomics = rows.filter((r) => r.sellableShares > 0 && r.price != null);
+  if (needEconomics.length > 0) {
+    const txs = await getAllTransactions().catch(() => []);
+    for (const r of needEconomics) {
+      const mine = (txs as any[]).filter((t) => t.symbol === r.symbol);
+      if (mine.length === 0) continue;
+      const { openLots } = buildLots(r.symbol, mine as any);
+      const price = r.price as number;
+      const pv = previewSell(openLots, r.sellableShares, price, cgtRatePct);
+      if (pv.insufficient) continue; // lots disagree with the position — say nothing
+      const proceeds = r.sellableShares * price;
+      const fees = computePSXFees({ shares: r.sellableShares, price, type: "SELL" }).fee;
+      r.sell = {
+        shares: r.sellableShares,
+        price,
+        proceeds,
+        fees,
+        gain: pv.totalGain,
+        cgt: pv.estCgt,
+        net: proceeds - fees - pv.estCgt,
+        cgtRatePct,
+        remainingShares: r.sharesHeld - r.sellableShares,
+      };
+    }
+  }
+
   return {
     rows,
     buys: rows.filter((r) => r.status === "buy"),
-    sells: rows.filter((r) => r.suggestSell),
-    heldBelowFloor: rows.filter((r) => r.status === "sell" && !r.suggestSell && r.sharesHeld > 0),
+    sells: rows.filter((r) => r.sellableShares > 0),
+    heldAtCore: rows.filter((r) => r.status === "sell" && r.sellableShares === 0 && r.sharesHeld > 0),
     conflicts: rows.filter((r) => r.status === "conflict"),
     unpriced: rows.filter((r) => r.price == null).map((r) => r.symbol),
   };
@@ -1689,14 +1742,16 @@ async function _getZoneBoard(): Promise<ZoneBoard> {
 
 export type DeploymentPlan = DeployPlan & {
   board: ZoneBoard;
-  fundsLabel: string; // which fund(s) the money would come from
+  candidates: DeployCandidate[]; // what the browser calculator re-runs on
+  fundsLabel: string;
 };
 
-// What to buy right now with the money parked in the fund, and what stays put.
-// Sell candidates are reported by the board but their proceeds are deliberately
-// NOT added to the budget: a sale is not a fact until it goes through the
-// decision gate, and budgeting unsold shares would be spending money you do not
-// have yet.
+// What to buy right now, and what stays put. Every name with a target weight is
+// a candidate — zone status weights it rather than gating it, so a stock just
+// above its band still gets bought, only less. Sell candidates are reported by
+// the board but their proceeds are deliberately NOT added to the budget: a sale
+// is not a fact until it goes through the decision gate, and budgeting unsold
+// shares would be spending money you do not have yet.
 async function _getDeploymentPlan(): Promise<DeploymentPlan> {
   const [board, summary, funds, cash, settings] = await Promise.all([
     getZoneBoard(),
@@ -1706,14 +1761,31 @@ async function _getDeploymentPlan(): Promise<DeploymentPlan> {
     getAppSettings(),
   ]);
   const fundsValue = funds.reduce((s, f) => s + (f.value ?? 0), 0);
-  const candidates: DeployCandidate[] = board.buys
-    .filter((r) => !r.priceStale) // a week-old quote is not a live band hit
-    .map((r) => ({
-      symbol: r.symbol,
-      price: r.price ?? 0,
-      targetPct: r.targetPct,
-      currentValue: r.positionValue,
-    }));
+  const zoneBySymbol = new Map(board.rows.map((r) => [r.symbol, r]));
+
+  // Positions you already hold, plus anything watchlisted, all judged by price.
+  const seen = new Set<string>();
+  const candidates: DeployCandidate[] = [];
+  const consider = (symbol: string, price: number | null, targetPct: number, currentValue: number, stale: boolean) => {
+    if (seen.has(symbol)) return;
+    seen.add(symbol);
+    if (price == null || !(price > 0) || stale) return;
+    const z = zoneBySymbol.get(symbol);
+    // Not on the watchlist at all: no band to judge it by, so it is bought at
+    // the reduced no-zone weight rather than skipped or trusted.
+    const factor = z ? z.buyFactor : NO_ZONE_FACTOR;
+    const reason = z ? z.buyReason : "not on your watchlist — no band to judge it by";
+    candidates.push({ symbol, price, targetPct, currentValue, zoneFactor: factor, zoneReason: reason });
+  };
+  for (const r of board.rows) {
+    consider(r.symbol, r.price, r.targetPct, r.positionValue, r.priceStale);
+  }
+  for (const p of summary.positions) {
+    if (p.targetPercent > 0 || p.shares > 0) {
+      consider(p.symbol, p.priceKnown ? p.currentPrice : null, p.targetPercent, p.marketValue, false);
+    }
+  }
+
   const plan = planDeployment({
     candidates,
     equityValue: summary.totalValue,
@@ -1723,15 +1795,16 @@ async function _getDeploymentPlan(): Promise<DeploymentPlan> {
     concentrationCap: (settings as any).concentrationCap ?? 25,
     unpriced: board.unpriced,
   });
-  const staleBuys = board.buys.filter((r) => r.priceStale).map((r) => r.symbol);
+  const staleBuys = board.rows.filter((r) => r.priceStale).map((r) => r.symbol);
   if (staleBuys.length > 0) {
     plan.warnings.push(
-      `Skipped on stale prices: ${staleBuys.join(", ")}. The last quote is a week or more old, so the band hit cannot be trusted — refresh prices first.`
+      `Skipped on stale prices: ${staleBuys.join(", ")}. The last quote is a week or more old, so the band cannot be trusted — refresh prices first.`
     );
   }
   return {
     ...plan,
     board,
+    candidates,
     fundsLabel: funds.length === 1 ? funds[0].name : funds.length > 1 ? `${funds.length} funds` : "your fund",
   };
 }

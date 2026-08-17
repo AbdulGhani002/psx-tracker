@@ -63,7 +63,7 @@ async function runAlertsForCurrentUser(forceDigest = false) {
   //    NAVs and the deployment plan, and none of that may take down the
   //    ex-dividend, board-meeting or digest alerts if a feed misbehaves.
   let board: Awaited<ReturnType<typeof getZoneBoard>> = {
-    rows: [], buys: [], sells: [], heldBelowFloor: [], conflicts: [], unpriced: [],
+    rows: [], buys: [], sells: [], heldAtCore: [], conflicts: [], unpriced: [],
   };
   try {
     board = await getZoneBoard();
@@ -87,14 +87,23 @@ async function runAlertsForCurrentUser(forceDigest = false) {
         message: `🟢 <b>${r.symbol}</b> is in your BUY zone — Rs ${r.price.toFixed(2)} (${describeZone(r.buyZoneLow, r.buyZoneHigh, "buy")})${how}`,
       });
     }
-    if (r.suggestSell) {
+    if (r.sellableShares > 0) {
+      const n = (v: number) => Math.round(v).toLocaleString("en-PK");
+      // The instruction is a QUANTITY, not a nudge: everything above the core
+      // you keep, with the money it actually returns after fees and CGT.
+      const money = r.sell
+        ? `\n   → Sell <b>${r.sellableShares.toLocaleString("en-PK")}</b> shares for Rs ${n(r.sell.proceeds)}. ` +
+          `Gain Rs ${n(r.sell.gain)}, CGT Rs ${n(r.sell.cgt)} at ${r.sell.cgtRatePct}%, fees Rs ${n(r.sell.fees)} → ` +
+          `<b>Rs ${n(r.sell.net)}</b> in hand. Keeps ${r.sell.remainingShares.toLocaleString("en-PK")}.`
+        : `\n   → Sell <b>${r.sellableShares.toLocaleString("en-PK")}</b> shares, keeping ${(r.sharesHeld - r.sellableShares).toLocaleString("en-PK")}. ` +
+          `The exact gain could not be matched to your lots — check the holding page.`;
       candidates.push({
         key: `zone-sell:${r.symbol}:${today}`,
         message:
           `🔴 <b>${r.symbol}</b> is in your SELL zone — Rs ${r.price.toFixed(2)} (${describeZone(r.sellZoneLow, r.sellZoneHigh, "sell")}). ` +
-          `You hold ${r.sharesHeld.toLocaleString("en-PK")} shares worth Rs ${Math.round(r.positionValue).toLocaleString("en-PK")}` +
-          (r.minSellShares > 0 ? `, above your ${r.minSellShares.toLocaleString("en-PK")}-share floor` : "") +
-          `.\n   → Decide the trim on the holding page; the sale still needs a logged rationale.`,
+          `You hold ${r.sharesHeld.toLocaleString("en-PK")}` +
+          (r.minHoldingShares > 0 ? `, keeping a core of ${r.minHoldingShares.toLocaleString("en-PK")}` : "") +
+          `.${money}\n   The sale still needs a logged rationale.`,
       });
     }
     // Contradictory bands cannot produce an instruction, so say so — monthly,

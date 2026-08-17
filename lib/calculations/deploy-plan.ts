@@ -4,16 +4,21 @@
 // fund and comes out only when a name he has been waiting for trades into its
 // band. So the question this answers is not "what is my cash doing" but:
 //
-//   given the money sitting in the fund, which buy-zone names do I buy today,
-//   how many whole shares, how much do I pull out of the fund, and what stays?
+//   given this much money, which names do I buy today, how many whole shares,
+//   how much comes out of the fund, and what stays?
+//
+// Zone status does not gate the list, it WEIGHTS it. A name inside its buy band
+// is bought at full weight; a name above its band is bought less, tapering with
+// distance; a name inside its sell band is not bought at all. That way a
+// deployment is never all-or-nothing on one price crossing.
 //
 // A fixed percentage of total investable wealth never leaves the fund. It is
 // the reserve — subtracted before anything is deployable, so a buying spree
 // cannot quietly spend it.
 //
-// Sizing comes from target weights, never invented. A name sitting in its buy
-// zone with no target weight set is REPORTED, not sized: the app does not get
-// to decide how big a position should be.
+// Sizing comes from target weights, never invented. A name with no target
+// weight set is REPORTED, not sized: the app does not get to decide how big a
+// position should be.
 //
 // Pure arithmetic. Whole shares only — PSX does not trade fractions.
 
@@ -22,6 +27,8 @@ export type DeployCandidate = {
   price: number; // the price the order would be placed at
   targetPct: number; // target weight of the equity book, 0 = not set
   currentValue: number; // what you already hold in this name, at market
+  zoneFactor: number; // 0..1 from zoneBuyFactor — how hard to buy right now
+  zoneReason: string; // plain-language why, shown next to the row
 };
 
 export type DeployRow = {
@@ -33,35 +40,41 @@ export type DeployRow = {
   currentValue: number;
   finalValue: number;
   finalPct: number; // weight of the equity book after the buys
+  zoneFactor: number;
+  zoneReason: string;
 };
 
 export type DeployPlan = {
   equityValue: number;
   fundsValue: number;
   brokerCash: number;
-  cashLike: number; // fund + brokerage: everything that could be deployed
+  freshCash: number; // money typed in for this run, on top of the fund
+  cashLike: number; // fund + brokerage: everything already on hand
   totalInvestable: number; // equities + cashLike
   reservePct: number;
   reserveRequired: number; // stays in the fund, always
-  deployable: number; // cashLike minus the reserve
+  deployable: number; // (cashLike − reserve) + freshCash
   rows: DeployRow[]; // whole-share buys, largest first
   deployed: number;
   brokerCashUsed: number;
+  freshCashUsed: number;
   pullFromFunds: number; // redeem this much from the fund
   keptInFunds: number; // what remains in the fund afterwards
   undeployed: number; // deployable that no whole share could absorb
-  unsized: string[]; // in the buy zone but no target weight — you must decide
-  unpriced: string[]; // in the watchlist but no usable price
+  unsized: string[]; // no target weight — you must decide the size
+  skipped: Array<{ symbol: string; reason: string }>; // zone factor of zero
+  unpriced: string[];
   warnings: string[];
 };
 
 export type DeployInput = {
-  candidates: DeployCandidate[]; // ONLY names currently inside their buy zone
+  candidates: DeployCandidate[]; // every name worth considering, zone-weighted
   equityValue: number;
   fundsValue: number;
   brokerCash: number;
   reservePct: number; // e.g. 5
   concentrationCap: number; // e.g. 25
+  freshCash?: number; // new money for this run; 0 = deploy from the fund only
   unpriced?: string[];
 };
 
@@ -74,24 +87,32 @@ export function planDeployment({
   brokerCash,
   reservePct,
   concentrationCap,
+  freshCash = 0,
   unpriced = [],
 }: DeployInput): DeployPlan {
   const equity = Math.max(0, num(equityValue));
   const funds = Math.max(0, num(fundsValue));
   const cash = Math.max(0, num(brokerCash));
+  const fresh = Math.max(0, num(freshCash));
   const pct = Number.isFinite(reservePct) && reservePct > 0 ? Math.min(100, reservePct) : 0;
   const cap = Number.isFinite(concentrationCap) && concentrationCap > 0 ? concentrationCap : 100;
 
   const cashLike = funds + cash;
   const totalInvestable = equity + cashLike;
   const reserveRequired = (totalInvestable * pct) / 100;
-  const deployable = Math.max(0, cashLike - reserveRequired);
+  const deployable = Math.max(0, cashLike - reserveRequired) + fresh;
 
   const warnings: string[] = [];
   const unsized: string[] = [];
+  const skipped: Array<{ symbol: string; reason: string }> = [];
   const priced: DeployCandidate[] = [];
   for (const c of candidates) {
     if (!(num(c.price) > 0)) continue; // caller lists these in `unpriced`
+    const factor = Number.isFinite(c.zoneFactor) ? Math.min(1, Math.max(0, c.zoneFactor)) : 0;
+    if (factor <= 0) {
+      skipped.push({ symbol: c.symbol, reason: c.zoneReason || "zone weight is zero" });
+      continue;
+    }
     if (!(num(c.targetPct) > 0)) {
       unsized.push(c.symbol);
       continue;
@@ -101,6 +122,7 @@ export function planDeployment({
       price: num(c.price),
       targetPct: num(c.targetPct),
       currentValue: Math.max(0, num(c.currentValue)),
+      zoneFactor: factor,
     });
   }
 
@@ -110,7 +132,7 @@ export function planDeployment({
   // hit its band deserves to be mentioned even when nothing gets bought.
   if (unsized.length > 0) {
     warnings.push(
-      `In a buy zone but not sized: ${unsized.join(", ")}. Set a target weight on the Rebalance page and the plan will size ${unsized.length === 1 ? "it" : "them"} next time — a position size is your call, not the app's.`
+      `In play but not sized: ${unsized.join(", ")}. Set a target weight on the Rebalance page and the plan will size ${unsized.length === 1 ? "it" : "them"} next time — a position size is your call, not the app's.`
     );
   }
 
@@ -118,6 +140,7 @@ export function planDeployment({
     equityValue: equity,
     fundsValue: funds,
     brokerCash: cash,
+    freshCash: fresh,
     cashLike,
     totalInvestable,
     reservePct: pct,
@@ -126,10 +149,12 @@ export function planDeployment({
     rows: [],
     deployed: 0,
     brokerCashUsed: 0,
+    freshCashUsed: 0,
     pullFromFunds: 0,
     keptInFunds: funds,
     undeployed: deployable,
     unsized,
+    skipped,
     unpriced: [...unpriced],
     warnings: [...warnings, ...extra],
   });
@@ -161,20 +186,23 @@ export function planDeployment({
 
   const state = priced.map((x) => {
     const targetValue = (x.targetPct / 100) * projectedBook;
-    // Room = distance to target, but never past the concentration cap.
-    const room = Math.max(0, Math.min(targetValue - x.currentValue, maxSpendUnderCap(x.currentValue)));
-    return { c: x, targetValue, room, shares: 0, spend: 0 };
+    // Room = distance to target, capped by concentration, then scaled by how
+    // much this price deserves. A name 15% above its band gets a fraction of
+    // the gap, not the whole thing.
+    const rawRoom = Math.max(0, Math.min(targetValue - x.currentValue, maxSpendUnderCap(x.currentValue)));
+    const room = rawRoom * x.zoneFactor;
+    return { c: x, targetValue, room, allowance: x.currentValue + room, shares: 0, spend: 0 };
   });
 
   const totalRoom = state.reduce((s, x) => s + x.room, 0);
   if (totalRoom <= 0) {
     return empty([
-      "Every name in a buy zone is already at or above its target weight. Nothing is bought on price alone — raise a target first if the thesis says so.",
+      "Every name in play is already at or above the weight its price justifies. Nothing is bought on price alone — raise a target first if the thesis says so.",
     ]);
   }
 
   // Proportional first pass: each name gets its share of the budget in the
-  // ratio of how far it is from target, floored to whole shares.
+  // ratio of its zone-weighted room, floored to whole shares.
   let leftover = deployable;
   for (const x of state) {
     if (x.room <= 0) continue;
@@ -187,9 +215,9 @@ export function planDeployment({
   }
 
   // Greedy remainder: buy one more share of whichever name would still sit
-  // furthest below its target after the buy, while it fits in what is left and
-  // stays under the cap. The cap is checked against the book as it stands, so
-  // early buys are tested conservatively.
+  // furthest below the allowance its price earns, while it fits in what is left
+  // and stays under the cap. The cap is checked against the book as it stands,
+  // so early buys are tested conservatively.
   let guard = 0;
   while (guard++ < MAX_ITERS) {
     let best: (typeof state)[number] | null = null;
@@ -199,10 +227,10 @@ export function planDeployment({
       const price = x.c.price;
       if (price > leftover + 1e-9) continue;
       const postValue = x.c.currentValue + x.spend + price;
-      if (postValue > x.targetValue + 1e-9) continue; // never overshoot target
+      if (postValue > x.allowance + 1e-9) continue; // never past the earned allowance
       const bookAfter = equity + deployedSoFar + price;
       if (bookAfter > 0 && (postValue / bookAfter) * 100 > cap + 1e-9) continue; // cap
-      const ratio = postValue / x.targetValue;
+      const ratio = x.allowance > 0 ? postValue / x.allowance : Infinity;
       if (ratio < bestRatio) {
         bestRatio = ratio;
         best = x;
@@ -225,6 +253,8 @@ export function planDeployment({
       currentValue: x.c.currentValue,
       finalValue: x.c.currentValue + x.spend,
       finalPct: 0,
+      zoneFactor: x.c.zoneFactor,
+      zoneReason: x.c.zoneReason,
     }))
     .sort((a, b) => b.rupees - a.rupees);
 
@@ -232,9 +262,11 @@ export function planDeployment({
   const finalBook = equity + deployed;
   for (const r of rows) r.finalPct = finalBook > 0 ? (r.finalValue / finalBook) * 100 : 0;
 
-  // Brokerage cash is spent first; only the shortfall is redeemed from the fund.
-  const brokerCashUsed = Math.min(cash, deployed);
-  const pullFromFunds = Math.max(0, deployed - brokerCashUsed);
+  // New money is spent first, then brokerage cash; the fund is redeemed last
+  // because it is the one earning a yield while it waits.
+  const freshCashUsed = Math.min(fresh, deployed);
+  const brokerCashUsed = Math.min(cash, deployed - freshCashUsed);
+  const pullFromFunds = Math.max(0, deployed - freshCashUsed - brokerCashUsed);
   const keptInFunds = funds - pullFromFunds;
 
   for (const r of rows) {
@@ -252,6 +284,7 @@ export function planDeployment({
     equityValue: equity,
     fundsValue: funds,
     brokerCash: cash,
+    freshCash: fresh,
     cashLike,
     totalInvestable,
     reservePct: pct,
@@ -260,10 +293,12 @@ export function planDeployment({
     rows,
     deployed,
     brokerCashUsed,
+    freshCashUsed,
     pullFromFunds,
     keptInFunds,
     undeployed: Math.max(0, deployable - deployed),
     unsized,
+    skipped,
     unpriced: [...unpriced],
     warnings,
   };

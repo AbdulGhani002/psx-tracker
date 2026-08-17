@@ -1,12 +1,14 @@
 // Buy and sell ZONES: the price bands you decided on in advance, away from the
-// screen. A zone is a pre-commitment — the alert engine and the rebalance page
-// both read these, so the level that fires a Telegram ping is the same level
-// that sizes the order.
+// screen. A zone is a pre-commitment — the alert engine, the watchlist table and
+// the rebalance deployment plan all read these, so the level that fires a
+// Telegram ping is the same level that sizes the order.
 //
 // Two disciplines are enforced here rather than left to the caller:
-//   1. A minimum position size per symbol. Being told to sell 8 shares of a
-//      143-rupee stock is noise: the brokerage eats the trade and the position
-//      barely moves. Below your own floor, the sell side stays quiet.
+//
+//   1. A MINIMUM HOLDING per symbol: the share count you always keep, whatever
+//      the price does. Only the excess above that floor is ever offered for
+//      sale, so a core position cannot be talked out from under you and a
+//      position at or under the floor stays silent.
 //   2. Contradictory config never produces an instruction. Overlapping buy and
 //      sell bands, or a low above its high, yield a "conflict" status and a
 //      plain-language warning — never a guessed side.
@@ -19,7 +21,7 @@ export type ZoneEntry = {
   buyZoneHigh: number | null; // "buy at or under this"; null = no buy zone set
   sellZoneLow: number | null; // "sell at or above this"; null = no sell zone set
   sellZoneHigh: number | null; // ceiling of the sell band; null = open-ended above
-  minSellShares: number; // hold MORE than this before a sell is ever suggested
+  minHoldingShares: number; // shares you ALWAYS keep — only the excess is sold
 };
 
 export type ZoneStatus =
@@ -57,8 +59,8 @@ export function zoneWarnings(e: ZoneEntry): string[] {
         `one price would mean both buy and sell. No instruction is given until the bands are separated.`
     );
   }
-  if (e.minSellShares < 0 || !Number.isFinite(e.minSellShares)) {
-    w.push(`${e.symbol}: the minimum sell size must be zero or more shares.`);
+  if (e.minHoldingShares < 0 || !Number.isFinite(e.minHoldingShares)) {
+    w.push(`${e.symbol}: the minimum holding must be zero or more shares.`);
   }
   return w;
 }
@@ -103,14 +105,49 @@ export function evaluateZone(price: number | null | undefined, e: ZoneEntry): Zo
   return { symbol: e.symbol, status: anyZone ? "between" : "no_zone", price: usablePrice, warnings };
 }
 
-// The sell gate. A sell is only ever suggested when the price is in the band
-// AND the position is bigger than the floor you set for this symbol. Exactly
-// at the floor is NOT above it — the floor is a size you keep, not a trigger.
-export function shouldSuggestSell(status: ZoneStatus, sharesHeld: number, minSellShares: number): boolean {
-  if (status !== "sell") return false;
-  if (!Number.isFinite(sharesHeld) || sharesHeld <= 0) return false;
-  const floor = Number.isFinite(minSellShares) && minSellShares > 0 ? minSellShares : 0;
-  return sharesHeld > floor;
+// How many shares the sell zone actually frees: everything ABOVE the minimum
+// holding, and not one share more. Hold 1,200 with a floor of 1,000 and the
+// answer is 200. Hold 900 against the same floor and the answer is zero — the
+// position is already at or under the core you keep, so nothing is suggested.
+export function sellableShares(status: ZoneStatus, sharesHeld: number, minHoldingShares: number): number {
+  if (status !== "sell") return 0;
+  if (!Number.isFinite(sharesHeld) || sharesHeld <= 0) return 0;
+  const floor = Number.isFinite(minHoldingShares) && minHoldingShares > 0 ? minHoldingShares : 0;
+  return Math.max(0, Math.floor(sharesHeld - floor));
+}
+
+// --- How hard to buy, given where the price sits -----------------------------
+// In the band, buy at full weight. Above it, buy LESS the further away it is —
+// a linear taper that reaches a trickle 25 points above your ceiling. In a sell
+// band, buy nothing: adding to a position you are trying to exit is incoherent.
+// Below the band it is cheaper than you planned, which is not a reason to buy
+// less, so full weight stands and the caller is told why.
+
+export const BUY_DECAY_SPAN_PCT = 25; // points above the ceiling to full taper
+export const BUY_MIN_FACTOR = 0.15; // never quite zero — still your name
+export const NO_ZONE_FACTOR = 0.35; // no band set: cheapness unproven, go light
+
+export type BuyWeight = { factor: number; reason: string };
+
+export function zoneBuyFactor(price: number | null | undefined, e: ZoneEntry): BuyWeight {
+  const v = evaluateZone(price, e);
+  if (v.status === "conflict") return { factor: 0, reason: "zones contradict each other" };
+  if (v.status === "unknown" || v.price == null) return { factor: 0, reason: "no usable price" };
+  if (v.status === "sell") return { factor: 0, reason: "in your sell zone — not a buy" };
+  if (v.status === "buy") return { factor: 1, reason: "in your buy zone" };
+  if (v.status === "no_zone") return { factor: NO_ZONE_FACTOR, reason: "no buy zone set — reduced weight" };
+
+  // "between": either under the band floor, or above the ceiling.
+  if (e.buyZoneLow != null && v.price < e.buyZoneLow) {
+    return { factor: 1, reason: `below your buy band (Rs ${e.buyZoneLow}) — cheaper than planned` };
+  }
+  if (e.buyZoneHigh != null && e.buyZoneHigh > 0) {
+    const abovePct = ((v.price - e.buyZoneHigh) / e.buyZoneHigh) * 100;
+    const factor = Math.max(BUY_MIN_FACTOR, 1 - abovePct / BUY_DECAY_SPAN_PCT);
+    return { factor, reason: `${abovePct.toFixed(1)}% above your buy ceiling — reduced weight` };
+  }
+  // Only a sell band is set and the price is under it.
+  return { factor: NO_ZONE_FACTOR, reason: "no buy zone set — reduced weight" };
 }
 
 // How far today's price sits from the nearest edge of the band it is heading
@@ -149,6 +186,6 @@ export function zoneWarningsFrom(symbol: string, v: Record<string, unknown>): st
     buyZoneHigh: n("buyZoneHigh"),
     sellZoneLow: n("sellZoneLow"),
     sellZoneHigh: n("sellZoneHigh"),
-    minSellShares: n("minSellShares") ?? 0,
+    minHoldingShares: n("minHoldingShares") ?? n("minSellShares") ?? 0,
   });
 }

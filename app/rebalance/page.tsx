@@ -6,17 +6,18 @@ import { RebalanceView } from "./RebalanceView";
 import { TargetsEditor } from "./TargetsEditor";
 import { AddCompany } from "./AddCompany";
 import { DeploymentPlan } from "./DeploymentPlan";
-import { getPortfolioSummary, getAllHoldings, getCashSummary, getDeploymentPlan, checkDataAvailability } from "@/lib/data";
+import { getPortfolioSummary, getAllHoldings, getCashSummary, getDeploymentPlan, getAppSettings, checkDataAvailability } from "@/lib/data";
 
 export const dynamic = "force-dynamic";
 
 export default async function RebalancePage() {
   const avail = await checkDataAvailability();
-  const [summary, holdings, cashSummary, plan] = await Promise.all([
+  const [summary, holdings, cashSummary, plan, settings] = await Promise.all([
     getPortfolioSummary(),
     getAllHoldings(),
     getCashSummary(),
     getDeploymentPlan(),
+    getAppSettings(),
   ]);
 
   const bandBySymbol = new Map<string, number>();
@@ -63,7 +64,33 @@ export default async function RebalancePage() {
           </Link>
         }
       >
-        <DeploymentPlan plan={plan} />
+        <DeploymentPlan
+          candidates={plan.candidates}
+          equityValue={plan.equityValue}
+          fundsValue={plan.fundsValue}
+          brokerCash={plan.brokerCash}
+          reservePct={plan.reservePct}
+          concentrationCap={(settings as any).concentrationCap ?? 25}
+          fundsLabel={plan.fundsLabel}
+          sells={plan.board.sells.map((r) => ({
+            symbol: r.symbol,
+            price: r.price,
+            sharesHeld: r.sharesHeld,
+            minHoldingShares: r.minHoldingShares,
+            sellableShares: r.sellableShares,
+            sellZoneLow: r.sellZoneLow,
+            sellZoneHigh: r.sellZoneHigh,
+            sell: r.sell,
+          }))}
+          heldAtCore={plan.board.heldAtCore.map((r) => ({
+            symbol: r.symbol,
+            sharesHeld: r.sharesHeld,
+            minHoldingShares: r.minHoldingShares,
+          }))}
+          zones={plan.board.rows.map((r) => ({ symbol: r.symbol, buyZoneLow: r.buyZoneLow, buyZoneHigh: r.buyZoneHigh }))}
+          serverWarnings={plan.warnings.filter((w) => w.includes("stale"))}
+          watchedCount={plan.board.rows.length}
+        />
       </Section>
 
       <Section

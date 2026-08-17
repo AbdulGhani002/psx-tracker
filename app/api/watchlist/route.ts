@@ -18,7 +18,7 @@ const zoneFields = {
   buyZoneHigh: price,
   sellZoneLow: price,
   sellZoneHigh: price,
-  minSellShares: z.number().min(0).optional(),
+  minHoldingShares: z.number().min(0).optional(),
   alertsOn: z.boolean().optional(),
 };
 
@@ -67,7 +67,7 @@ export async function POST(req: NextRequest) {
       buyZoneHigh: parsed.buyZoneHigh ?? null,
       sellZoneLow: parsed.sellZoneLow ?? null,
       sellZoneHigh: parsed.sellZoneHigh ?? null,
-      minSellShares: parsed.minSellShares ?? 0,
+      minHoldingShares: parsed.minHoldingShares ?? 0,
       alertsOn: parsed.alertsOn ?? true,
     });
     return NextResponse.json(created.toObject(), { status: 201 });

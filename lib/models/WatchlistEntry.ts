@@ -18,9 +18,12 @@ const WatchlistEntrySchema = new Schema(
     buyZoneHigh: { type: Number, default: null },
     sellZoneLow: { type: Number, default: null },
     sellZoneHigh: { type: Number, default: null },
-    // Position floor: never suggest selling unless MORE than this many shares
-    // are held. Stops the app nagging about trades too small to be worth the
-    // brokerage. Zero means no floor.
+    // The share count you ALWAYS keep, whatever the price does. Only the excess
+    // above it is ever offered for sale, so a core position cannot be talked out
+    // from under you. Zero means no floor.
+    minHoldingShares: { type: Number, default: 0 },
+    // Deprecated name for the field above, kept so pre-8.3 rows still read.
+    // scripts/migrate-min-holding.mjs copies it across.
     minSellShares: { type: Number, default: 0 },
     // Set false to keep the row for reference without any Telegram pings.
     alertsOn: { type: Boolean, default: true },

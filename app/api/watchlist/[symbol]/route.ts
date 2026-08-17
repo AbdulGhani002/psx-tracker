@@ -17,7 +17,7 @@ const patchSchema = z.object({
   buyZoneHigh: price,
   sellZoneLow: price,
   sellZoneHigh: price,
-  minSellShares: z.number().min(0).optional(),
+  minHoldingShares: z.number().min(0).optional(),
   alertsOn: z.boolean().optional(),
 });
 
