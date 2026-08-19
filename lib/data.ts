@@ -28,6 +28,7 @@ import { getPrices } from "./prices";
 import { getPriceFreshness } from "./prices";
 import { evaluateZone, sellableShares, zoneBuyFactor, distanceToZonePct, NO_ZONE_FACTOR, type ZoneEntry, type ZoneStatus } from "./calculations/zones";
 import { planDeployment, type DeployCandidate, type DeployPlan } from "./calculations/deploy-plan";
+import { resolveStandIn, validateLinks, type StandInGroup } from "./calculations/standin";
 import { summarisePortfolio, computeCashBalance, type PortfolioSummary, type CashSummary } from "./calculations";
 import { forecastDividends, type DividendForecast } from "./calculations/dividend-forecast";
 import { computeSotp, deriveSharesOutstanding, type SotpResult } from "./calculations/sotp";
@@ -1754,6 +1755,7 @@ async function _getZoneBoard(): Promise<ZoneBoard> {
 
 export type DeploymentPlan = DeployPlan & {
   board: ZoneBoard;
+  standIns: StandInView[];
   candidates: DeployCandidate[]; // what the browser calculator re-runs on
   fundsLabel: string;
 };
@@ -1765,12 +1767,21 @@ export type DeploymentPlan = DeployPlan & {
 // is not a fact until it goes through the decision gate, and budgeting unsold
 // shares would be spending money you do not have yet.
 async function _getDeploymentPlan(): Promise<DeploymentPlan> {
-  const [board, summary, funds, settings] = await Promise.all([
+  const [board, summary, funds, settings, standIns] = await Promise.all([
     getZoneBoard(),
     getPortfolioSummary(),
     getMutualFundsValued().catch(() => []),
     getAppSettings(),
+    getStandInGroups().catch(() => ({ groups: [] as StandInView[], problems: [] as string[] })),
   ]);
+  // A stand-in and the name it holds a place for are ONE allocation. Judged
+  // apart, the stand-in looks unsized and the primary looks permanently
+  // underweight, and the plan would keep buying a share already ruled too dear.
+  const pairOf = new Map<string, StandInView>();
+  for (const g of standIns.groups) {
+    pairOf.set(g.standIn, g);
+    pairOf.set(g.primary, g);
+  }
   const fundsValue = funds.reduce((s, f) => s + (f.value ?? 0), 0);
   const zoneBySymbol = new Map(board.rows.map((r) => [r.symbol, r]));
 
@@ -1784,9 +1795,26 @@ async function _getDeploymentPlan(): Promise<DeploymentPlan> {
     const z = zoneBySymbol.get(symbol);
     // Not on the watchlist at all: no band to judge it by, so it is bought at
     // the reduced no-zone weight rather than skipped or trusted.
-    const factor = z ? z.buyFactor : NO_ZONE_FACTOR;
-    const reason = z ? z.buyReason : "not on your watchlist — no band to judge it by";
-    candidates.push({ symbol, price, targetPct, currentValue, zoneFactor: factor, zoneReason: reason });
+    let factor = z ? z.buyFactor : NO_ZONE_FACTOR;
+    let reason = z ? z.buyReason : "not on your watchlist — no band to judge it by";
+    let effTargetPct = targetPct;
+    let effCurrentValue = currentValue;
+    const pair = pairOf.get(symbol);
+    if (pair) {
+      // Both legs are measured against the pair's single target and what is
+      // already sitting in it, whichever leg is being sized.
+      effTargetPct = pair.targetPct;
+      effCurrentValue = pair.combinedValue;
+      if (pair.standIn === symbol && pair.swapReady) {
+        // The primary is in range: this position is about to be sold to fund
+        // it, so adding to it now would be buying what you are selling.
+        factor = 0;
+        reason = `standing in for ${pair.primary}, which is now in its buy band — sell, do not add`;
+      } else if (pair.standIn === symbol) {
+        reason = `standing in for ${pair.primary} while it is above its band — ${reason}`;
+      }
+    }
+    candidates.push({ symbol, price, targetPct: effTargetPct, currentValue: effCurrentValue, zoneFactor: factor, zoneReason: reason });
   };
   for (const r of board.rows) {
     consider(r.symbol, r.price, r.targetPct, r.positionValue, r.priceStale);
@@ -1815,13 +1843,119 @@ async function _getDeploymentPlan(): Promise<DeploymentPlan> {
       `Skipped on stale prices: ${staleBuys.join(", ")}. The last quote is a week or more old, so the band cannot be trusted — refresh prices first.`
     );
   }
+  for (const problem of standIns.problems) plan.warnings.push(problem);
+  for (const g of standIns.groups) for (const w of g.warnings) plan.warnings.push(w);
   return {
     ...plan,
     board,
+    standIns: standIns.groups,
     candidates,
     fundsLabel: funds.length === 1 ? funds[0].name : funds.length > 1 ? `${funds.length} funds` : "your fund",
   };
 }
+
+
+// --- Stand-ins: a peer holding a place until the name you want is in range --
+// The pair shares one target weight, so the allocator stops treating the
+// stand-in as an unsized stray and the primary as permanently underweight.
+
+export type StandInView = StandInGroup & {
+  primaryName: string;
+  standInName: string;
+  primaryPrice: number | null;
+  standInPrice: number | null;
+  primaryShares: number;
+  standInShares: number;
+  primaryZone: ZoneStatus;
+  primaryBuyZoneLow: number | null;
+  primaryBuyZoneHigh: number | null;
+};
+
+async function _getStandInGroups(): Promise<{ groups: StandInView[]; problems: string[] }> {
+  if (!(await tryConnect())) return { groups: [], problems: [] };
+  const holdings = await getAllHoldings();
+  const links = holdings
+    .map((h) => ({ standIn: h.symbol, primary: String((h as any).standsInFor ?? "").toUpperCase() }))
+    .filter((l) => l.primary.length > 0);
+  if (links.length === 0) return { groups: [], problems: [] };
+
+  const problems = validateLinks(links);
+  const [summary, board, settings] = await Promise.all([
+    getPortfolioSummary(),
+    getZoneBoard().catch(() => null),
+    getAppSettings(),
+  ]);
+  const posBy = new Map(summary.positions.map((p) => [p.symbol, p]));
+  const zoneBy = new Map((board?.rows ?? []).map((r) => [r.symbol, r]));
+  const cgtRatePct =
+    (settings as any).filerStatus === "filer" ? (settings as any).cgtRateFiler : (settings as any).cgtRateNonFiler;
+
+  const groups: StandInView[] = [];
+  for (const link of links) {
+    const p = posBy.get(link.primary);
+    const s = posBy.get(link.standIn);
+    if (!p) {
+      problems.push(`${link.standIn} stands in for ${link.primary}, which is not in your portfolio. Add it to the plan first.`);
+      continue;
+    }
+    if (!s) continue;
+    const z = zoneBy.get(link.primary);
+
+    // What the stand-in would realise, matched FIFO against its own lots, so
+    // the swap is sized on money that would actually arrive. Best-effort: no
+    // lots, no guessed tax.
+    let gain: number | null = null;
+    if (s.shares > 0 && s.priceKnown) {
+      try {
+        const txs = await getTransactionsBySymbol(link.standIn);
+        const { openLots } = buildLots(link.standIn, txs as any);
+        const pv = previewSell(openLots, Math.floor(s.shares), s.currentPrice, cgtRatePct);
+        if (!pv.insufficient) gain = pv.totalGain;
+      } catch {
+        /* lots unavailable — the swap reports an unknown gain rather than zero */
+      }
+    }
+
+    const group = resolveStandIn({
+      primary: {
+        symbol: p.symbol,
+        sector: p.sector,
+        price: p.priceKnown ? p.currentPrice : null,
+        shares: p.shares,
+        marketValue: p.marketValue,
+        targetPct: p.targetPercent,
+      },
+      standIn: {
+        symbol: s.symbol,
+        sector: s.sector,
+        price: s.priceKnown ? s.currentPrice : null,
+        shares: s.shares,
+        marketValue: s.marketValue,
+        targetPct: s.targetPercent,
+      },
+      primaryInBuyZone: z?.status === "buy" && !z.priceStale,
+      bookValue: summary.totalValue,
+      gain,
+      cgtRatePct,
+    });
+
+    groups.push({
+      ...group,
+      primaryName: p.name,
+      standInName: s.name,
+      primaryPrice: p.priceKnown ? p.currentPrice : null,
+      standInPrice: s.priceKnown ? s.currentPrice : null,
+      primaryShares: p.shares,
+      standInShares: s.shares,
+      primaryZone: z?.status ?? "no_zone",
+      primaryBuyZoneLow: z?.buyZoneLow ?? null,
+      primaryBuyZoneHigh: z?.buyZoneHigh ?? null,
+    });
+  }
+  return { groups, problems: [...new Set(problems)] };
+}
+
+export const getStandInGroups = cache(_getStandInGroups);
 
 export const getZoneBoard = cache(_getZoneBoard);
 export const getDeploymentPlan = cache(_getDeploymentPlan);

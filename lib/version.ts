@@ -1,7 +1,7 @@
 // Single source of truth for the app version + changelog.
 // Bump APP_VERSION and prepend a CHANGELOG entry on every release.
 
-export const APP_VERSION = "8.3.1";
+export const APP_VERSION = "8.4.0";
 
 export const BUILD_DATE =
   process.env.NEXT_PUBLIC_BUILD_DATE ?? "";
@@ -17,6 +17,19 @@ export type ChangelogEntry = {
 
 // Reverse-chronological. Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: "8.4.0",
+    date: "2026-08-19",
+    title: "Stand-ins: holding the sector, not the cash",
+    changes: [
+      "A position can now be marked as standing in for another. You wanted MEBL, MEBL was above the price you decided to pay, and the exposure still had to live somewhere — so ABL holds the place. Set it on the holding page and the pair shares ONE target weight from then on.",
+      "That sharing is the point. Judged apart, the stand-in looks like an unsized stray and the primary looks permanently underweight, so the plan would have kept telling you to buy a share you had already ruled too expensive. Judged as a pair, the allocation is simply filled — by whichever leg the price justifies today.",
+      "When the primary comes into its buy band the position reverses, and the Rebalance page turns the card into the arithmetic: sell this many of the stand-in, that is the proceeds after brokerage and the CGT the sale realises, that buys this many whole shares of the name you wanted, and this is what is left over or still short of the target. Telegram carries the same message, re-armed weekly until acted on.",
+      "While the primary is out of range, new money for that allocation goes to the stand-in rather than to cash. The moment the primary is in range the stand-in drops to zero weight — buying more of what you are about to sell is incoherent, so the plan refuses to.",
+      "Link sets that cannot mean anything are refused rather than half-honoured: a chain, a cycle, one stand-in for two primaries, two stand-ins for one. A cross-sector pairing is allowed but flagged, because the exposure you are holding a place for is then not the one you have.",
+      "The swap is never sized on money that would not arrive. Tax is taken off the top rather than netted later, and a realised gain is capped at the proceeds — a larger one would need a negative cost basis and could tax the sale into a payout that never settles.",
+    ],
+  },
   {
     version: "8.3.1",
     date: "2026-08-17",

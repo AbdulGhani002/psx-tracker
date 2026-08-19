@@ -271,6 +271,7 @@ export default async function HoldingDetail({ params }: Props) {
             targetAllocationPercent: holding.targetAllocationPercent ?? 0,
             rebalanceBand: (holding as any).rebalanceBand ?? 3,
             targetRationale: (holding as any).targetRationale ?? "",
+            standsInFor: (holding as any).standsInFor ?? "",
             notes: holding.notes ?? "",
           }}
         />

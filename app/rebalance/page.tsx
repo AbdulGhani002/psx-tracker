@@ -6,6 +6,7 @@ import { RebalanceView } from "./RebalanceView";
 import { TargetsEditor } from "./TargetsEditor";
 import { AddCompany } from "./AddCompany";
 import { DeploymentPlan } from "./DeploymentPlan";
+import { StandInPanel } from "./StandInPanel";
 import { getPortfolioSummary, getAllHoldings, getDeploymentPlan, getAppSettings, checkDataAvailability } from "@/lib/data";
 
 export const dynamic = "force-dynamic";
@@ -92,8 +93,19 @@ export default async function RebalancePage() {
         />
       </Section>
 
+      {plan.standIns.length > 0 && (
+        <Section
+          number="03"
+          title="Stand-ins"
+          display={plan.standIns.some((g) => g.swapReady) ? "Time to swap back." : "Holding the sector, not the cash."}
+          description="A peer bought to keep a sector exposure while the name you actually want sits above its buy band. The pair shares one target weight, so neither leg is judged on its own — and when the primary comes into range, the reversal is spelled out with its arithmetic."
+        >
+          <StandInPanel rows={plan.standIns as any} />
+        </Section>
+      )}
+
       <Section
-        number="03"
+        number="04"
         title="Rebalance"
         display="Deploy cash. Buy integers."
         description="Enter the cash you actually have and it is deployed against your target weights. Share counts are integers, so the leftover rupees never get spent. The brokerage balance is not offered here: it is derived from an incomplete deposit ledger, so it is not a figure to spend against."

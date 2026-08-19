@@ -22,6 +22,7 @@ const patchSchema = z.object({
   targetAllocationPercent: z.number().min(0).max(100).optional(),
   rebalanceBand: z.number().min(0).max(50).optional(),
   targetRationale: z.string().optional(),
+  standsInFor: z.string().max(12).optional(),
   notes: z.string().optional(),
   refreshFromPSX: z.boolean().optional(),
   // Playbook

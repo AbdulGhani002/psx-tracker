@@ -15,6 +15,11 @@ const HoldingSchema = new Schema(
     targetAllocationPercent: { type: Number, default: 0, min: 0, max: 100 },
     rebalanceBand: { type: Number, default: 3, min: 0, max: 50 },
     targetRationale: { type: String, default: "" },
+    // This position is holding a place for another symbol in the same sector,
+    // bought because the one you actually want is above its buy band. The pair
+    // shares ONE target weight and reverses when the primary comes into range.
+    // See lib/calculations/standin.ts.
+    standsInFor: { type: String, default: "", uppercase: true, trim: true },
     notes: { type: String, default: "" },
 
     // Playbook / sizing fields (from the user's PSX investing framework).

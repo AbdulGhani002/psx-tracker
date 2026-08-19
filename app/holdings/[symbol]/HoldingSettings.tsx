@@ -17,6 +17,7 @@ type Props = {
     targetAllocationPercent: number;
     rebalanceBand: number;
     targetRationale: string;
+    standsInFor: string;
     notes: string;
   };
   transactionCount: number;
@@ -30,6 +31,7 @@ export function HoldingSettings({ symbol, initial, transactionCount }: Props) {
   const [target, setTarget] = useState<number>(initial.targetAllocationPercent);
   const [band, setBand] = useState<number>(initial.rebalanceBand);
   const [rationale, setRationale] = useState(initial.targetRationale);
+  const [standsInFor, setStandsInFor] = useState(initial.standsInFor ?? "");
   const [notes, setNotes] = useState(initial.notes);
   const [saving, setSaving] = useState(false);
   const [savedAt, setSavedAt] = useState<number | null>(null);
@@ -51,6 +53,7 @@ export function HoldingSettings({ symbol, initial, transactionCount }: Props) {
           targetAllocationPercent: target,
           rebalanceBand: band,
           targetRationale: rationale,
+          standsInFor: standsInFor.trim().toUpperCase(),
           notes,
         }),
       });
@@ -158,6 +161,13 @@ export function HoldingSettings({ symbol, initial, transactionCount }: Props) {
             value={sector}
             onChange={(e) => setSector(e.target.value)}
             placeholder="From PSX"
+          />
+          <TextInput
+            label="Standing in for"
+            value={standsInFor}
+            onChange={(e) => setStandsInFor(e.target.value.toUpperCase())}
+            placeholder="e.g. MEBL"
+            hint="Bought to hold a sector while another name is above its buy band. The two then share ONE target weight, and when that name comes into range the Rebalance page spells out the swap. Leave blank for a normal position."
           />
           <div className="md:col-span-2 space-y-1.5">
             <label className="label-cap block">Target rationale</label>

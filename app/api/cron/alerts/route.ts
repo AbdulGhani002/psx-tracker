@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { connectDb } from "@/lib/db";
 import { AlertLogModel } from "@/lib/models";
-import { getAppSettings, getZoneBoard, getDeploymentPlan, getPortfolioSummary, getAllHoldings, getUpcomingExDates, getAllUserIds, getIntrinsicValuations, getShariahStatus, getFeedSnapshot, saveFeedSnapshot, getNetWorth, getEffectiveInflationPct } from "@/lib/data";
+import { getAppSettings, getZoneBoard, getDeploymentPlan, getStandInGroups, getPortfolioSummary, getAllHoldings, getUpcomingExDates, getAllUserIds, getIntrinsicValuations, getShariahStatus, getFeedSnapshot, saveFeedSnapshot, getNetWorth, getEffectiveInflationPct } from "@/lib/data";
 import { getUsdPkr } from "@/lib/fx";
 import { describeZone } from "@/lib/calculations/zones";
 import { getPriceFreshness } from "@/lib/prices";
@@ -114,6 +114,35 @@ async function runAlertsForCurrentUser(forceDigest = false) {
         message: `⚠️ <b>${r.symbol}</b>: ${r.warnings[0]} No buy or sell signal is given until that is fixed.`,
       });
     }
+  }
+
+  // 1.5 Stand-in swaps: a peer was bought to hold a sector while the name you
+  //     actually wanted sat above its band. The moment that name comes into
+  //     range the position reverses, and that is a decision worth interrupting
+  //     for — sell this, buy that, here is what it leaves. Re-armed weekly so
+  //     it nags until acted on, not once and forgotten.
+  try {
+    const { groups } = await getStandInGroups();
+    const week = isoWeekKey(new Date());
+    for (const g of groups) {
+      if (!g.swapReady || !g.swap) continue;
+      const n = (v: number) => Math.round(v).toLocaleString("en-PK");
+      const tax =
+        g.swap.cgt != null
+          ? `less fees Rs ${n(g.swap.sellFees)} and CGT Rs ${n(g.swap.cgt)}`
+          : `less fees Rs ${n(g.swap.sellFees)} (gain unmatched, no tax shown)`;
+      candidates.push({
+        key: `standin-swap:${g.standIn}->${g.primary}:${week}`,
+        message:
+          `🔄 <b>${g.primary}</b> is in its buy band — time to swap back out of <b>${g.standIn}</b>.\n` +
+          `   → Sell ${g.swap.sellShares.toLocaleString("en-PK")} ${g.standIn} for Rs ${n(g.swap.proceeds)}, ${tax} → Rs ${n(g.swap.netFromSale)} in hand.\n` +
+          `   → That buys <b>${g.swap.buyShares.toLocaleString("en-PK")}</b> ${g.primary} at Rs ${g.swap.buyPrice.toFixed(2)} (Rs ${n(g.swap.totalOutlay)} with fees).` +
+          (g.swap.shortfall > 0 ? `\n   Still Rs ${n(g.swap.shortfall)} short of the full ${g.targetPct}% target.` : "") +
+          `\n   The sale needs a logged rationale like any other.`,
+      });
+    }
+  } catch {
+    /* stand-in data unavailable — the other alerts still run */
   }
 
   // 2. Rebalance drift (position beyond its band)
