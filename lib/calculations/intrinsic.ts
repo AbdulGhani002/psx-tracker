@@ -14,6 +14,8 @@
 import { disclosedValue, type DisclosedModel } from "./gordon";
 import { requiredReturn, explainRequiredReturn, type RequiredReturn } from "./capm";
 
+import { isFinancialSector, impliedRoePct, residualIncomeValue, justifiedPriceToBook, sustainableGrowthPct } from "./financials";
+
 export type IntrinsicInputs = {
   symbol: string;
   price: number;
@@ -35,9 +37,13 @@ export type IntrinsicInputs = {
   marginTrendPct?: number | null; // change in net margin vs prior year (pp)
   revenueGrowthPct?: number | null; // top-line growth (display)
   peTtm?: number | null; // PSX's reported trailing P/E (display / cross-check)
+  // Book value per share. For a bank or insurer this is not a nice-to-have —
+  // it is THE anchor, and without it no appropriate model can run at all.
+  bookValuePerShare?: number | null;
+  payoutRatio?: number | null; // 0..1, dividends as a share of earnings
 };
 
-export type MethodKey = "nav" | "ddm" | "epv" | "dcf" | "earnings" | "disclosed";
+export type MethodKey = "nav" | "ddm" | "epv" | "dcf" | "earnings" | "disclosed" | "residual" | "pb";
 
 export type ValuationMethod = {
   key: MethodKey;
@@ -237,6 +243,34 @@ export function compositeIntrinsic(i: IntrinsicInputs): {
 
   const disclosedCell = disclosedValue(i.disclosed);
 
+  // --- balance-sheet businesses ---------------------------------------------
+  // A bank is not a cement plant with a different sector label. Free cash flow
+  // is undefined for one (deposits are funding, not cash generated), earnings
+  // swing on provisions, and equity is the binding constraint on how much it
+  // can lend. So for financials the anchor is BOOK VALUE and the only question
+  // is what return is earned on it: residual income and justified P/B lead, and
+  // the earnings DCF is switched OFF rather than merely down-weighted, because
+  // a number that answers the wrong question does not become right by being
+  // given a small weight.
+  const isFinancial = !isHoldco && isFinancialSector(i.sector);
+  const bvps = i.bookValuePerShare != null && i.bookValuePerShare > 0 ? i.bookValuePerShare : null;
+  const payout = clamp(i.payoutRatio ?? 0.4, 0, 1);
+  const roePct = isFinancial ? impliedRoePct(e, bvps ?? 0) : null;
+  const sustainableG = roePct != null ? sustainableGrowthPct(roePct, payout) : null;
+
+  const ri = isFinancial && bvps != null && roePct != null
+    ? residualIncomeValue({ bookValuePerShare: bvps, roePct, requiredReturnPct: r, payoutRatio: payout })
+    : null;
+  const pb = isFinancial && bvps != null && roePct != null
+    ? justifiedPriceToBook({ bookValuePerShare: bvps, roePct, requiredReturnPct: r, growthPct: Math.min(sustainableG ?? g, g) })
+    : null;
+
+  // With no book value a financial cannot be valued properly at all. Rather
+  // than silently fall back to the models that do not apply, the earnings read
+  // is left in place at a reduced weight and the result is flagged low
+  // confidence upstream — the page then asks for the one number that fixes it.
+  const financialsUsable = isFinancial && ri != null && pb != null;
+
   const methods: ValuationMethod[] = [
     // The company's own audited assumptions beat ours. Weighted highest when present.
     {
@@ -250,13 +284,40 @@ export function compositeIntrinsic(i: IntrinsicInputs): {
         : "The company publishes no fair-value assumptions we've recorded.",
     },
     { key: "nav", label: "Look-through NAV", value: i.navPerShare, weight: isHoldco ? 1 : 0, included: false, note: "Live sum-of-the-parts value of the companies it owns, per share." },
-    { key: "earnings", label: "Fair P/E × EPS", value: earningsMultiple(e, i.fairPE), weight: isHoldco ? 0 : 3.0, included: false, note: `A realistic Pakistani fair multiple (${i.fairPE.toFixed(1)}×, from growth + the SBP rate) on normalised earnings.` },
-    { key: "dcf", label: "Discounted earnings (DCF)", value: dcf(e, g, r), weight: isHoldco ? 0 : 0.8, included: false, note: "5 years of (faded) earnings growth + a terminal value, discounted at your required return." },
+    // The two balance-sheet models. Both reduce to the same identity: a bank
+    // earning exactly its cost of equity is worth exactly its book value.
+    {
+      key: "residual",
+      label: "Residual income (excess return on book)",
+      value: ri?.value ?? null,
+      weight: financialsUsable ? 3.0 : 0,
+      included: false,
+      note: ri
+        ? `Book of Rs ${ri.bookValue.toFixed(2)} plus the present value of ten years of returns ABOVE the ${r.toFixed(1)}% cost of equity (Rs ${ri.presentValueOfExcess.toFixed(2)}), with ROE fading from ${roePct!.toFixed(1)}% toward it as competition erodes the edge. ${(ri.terminalShare * 100).toFixed(0)}% of that premium sits in the terminal value.`
+        : isFinancial
+          ? "Needs book value per share — set it in the dividend-override panel and this becomes the lead model."
+          : "For banks and insurers, where equity is the binding constraint. Not applicable here.",
+    },
+    {
+      key: "pb",
+      label: "Justified price-to-book",
+      value: pb?.value ?? null,
+      weight: financialsUsable ? 2.0 : 0,
+      included: false,
+      note: pb
+        ? `(ROE ${pb.roePct.toFixed(1)}% − g ${pb.growthPct.toFixed(1)}%) ÷ (r ${r.toFixed(1)}% − g ${pb.growthPct.toFixed(1)}%) = ${pb.multiple.toFixed(2)}× book. Growth is capped at what retained earnings can actually fund (${(sustainableG ?? 0).toFixed(1)}%), not at a general EPS trend.`
+        : isFinancial
+          ? "Needs book value per share."
+          : "A bank multiple. Not applicable to an operating company.",
+    },
+    { key: "earnings", label: "Fair P/E × EPS", value: earningsMultiple(e, i.fairPE), weight: isHoldco ? 0 : financialsUsable ? 1.0 : 3.0, included: false, note: `A realistic Pakistani fair multiple (${i.fairPE.toFixed(1)}×, from growth + the SBP rate) on normalised earnings.${financialsUsable ? " Down-weighted here: for a bank the balance sheet leads and the multiple only cross-checks." : ""}` },
+    // Switched off entirely for financials — see above.
+    { key: "dcf", label: "Discounted earnings (DCF)", value: isFinancial ? null : dcf(e, g, r), weight: isHoldco || isFinancial ? 0 : 0.8, included: false, note: isFinancial ? "Not applicable to a bank: deposits are funding, not cash generated, so discounted 'free cash flow' has no meaning here." : "5 years of (faded) earnings growth + a terminal value, discounted at your required return." },
     { key: "ddm", label: "Dividend discount", value: ddm(i.forwardDps, r, i.dividendGrowthPct), weight: ddmWeight, included: false, note: `Valued as a pure income stream: the dividend grown forever and discounted at r = ${r.toFixed(1)}% (risk-free ${i.sbpRatePct}% + ${i.equityRiskPremiumPct}pp equity premium). Gordon: D₀(1+g)/(r−g).` },
     // Weight 0 on purpose: EPS ÷ r at a ~16-21% required return prices zero
     // growth forever — a stress floor, not a fair value. It is SHOWN as context
     // but no longer mixed into the blend, where it dragged every stock down.
-    { key: "epv", label: "Worst-case floor (zero growth, reference only)", value: epv(e, r), weight: 0, included: false, note: "Normalised EPS ÷ required return with zero growth forever — the price at which the stock works even if it never grows again. Context, not fair value." },
+    { key: "epv", label: "Worst-case floor (zero growth, reference only)", value: isFinancial ? null : epv(e, r), weight: 0, included: false, note: "Normalised EPS ÷ required return with zero growth forever — the price at which the stock works even if it never grows again. Context, not fair value." },
   ];
 
   const applicable = methods.filter((m) => m.value != null && m.value > 0 && m.weight > 0);
@@ -365,6 +426,8 @@ export function computeIntrinsic(i: IntrinsicInputs): IntrinsicResult {
   }
 
   const e = i.normalizedEps ?? i.eps;
+  const isFin = basis !== "nav" && isFinancialSector(i.sector);
+  const financialUnpriceable = isFin && !(i.bookValuePerShare != null && i.bookValuePerShare > 0);
   const earningsYieldPct = e != null && e > 0 && i.price > 0 ? (e / i.price) * 100 : null;
   const drivers: string[] = [];
   // Describe the rate we ACTUALLY used. The old line hardcoded "SBP + premium"
@@ -373,6 +436,31 @@ export function computeIntrinsic(i: IntrinsicInputs): IntrinsicResult {
   drivers.push(explainRequiredReturn(rr) + " A higher rate lowers every value.");
   if (basis === "nav") {
     drivers.push("Valued on look-through NAV — its earnings are mostly revaluation of the shares it owns, so P/E is misleading.");
+  } else if (isFin) {
+    const bv = i.bookValuePerShare != null && i.bookValuePerShare > 0 ? i.bookValuePerShare : null;
+    const roe = impliedRoePct(e, bv ?? 0);
+    if (bv != null && roe != null) {
+      drivers.push(
+        `Valued as a BANK, not as an operating company: the anchor is book value of Rs ${bv.toFixed(2)}/share and the only question is what return is earned on it. Deposits are funding rather than cash generated, so a discounted free-cash-flow read has no meaning here and is switched off entirely — not merely down-weighted.`
+      );
+      const spread = roe - r;
+      drivers.push(
+        `Return on equity ${roe.toFixed(1)}% against a ${r.toFixed(1)}% cost of equity — a ${spread >= 0 ? "+" : ""}${spread.toFixed(1)}pp spread. ${
+          spread > 3
+            ? "It earns well above its cost of capital, which is what justifies trading above book."
+            : spread >= 0
+              ? "It earns roughly its cost of capital, so it is worth roughly its book value and little more."
+              : "It earns LESS than its cost of capital, so book value is a ceiling, not a floor — every rupee retained destroys value."
+        }`
+      );
+      drivers.push(
+        `That excess is faded toward the cost of equity over ten years rather than extrapolated: competition and regulation erode banking returns, and a model that lets a bank earn its current ROE forever will value every profitable bank at several times book.`
+      );
+    } else {
+      drivers.push(
+        `This is a bank, and no book value per share has been recorded — so the models that actually apply to one (residual income, justified price-to-book) cannot run. What is shown below is an earnings read, which is the WRONG frame for a balance-sheet business: it ignores capital adequacy, provisioning and the fact that equity is the binding constraint on lending. Enter book value per share to fix this; until then treat the figure as indicative only.`
+      );
+    }
   } else {
     const sec = (i.sector ?? "").trim();
     drivers.push(
@@ -414,6 +502,36 @@ export function computeIntrinsic(i: IntrinsicInputs): IntrinsicResult {
   }
   if (i.aboveEarnings) drivers.push("Its dividend currently exceeds earnings (paid from reserves) — we add 5% to the safety margin.");
   if (!epsPositive && basis !== "nav") drivers.push("Loss-making on the latest annual EPS — earnings-based methods are unavailable or cautious.");
+
+  // Where the methods genuinely disagree, SAY so. Averaging two numbers that
+  // are 50% apart and printing the midpoint to two decimals is false precision:
+  // the spread is itself the finding, and it usually means the models are
+  // reading different businesses out of the same accounts.
+  if (incl.length >= 2 && intrinsic != null && intrinsic > 0) {
+    const lo = Math.min(...incl);
+    const hi = Math.max(...incl);
+    const spreadPct = ((hi - lo) / intrinsic) * 100;
+    if (spreadPct >= 35) {
+      drivers.push(
+        `The methods DISAGREE: the estimates span Rs ${lo.toFixed(2)} to Rs ${hi.toFixed(2)}, a ${spreadPct.toFixed(0)}% spread around the blend. Treat the range as the answer and the single figure as its midpoint — a value quoted to the rupee out of estimates this far apart is false precision.`
+      );
+      if (confidence === "high") confidence = "medium";
+      else confidence = "low";
+    }
+  }
+
+  // PSX publishes STANDALONE accounts. For a single-entity operating company
+  // that is the whole picture; for a group it is emphatically not, because the
+  // subsidiaries' earnings appear only as dividends received, if at all.
+  if (basis !== "nav" && e != null) {
+    drivers.push(
+      "EPS here is from the PSX data portal, which publishes STANDALONE accounts only. For a single-entity business that is the full picture. For a group it is not: subsidiary earnings show up only as dividends received, so consolidated EPS can be materially higher and every figure above correspondingly understated. Check the annual report before acting on a group."
+    );
+  }
+
+  // A bank with no book value cannot be valued properly at all, however tightly
+  // the inapplicable models happen to agree with each other.
+  if (financialUnpriceable) confidence = "low";
 
   return {
     symbol: i.symbol,

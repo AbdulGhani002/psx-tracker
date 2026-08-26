@@ -139,8 +139,49 @@ ok("lumpy earner gets a sane intrinsic (not collapsed)", lumpy.intrinsic != null
 // Graham (needed a book value the data never has → permanent N/A row) and
 // justified-P/E (payout×EPS≈DPS, so it double-counted the dividend model) are gone.
 const setCheck = compositeIntrinsic({ ...base });
-ok("model set is the clean six", JSON.stringify(setCheck.methods.map((m) => m.key).sort()) === JSON.stringify(["dcf", "ddm", "disclosed", "earnings", "epv", "nav"]));
+ok(
+  "model set is the clean eight",
+  JSON.stringify(setCheck.methods.map((m) => m.key).sort()) ===
+    JSON.stringify(["dcf", "ddm", "disclosed", "earnings", "epv", "nav", "pb", "residual"]),
+  JSON.stringify(setCheck.methods.map((m) => m.key).sort())
+);
 ok("no method double-counts the dividend stream", setCheck.methods.filter((m) => m.key === "ddm").length === 1);
+ok(
+  "the balance-sheet pair sits out for a non-financial",
+  setCheck.methods.filter((m) => m.key === "residual" || m.key === "pb").every((m) => m.weight === 0 && m.value === null)
+);
+
+// --- banks are valued as banks ----------------------------------------------
+// The failure this guards against is the one that shipped: ABL, a commercial
+// bank, valued on an earnings DCF and a fair-P/E multiple, with the two 47%
+// apart and quietly averaged.
+console.log("\nbanks: book value leads, discounted earnings is switched off");
+const bank = { ...base, sector: "Commercial Banks", eps: 30, normalizedEps: 30, epsGrowthPct: 8, forwardDps: 12 };
+const bankPriced = computeIntrinsic({ ...bank, bookValuePerShare: 150, payoutRatio: 0.4 });
+const bm = (k: string) => bankPriced.methods.find((x) => x.key === k)!;
+ok("residual income runs and leads", bm("residual").value != null && bm("residual").weight === 3.0, String(bm("residual").value));
+ok("justified P/B runs", bm("pb").value != null, String(bm("pb").value));
+ok("the earnings DCF is OFF, not merely down-weighted", bm("dcf").value === null && bm("dcf").weight === 0);
+ok("and says why", bm("dcf").note.toLowerCase().includes("deposits are funding"));
+ok("the zero-growth floor is off too", bm("epv").value === null);
+ok("fair P/E survives only as a cross-check", bm("earnings").weight === 1.0);
+ok("the explanation names the bank frame", bankPriced.drivers.some((d) => d.includes("Valued as a BANK")));
+ok("and reports ROE against the cost of equity", bankPriced.drivers.some((d) => d.includes("Return on equity")));
+
+// ROE 20% on book 150 against ~15% cost of equity: worth a premium to book,
+// but nothing like the 2.9x the old earnings DCF was implying.
+ok("valued above book, sanely", bankPriced.intrinsic != null && bankPriced.intrinsic > 150 && bankPriced.intrinsic < 400, String(bankPriced.intrinsic));
+
+console.log("\na bank with no book value refuses to pretend");
+const bankBlind = computeIntrinsic({ ...bank, bookValuePerShare: null });
+ok("balance-sheet models cannot run", bankBlind.methods.find((x) => x.key === "residual")!.value === null);
+ok("confidence is forced low", bankBlind.confidence === "low");
+ok("and it asks for the number that fixes it", bankBlind.drivers.some((d) => d.includes("no book value per share has been recorded")));
+ok("the DCF is still off — a wrong model is not a fallback", bankBlind.methods.find((x) => x.key === "dcf")!.value === null);
+
+console.log("\nthe standalone-accounts caveat is always stated");
+ok("earnings-based valuations carry it", bankPriced.drivers.some((d) => d.includes("STANDALONE")));
+ok("so do ordinary operating companies", computeIntrinsic({ ...base }).drivers.some((d) => d.includes("STANDALONE")));
 const ivLowRate = computeIntrinsic({ ...base, sbpRatePct: 7 }).intrinsic!;
 const ivHighRate = computeIntrinsic({ ...base, sbpRatePct: 18 }).intrinsic!;
 ok("intrinsic value is lower in a high-rate world", ivHighRate < ivLowRate, `${ivHighRate.toFixed(0)} < ${ivLowRate.toFixed(0)}`);

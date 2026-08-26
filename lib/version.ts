@@ -1,7 +1,7 @@
 // Single source of truth for the app version + changelog.
 // Bump APP_VERSION and prepend a CHANGELOG entry on every release.
 
-export const APP_VERSION = "9.0.0";
+export const APP_VERSION = "9.1.0";
 
 export const BUILD_DATE =
   process.env.NEXT_PUBLIC_BUILD_DATE ?? "";
@@ -17,6 +17,22 @@ export type ChangelogEntry = {
 
 // Reverse-chronological. Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: "9.1.0",
+    date: "2026-08-26",
+    title: "A bank is not a cement plant with a different label",
+    changes: [
+      "ABL was being valued on a discounted-earnings model and a fair-P/E multiple. Both are the wrong instrument for a bank, and the page was quietly averaging them despite their being 47% apart — Rs 295 against Rs 434 — and printing the midpoint to the paisa.",
+      "Free cash flow is undefined for a bank: deposits are funding, not cash generated, and loans are the product, not capital expenditure. Earnings swing on provisions rather than franchise. And equity is the binding constraint on how much a bank can lend, which makes the balance sheet the business. So financials are now valued the way they are actually valued: residual income and justified price-to-book, both of which price the excess of return on equity over the cost of equity.",
+      "Both reduce to one identity, and it is the identity the old models could not express: a bank earning exactly its cost of equity is worth exactly its book value. Not a rupee more, however large its earnings look. Above that it earns a premium to book; below it, book value is a ceiling and every rupee retained destroys value.",
+      "Excess returns FADE toward the cost of equity over ten years rather than being extrapolated, because competition and regulation erode banking returns — a model that lets a bank earn 25% on equity forever values every profitable bank at several times book. Growth is capped at what retained earnings can actually fund, not at a general EPS trend.",
+      "The discounted-earnings and zero-growth models are switched OFF for financials rather than down-weighted. A number that answers the wrong question does not become partly right by counting for less.",
+      "Book value per share was being stored and never read by the valuation engine at all. It is now the anchor, and a bank without one says so plainly, drops to low confidence and asks for the single number that fixes it — instead of falling back on models that do not apply.",
+      "Where methods genuinely disagree the page now says so and widens rather than hiding it in an average: a value quoted to the rupee out of estimates 47% apart is false precision, and the spread is itself the finding.",
+      "Every earnings figure now carries the caveat that the PSX data portal publishes STANDALONE accounts only. For a single-entity business that is the whole picture; for a group it is not, because subsidiary earnings appear only as dividends received — so consolidated EPS can be materially higher and everything derived from it correspondingly understated.",
+      "The whole working is now on the page: every model that ran, its value, its weight, its share of the blend, whether it was capped, and the arithmetic that turns them into one number — plus the models that did not apply and why. A single figure is a claim; this is the evidence for it.",
+    ],
+  },
   {
     version: "9.0.0",
     date: "2026-08-26",

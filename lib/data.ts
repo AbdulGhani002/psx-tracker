@@ -403,6 +403,17 @@ async function computeIntrinsicValuations(): Promise<IntrinsicPage> {
         marginTrendPct: marginTrend,
         revenueGrowthPct: fdata?.revenueGrowthPct ?? null,
         peTtm: fdata?.peTtm ?? null,
+        // Book value was being STORED and never read. For a bank it is the
+        // anchor the whole valuation hangs off, so without it the engine was
+        // reaching for earnings models that do not apply to one.
+        bookValuePerShare: (h as any).bookValuePerShare > 0 ? (h as any).bookValuePerShare : null,
+        // What the company actually pays out, derived from the forward dividend
+        // against through-cycle earning power. Retention is what funds a bank's
+        // book growth, so a guessed payout would guess the growth with it.
+        payoutRatio:
+          prof?.forwardDpsAnnual != null && epsNorm != null && epsNorm > 0
+            ? Math.max(0, Math.min(1, prof.forwardDpsAnnual / epsNorm))
+            : null,
       };
       const result = computeIntrinsic(inputs);
       return {

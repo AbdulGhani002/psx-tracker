@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/Button";
 import { CompoundingModelLazy as CompoundingModel } from "@/components/model/CompoundingModelLazy";
 import { HoldingSettings } from "./HoldingSettings";
 import { HoldingPlaybook } from "./HoldingPlaybook";
+import { ValuationDerivation } from "./ValuationDerivation";
 import { HoldingTransactions } from "./HoldingTransactions";
 import { DividendOverride } from "./DividendOverride";
 import { LookThroughPanel } from "./LookThroughPanel";
@@ -199,7 +200,7 @@ export default async function HoldingDetail({ params }: Props) {
               ? "Above fair value."
               : "Around fair value."
           }
-          description="What this share is worth, blended from up to six independent models, and the price below which it becomes a buy — with the margin of safety scaled to this stock's own volatility."
+          description="What this share is worth, and the price below which it becomes a buy. Models are chosen to fit the BUSINESS — a bank is valued on the return it earns on its book, not on discounted earnings — and the margin of safety is scaled to this stock's own volatility. The full working is below."
           action={
             <Link href={`/intrinsic#${symbol}`} className="font-mono text-[11px] uppercase tracking-stat text-muted hover:text-[var(--accent-deep)]">
               Full analysis →
@@ -234,6 +235,7 @@ export default async function HoldingDetail({ params }: Props) {
               </ul>
             </div>
           </div>
+          <ValuationDerivation intrinsic={intrinsic} />
         </Section>
       )}
 
