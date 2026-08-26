@@ -149,5 +149,48 @@ ok("unknown nature → walk refuses, names the reason", walkCost(wst.funds[0].ac
 
 ok("no-activity statement (real 6-Aug) has null activity", st.funds.every((f) => f.activity === null));
 
+// --- wrapped closing amounts (real 26-Aug statement) -------------------------
+// On the 26-Aug statement the closing amount sat at the right margin and the
+// extractor put it on its OWN line, so the section ended at "is Rs." with
+// nothing after it. The value regex missed the whole fund and MCBCMO — 86,968
+// of the 86,989 total — vanished without a single problem being raised.
+console.log("\nwrapped closing amount: the fund must survive, not vanish");
+const WRAPPED = [
+  "GROWTH",
+  "MCB CASH MANAGEMENT OPTIMIZER",
+  "31-DEC-25",
+  "Last Balance 536.4755",
+  "No Activity",
+  "Value of MCBCMO 834.3587 Units based on Repurchase price of Rs. 104.234 as on 25 AUG 2026 is Rs.",
+  "86,968.54",
+  "MCB PAKISTAN STOCK MARKET FUND",
+  "Value of MCBPSM .0044 Units based on Repurchase price of Rs. 376.8492 as on 25 AUG 2026 is Rs. 1.66",
+  "MCB PAKISTAN SOVEREIGN FUND",
+  "Value of MCBPSF .0904 Units based on Repurchase price of Rs. 56.03 as on 25 AUG 2026 is Rs. 5.07",
+  "ALHAMRA DAILY DIVIDEND FUND",
+  "Value of ALHDDF .1378 Units based on Repurchase price of Rs. 100 as on 26 AUG 2026 is Rs. 13.78",
+  "Total Investment Value of Processed Transactions Based on Repurchase Price.",
+  "86,989.05",
+];
+const wrapped = parseIsaveStatement([WRAPPED]);
+const wrappedCmo = wrapped.funds.find((f) => f.code === "MCBCMO");
+ok("wrapped amount still yields the fund", wrappedCmo != null);
+ok("wrapped units read", wrappedCmo?.units === 834.3587, String(wrappedCmo?.units));
+ok("wrapped NAV read", wrappedCmo?.nav === 104.234, String(wrappedCmo?.nav));
+ok("wrapped value read", wrappedCmo?.value === 86968.54, String(wrappedCmo?.value));
+ok("all four funds present", wrapped.funds.length === 4, String(wrapped.funds.length));
+ok("wrapped statement total read", wrapped.totalStated === 86989.05, String(wrapped.totalStated));
+ok("wrapped statement reconciles", wrapped.totalComputed === 86989.05, String(wrapped.totalComputed));
+ok("wrapped statement is clean", wrapped.problems.length === 0, wrapped.problems.join("; "));
+
+// A value line whose amount is gone entirely must be REPORTED, never skipped.
+const lost = parseIsaveStatement([[
+  "MCB CASH MANAGEMENT OPTIMIZER",
+  "Value of MCBCMO 834.3587 Units based on Repurchase price of Rs. 104.234 as on 25 AUG 2026 is Rs.",
+  "Page 1 of 6",
+]]);
+ok("missing amount → no silent fund", lost.funds.length === 0);
+ok("missing amount → names the fund", lost.problems.some((p) => p.startsWith("MCBCMO:")), lost.problems.join("; "));
+
 console.log(`\n${pass} passed, ${fail} failed`);
 if (fail > 0) process.exit(1);

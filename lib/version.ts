@@ -1,7 +1,7 @@
 // Single source of truth for the app version + changelog.
 // Bump APP_VERSION and prepend a CHANGELOG entry on every release.
 
-export const APP_VERSION = "8.4.0";
+export const APP_VERSION = "8.4.1";
 
 export const BUILD_DATE =
   process.env.NEXT_PUBLIC_BUILD_DATE ?? "";
@@ -17,6 +17,16 @@ export type ChangelogEntry = {
 
 // Reverse-chronological. Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: "8.4.1",
+    date: "2026-08-26",
+    title: "The fund that fell off the right-hand edge",
+    changes: [
+      "An iSave statement reader could lose an entire fund without saying a word. iSave prints each fund's closing value hard against the right margin, and when the label ahead of it runs long that amount lands on its own line — the section then ends at \"is Rs.\" with nothing after it. The reader wanted the whole sentence on one line, did not find it, and moved on. On the 26 August statement that dropped MCB Cash Management Optimizer: 86,968 of the 86,989 total, gone, with no problem raised and the remaining dust adding up to 20.51.",
+      "The trailing amount is now stitched back on before anything reads it, so the statement reconciles against its own printed total again — 86,989.05 read, 86,989.05 summed.",
+      "The deeper fault was the silence. A line that names a fund but will not parse is now reported by name instead of skipped, so an unreadable section can never again pass for an absent one. Both cases are pinned by tests.",
+    ],
+  },
   {
     version: "8.4.0",
     date: "2026-08-19",

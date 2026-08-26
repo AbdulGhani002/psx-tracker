@@ -73,6 +73,37 @@ function toIso(d: string): string {
 const VALUE_LINE =
   /Value of ([A-Z]+) ([\d,]*\.?\d+) Units based on Repurchase price of Rs\.? ?([\d,]*\.?\d+) as on (\d{1,2} [A-Z]{3} \d{4}) is Rs\.? ?([\d,]*\.?\d+)/;
 
+// A "Value of CODE …" line that we could NOT read in full. Kept separate from
+// VALUE_LINE so a fund whose closing amount is unreadable is REPORTED rather
+// than skipped — silently dropping a section is how the largest holding on a
+// real statement went missing.
+const VALUE_LINE_LOOSE = /Value of ([A-Z]+) /;
+
+// iSave prints the closing amount hard against the right margin, on its own
+// text run. When the label ahead of it runs long the amount lands on the NEXT
+// extracted line, so the section ends at "… is Rs." with nothing after it.
+// Unjoined, VALUE_LINE simply does not match and the whole fund vanishes.
+// Stitch the trailing bare number back on before anything tries to read it.
+const BARE_AMOUNT = /^\(?[\d,]*\.?\d+\)?$/;
+function stitchWrappedAmounts(lines: string[]): string[] {
+  const out: string[] = [];
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    const trimmed = line.trim();
+    const awaitingAmount =
+      /Value of [A-Z]+ .* is Rs\.?$/.test(trimmed) ||
+      /Total Investment Value of Processed Transactions[^\d]*$/.test(trimmed);
+    const next = (lines[i + 1] ?? "").trim();
+    if (awaitingAmount && BARE_AMOUNT.test(next)) {
+      out.push(`${trimmed} ${next}`);
+      i++; // the bare amount belongs to the line above, not to the next fund
+      continue;
+    }
+    out.push(line);
+  }
+  return out;
+}
+
 // "01-JUL-26" (row dates print 2-digit years) → ISO.
 function rowDateToIso(d: string): string {
   const m = /^(\d{2})-([A-Z]{3})-(\d{2})$/.exec(d.trim());
@@ -129,7 +160,7 @@ export function walkCost(
 }
 
 export function parseIsaveStatement(pages: string[][]): IsaveStatement {
-  const lines = pages.flat();
+  const lines = stitchWrappedAmounts(pages.flat());
   const problems: string[] = [];
   const funds: StatementFund[] = [];
   let registration: string | null = null;
@@ -206,6 +237,16 @@ export function parseIsaveStatement(pages: string[][]): IsaveStatement {
       }
 
       funds.push({ code, units: finalUnits, nav: num(v[3]), asOf, value: num(v[5]), activity });
+      pendingLastBalance = null;
+      pendingRows = [];
+      continue;
+    }
+
+    // The line names a fund but did not read cleanly. Say so loudly: an
+    // unreadable section must never pass as an absent one.
+    const loose = VALUE_LINE_LOOSE.exec(line);
+    if (loose) {
+      problems.push(`${loose[1]}: value line present but unreadable "${line.trim().slice(0, 90)}"`);
       pendingLastBalance = null;
       pendingRows = [];
       continue;
