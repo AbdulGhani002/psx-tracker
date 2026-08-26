@@ -85,6 +85,34 @@ const VALUE_LINE_LOOSE = /Value of ([A-Z]+) /;
 // Unjoined, VALUE_LINE simply does not match and the whole fund vanishes.
 // Stitch the trailing bare number back on before anything tries to read it.
 const BARE_AMOUNT = /^\(?[\d,]*\.?\d+\)?$/;
+// When a row's description runs long — an iPayment- carries the payee's name
+// and IBAN over five or six lines — iSave pushes the DATE onto a line of its
+// own and starts the row on the next. The row then has no date, so it never
+// matches, and the next dated line (typically the CGT* announcement that
+// follows) is measured against the balance the skipped row moved. That is what
+// produced "balance moved -162.5492 but row prints 58.45 units": 58.45 was the
+// price, read off the wrong row entirely.
+//
+// Rejoin the two, but only when the join actually parses — an orphan date
+// followed by anything else is left exactly as it was.
+function stitchOrphanDates(lines: string[]): string[] {
+  const out: string[] = [];
+  for (let i = 0; i < lines.length; i++) {
+    const trimmed = lines[i].trim();
+    if (DATE_ONLY.test(trimmed)) {
+      const next = (lines[i + 1] ?? "").trim();
+      const joined = `${trimmed} ${next}`;
+      if (next && (ROW_LINE.test(joined) || LAST_BALANCE.test(joined))) {
+        out.push(joined);
+        i++;
+        continue;
+      }
+    }
+    out.push(lines[i]);
+  }
+  return out;
+}
+
 function stitchWrappedAmounts(lines: string[]): string[] {
   const out: string[] = [];
   for (let i = 0; i < lines.length; i++) {
@@ -115,13 +143,33 @@ function rowDateToIso(d: string): string {
 // balance-units column. Outflows print in parentheses.
 const ROW_LINE = /^(\d{2}-[A-Z]{3}-\d{2})\s+(.+?)\s+((?:\(?[\d,]*\.?\d+\)?\s*)+)$/;
 
+// The opening-balance line; the date sometimes clusters onto it.
+const LAST_BALANCE = /^(?:\d{2}-[A-Z]{3}-\d{2}\s+)?Last Balance\s+\(?([\d,]*\.?\d+)\)?$/;
+
+const DATE_ONLY = /^\d{2}-[A-Z]{3}-\d{2}$/;
+
+// Natures that MUST move units. A row of one of these that leaves the balance
+// untouched has not been read correctly, and saying so is the only guard left
+// once the printed-units cross-check is skipped for rows that carry no units
+// column at all. "Dividend-Declare", "Dividend-Tax" and "CGT*" deliberately
+// match nothing here: they are announcements, not unit movements.
+const UNIT_MOVING_NATURE = /purchase|invest|redemption|conversion|transfer|additional-?units|bonus/i;
+
 function classifyNature(nature: string, delta: number): ActivityRow["costEffect"] {
   if (delta < 0) return "units_out";
   // Return-of-capital natures FIRST: "Dividend Re-Invest" must not be caught
   // by the money-in "invest" pattern — reinvested dividends are return, and
   // counting them as cost would fake away the fund's whole yield.
-  if (/dividend|bonus|re-?invest|refund|cgt|zakat|reversal/i.test(nature)) return "units_only";
-  if (/purchase|conversion in|transfer in|invest/i.test(nature)) return "money_in";
+  // "Additional-Units" are issued by the AMC at a printed rate of .0000 — free
+  // units, like a bonus. Costing them would invent money that never moved; at
+  // zero cost they correctly dilute the average.
+  if (/dividend|bonus|re-?invest|refund|cgt|zakat|reversal|additional-?units/i.test(nature)) return "units_only";
+  // Direction is settled above by the balance chain, so these need not name it.
+  // The old pattern demanded the words "conversion in" / "transfer in" and so
+  // failed on iSave's actual label, "App Conversion" — leaving the fund that
+  // received a Rs 40,119 switch with no cost classification at all, which made
+  // the whole cost walk refuse. An outflow never reaches this line.
+  if (/purchase|conversion|transfer|invest/i.test(nature)) return "money_in";
   return "unknown";
 }
 
@@ -160,7 +208,7 @@ export function walkCost(
 }
 
 export function parseIsaveStatement(pages: string[][]): IsaveStatement {
-  const lines = stitchWrappedAmounts(pages.flat());
+  const lines = stitchOrphanDates(stitchWrappedAmounts(pages.flat()));
   const problems: string[] = [];
   const funds: StatementFund[] = [];
   let registration: string | null = null;
@@ -177,7 +225,7 @@ export function parseIsaveStatement(pages: string[][]): IsaveStatement {
     if (reg && !registration) registration = reg[1];
 
     // The opening-balance line; the date sometimes clusters onto it.
-    const lb = /^(?:\d{2}-[A-Z]{3}-\d{2}\s+)?Last Balance\s+\(?([\d,]*\.?\d+)\)?$/.exec(line.trim());
+    const lb = LAST_BALANCE.exec(line.trim());
     if (lb) {
       pendingLastBalance = num(lb[1]);
       pendingRows = [];
@@ -216,10 +264,23 @@ export function parseIsaveStatement(pages: string[][]): IsaveStatement {
           const delta = Math.round((balance - prev) * 10000) / 10000;
           // The printed units column (first number) must agree with the balance
           // movement — that's the self-check that catches a mis-mapped column.
-          const printedUnits = Math.abs(pr.nums[0]);
-          if (Math.abs(Math.abs(delta) - printedUnits) > 0.002) {
+          //
+          // Only for rows that HAVE a units column. "Dividend-Declare",
+          // "Dividend-Tax" and "CGT*" announce an amount and move no units at
+          // all, so their first number is money or a rate, and demanding it
+          // equal a zero delta failed every one of them. Such a row is inert:
+          // it adds nothing to the chain and nothing to cost, so there is
+          // nothing to cross-check. What IS checked is that a nature which
+          // must move units did not somehow move none.
+          if (Math.abs(delta) > 0.00005) {
+            const printedUnits = Math.abs(pr.nums[0]);
+            if (Math.abs(Math.abs(delta) - printedUnits) > 0.002) {
+              chainOk = false;
+              problems.push(`${code} ${pr.date}: balance moved ${delta} but row prints ${printedUnits} units`);
+            }
+          } else if (UNIT_MOVING_NATURE.test(pr.nature)) {
             chainOk = false;
-            problems.push(`${code} ${pr.date}: balance moved ${delta} but row prints ${printedUnits} units`);
+            problems.push(`${code} ${pr.date}: "${pr.nature}" left the balance unchanged — the row did not read correctly`);
           }
           // Net amount: second-to-last number when the row carries money columns.
           const netAmount = pr.nums.length >= 3 ? Math.abs(pr.nums[pr.nums.length - 2]) : null;

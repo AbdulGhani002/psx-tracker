@@ -1,7 +1,7 @@
 // Single source of truth for the app version + changelog.
 // Bump APP_VERSION and prepend a CHANGELOG entry on every release.
 
-export const APP_VERSION = "8.6.0";
+export const APP_VERSION = "8.7.0";
 
 export const BUILD_DATE =
   process.env.NEXT_PUBLIC_BUILD_DATE ?? "";
@@ -17,6 +17,18 @@ export type ChangelogEntry = {
 
 // Reverse-chronological. Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: "8.7.0",
+    date: "2026-08-26",
+    title: "The statement reads all the way down now",
+    changes: [
+      "Uploading an iSave statement works again: the 26 August one now parses with nothing outstanding, so Apply accepts it instead of refusing. It had been failing on 50 separate complaints, none of which were really about the numbers.",
+      "Two things were wrong. When a row's description runs long — an iPayment- carries the payee's name and IBAN over six lines — iSave puts the DATE on a line of its own and starts the row on the next. That row then had no date, so it was skipped, and the announcement row that followed got measured against the balance the skipped row had moved. The complaint read \"balance moved -162.5492 but row prints 58.45 units\"; 58.45 was a price, read off an entirely different row.",
+      "The second was simpler: Dividend-Declare, Dividend-Tax and CGT* rows move no units at all, so their first number is money or a rate, not a unit count. Every one of them was being asked to match a zero. They are now recognised as the announcements they are — and a row whose nature MUST move units but did not is still called out, so nothing was traded away for the quiet.",
+      "Two natures the statement actually prints were unclassified, which by itself made the whole cost walk refuse. \"App Conversion\" was missed because the pattern demanded the words \"conversion in\", though the direction is already settled by the balance chain. \"Additional-Units\" are issued at a printed rate of .0000 — free units, so they now dilute the average rather than inventing money that never moved.",
+      "Read end to end, the statement's own rows reproduce the cost basis this book already carried for the cash fund — 103.3153, arrived at independently. That is the parser checking itself against three years of hand-entered history, and agreeing.",
+    ],
+  },
   {
     version: "8.6.0",
     date: "2026-08-26",

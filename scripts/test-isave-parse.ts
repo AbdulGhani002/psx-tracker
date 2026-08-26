@@ -192,5 +192,74 @@ const lost = parseIsaveStatement([[
 ok("missing amount → no silent fund", lost.funds.length === 0);
 ok("missing amount → names the fund", lost.problems.some((p) => p.startsWith("MCBCMO:")), lost.problems.join("; "));
 
+// --- rows whose description wrapped, and rows with no units column ----------
+// Both from the real 26-Aug statement. iSave pushes the DATE onto its own line
+// when the description runs long (an iPayment- carries a name and IBAN over six
+// lines), and prints announcement rows — Dividend-Declare, Dividend-Tax, CGT* —
+// that move no units at all, so their first number is money or a rate.
+console.log("\nwrapped descriptions and announcement rows");
+const WRAPPED_ROWS = [
+  "Registration # : 184422",
+  "MCB PAKISTAN SOVEREIGN FUND",
+  "Last Balance .0000",
+  "09-APR-26 App Conversion 686.6247 58.4300 40,119.48 40,119.48 686.6247",
+  "13-APR-26 iPayment- (410.8885) 58.4100 24,000 (24,000) 275.7362",
+  "MUHAMMAD",
+  "ABDUL GHANI",
+  "QURESHI -",
+  "PK29UNIL01090003",
+  "14-APR-26",
+  "iPayment- (162.5492) 58.4500 9,501 113.1870",
+  "MUHAMMAD",
+  "ABDUL GHANI",
+  "14-APR-26 CGT* 58.4500 (1) (9,500) 113.1870",
+  "Value of MCBPSF 113.1870 Units based on Repurchase price of Rs. 58.45 as on 25 AUG 2026 is Rs. 6,615.78",
+  "Total Investment Value of Processed Transactions Based on Repurchase Price. 6,615.78",
+];
+const wr = parseIsaveStatement([WRAPPED_ROWS]);
+ok("orphan date + wrapped rows parse clean", wr.problems.length === 0, JSON.stringify(wr.problems));
+const wrf = wr.funds.find((f) => f.code === "MCBPSF")!;
+ok("all four rows captured", wrf.activity?.rows.length === 4, String(wrf.activity?.rows.length));
+ok("the re-dated row is the iPayment, not the CGT", wrf.activity?.rows[2].nature === "iPayment-");
+ok("its delta comes from the balance", wrf.activity?.rows[2].unitsDelta === -162.5492, String(wrf.activity?.rows[2].unitsDelta));
+ok("chain reconciles to the Value line", wrf.activity?.chainOk === true);
+ok("CGT* moves no units", wrf.activity?.rows[3].unitsDelta === 0);
+ok("CGT* rate is not mistaken for a unit count", wr.problems.every((p) => !p.includes("58.45")));
+
+// A row that MUST move units but did not is still caught — dropping the
+// printed-units check for zero-delta rows must not drop that guard too.
+const STUCK = parseIsaveStatement([[
+  "Registration # : 184422",
+  "MCB CASH MANAGEMENT OPTIMIZER",
+  "Last Balance 100.0000",
+  "10-JUL-26 Online Investment 50.0000 100.0000 5,000 5,000 100.0000",
+  "Value of MCBCMO 100.0000 Units based on Repurchase price of Rs. 100 as on 15 JUL 2026 is Rs. 10,000.00",
+  "Total Investment Value of Processed Transactions Based on Repurchase Price. 10,000.00",
+]]);
+ok("an investment that moved nothing is flagged", STUCK.problems.some((p) => p.includes("left the balance unchanged")), JSON.stringify(STUCK.problems));
+
+console.log("\nnatures iSave actually prints are all classified");
+const NATURES = [
+  "09-APR-26 App Conversion 686.6247 58.4300 40,119.48 40,119.48 686.6247",
+  "10-APR-26 Additional-Units 16.6907 .0000 703.3154",
+];
+const nst = parseIsaveStatement([[
+  "Registration # : 184422",
+  "MCB CASH MANAGEMENT OPTIMIZER",
+  "Last Balance .0000",
+  ...NATURES,
+  "Value of MCBCMO 703.3154 Units based on Repurchase price of Rs. 58.43 as on 25 AUG 2026 is Rs. 41,094.72",
+  "Total Investment Value of Processed Transactions Based on Repurchase Price. 41,094.72",
+]]);
+ok("statement clean", nst.problems.length === 0, JSON.stringify(nst.problems));
+const nrows = nst.funds[0].activity!.rows;
+ok("App Conversion in is money_in", nrows[0].costEffect === "money_in", nrows[0].costEffect);
+ok("Additional-Units are free units, not cost", nrows[1].costEffect === "units_only", nrows[1].costEffect);
+ok("every nature classified", nst.funds[0].activity!.classified === true);
+const nwalk = walkCost(nst.funds[0].activity!, 0);
+ok("walk runs", nwalk.ok, nwalk.reason);
+ok("only the conversion carried money", Math.abs(nwalk.moneyIn - 40_119.48) < 0.01, String(nwalk.moneyIn));
+ok("free units dilute the average", Math.abs(nwalk.newAvgCost - 40_119.48 / 703.3154) < 0.0001, String(nwalk.newAvgCost));
+
 console.log(`\n${pass} passed, ${fail} failed`);
 if (fail > 0) process.exit(1);
