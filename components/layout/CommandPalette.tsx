@@ -16,6 +16,8 @@ type Item = {
   hint: string;
   group: "Positions" | "Pages" | "Actions";
   href: string;
+  // Some actions open a sheet in place rather than navigating anywhere.
+  event?: string;
 };
 
 const PAGES: Item[] = [
@@ -37,7 +39,8 @@ const PAGES: Item[] = [
 ];
 
 const ACTIONS: Item[] = [
-  { id: "a-buy", label: "Record a trade", hint: "new BUY or SELL", group: "Actions", href: "/transactions/new" },
+  { id: "a-buy", label: "Record a buy", hint: "add to a position, without leaving the page", group: "Actions", href: "/transactions/new", event: "psx:quick-add" },
+  { id: "a-full", label: "Record a sell or a new position", hint: "the full form, with its plan and decision gates", group: "Actions", href: "/transactions/new" },
   { id: "a-import", label: "Import trades", hint: "CSV or contract note", group: "Actions", href: "/transactions/import" },
   { id: "a-dividend", label: "Upload a dividend warrant", hint: "parse a CDC PDF", group: "Actions", href: "/dividends" },
 ];
@@ -150,6 +153,11 @@ export function CommandPalette() {
   function go(item: Item | undefined) {
     if (!item) return;
     close();
+    if (item.event) {
+      // Let the palette finish closing before the sheet claims focus.
+      requestAnimationFrame(() => window.dispatchEvent(new Event(item.event!)));
+      return;
+    }
     router.push(item.href);
   }
 

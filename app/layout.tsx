@@ -7,6 +7,7 @@ import { ThemeScript } from "@/components/layout/ThemeToggle";
 import { NoNumberScroll } from "@/components/ui/NoNumberScroll";
 import { PwaRegister } from "@/components/layout/PwaRegister";
 import { CommandPalette } from "@/components/layout/CommandPalette";
+import { QuickAdd } from "@/components/layout/QuickAdd";
 import { APP_VERSION } from "@/lib/version";
 
 // Self-hosted, preloaded fonts — no external render-blocking round-trips.
@@ -39,6 +40,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <NoNumberScroll />
         <PwaRegister />
         <CommandPalette />
+        <QuickAdd />
         <div className="min-h-screen flex flex-col">
           <SiteNav />
           <main className="flex-1 w-full max-w-[1180px] mx-auto px-6 py-10 fade-in">

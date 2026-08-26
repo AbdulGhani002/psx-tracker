@@ -13,6 +13,7 @@ import { SectorBar } from "@/components/charts/SectorBar";
 import { AllocationDonut } from "@/components/charts/AllocationDonut";
 import { BenchmarkChartLoader } from "@/components/charts/BenchmarkChartLoader";
 import { RefreshPrices } from "@/components/layout/RefreshPrices";
+import { WhatChanged, type ZoneSnapshotRow } from "@/components/layout/WhatChanged";
 import {
   getPortfolioSummary,
   getAllTransactions,
@@ -21,7 +22,7 @@ import {
   getRiskMetrics,
   getAppSettings,
   checkDataAvailability,
- getEffectiveInflationPct, getAttribution,} from "@/lib/data";
+ getEffectiveInflationPct, getAttribution, getZoneBoard,} from "@/lib/data";
 import { realPct } from "@/lib/calculations/pk-tax";
 import {
   fmtRs,
@@ -415,6 +416,25 @@ async function RecentBlock() {
   );
 }
 
+// What crossed a line since the last visit. The server supplies today's zone
+// statuses; the browser holds the previous ones and does the diff.
+async function WhatChangedBlock() {
+  const board = await getZoneBoard().catch(() => null);
+  if (!board) return null;
+  const rows: ZoneSnapshotRow[] = board.rows
+    .filter((r) => r.sharesHeld > 0 || r.alertsOn)
+    .map((r) => ({
+      symbol: r.symbol,
+      sector: r.sector ?? "",
+      status: String(r.status),
+      price: r.price,
+      stale: r.priceStale,
+      hasPlan: r.buyZoneHigh != null || r.sellZoneLow != null,
+    }));
+  if (rows.length === 0) return null;
+  return <WhatChanged rows={rows} />;
+}
+
 export default function Dashboard() {
   return (
     <div>
@@ -429,6 +449,10 @@ export default function Dashboard() {
 
       <Suspense fallback={<BlockFallback rows={5} />}>
         <TopBlock />
+      </Suspense>
+
+      <Suspense fallback={null}>
+        <WhatChangedBlock />
       </Suspense>
 
       <Suspense fallback={null}>

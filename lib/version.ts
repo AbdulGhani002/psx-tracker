@@ -1,7 +1,7 @@
 // Single source of truth for the app version + changelog.
 // Bump APP_VERSION and prepend a CHANGELOG entry on every release.
 
-export const APP_VERSION = "8.9.0";
+export const APP_VERSION = "9.0.0";
 
 export const BUILD_DATE =
   process.env.NEXT_PUBLIC_BUILD_DATE ?? "";
@@ -17,6 +17,20 @@ export type ChangelogEntry = {
 
 // Reverse-chronological. Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: "9.0.0",
+    date: "2026-08-26",
+    title: "Set like a page, not assembled like a dashboard",
+    changes: [
+      "The whole app has been redrawn. The old palette gave itself away: the green and red were Tailwind's stock swatches, and every section was the same tinted card with a 4px bar down its left, repeated the length of every page. That is the shape that reads as generated rather than designed.",
+      "It is a printed page now. Warm paper, true ink, one accent spent only where it means something, and gains and losses sitting close to ink rather than glowing — a page of numbers should read as a page, and a loss should not shout across the room. Cards became ruled sections with open paper beneath, stat strips got real scale contrast instead of six identical figures in a row, and the charts moved to printing inks.",
+      "Two faces doing two jobs: Instrument Serif is a masthead and sets the logo and headlines only, so it is never asked to be legible at 11px; Roboto carries every word you actually read; Roboto Mono carries every figure so columns of money line up on the decimal. The stat component had been asking for the display face AND the mono face on one element and letting the cascade settle it, which is why columns had stopped aligning.",
+      "Ctrl/Cmd-K jumps to any position, page or action by typing three letters. The holdings table sorts and filters in the browser, on the underlying NUMBERS rather than the formatted strings — sorting \"Rs 1,240\" as text files it under \"Rs 998\" — and a missing price sorts last in both directions instead of posing as the worst performer. Each row carries a sector-tinted monogram and a 90-day sparkline, drawn only where five points exist, because two prices are not a trend.",
+      "The overview opens with what crossed a line since your last visit, compared against a snapshot this browser kept — crossings only, never drift, and nothing at all on a first visit rather than announcing every position as new.",
+      "A new Companies page lists what each holding has actually filed with the exchange: results, board meetings and the rest, straight through to the PDF. Those filings are the primary source behind the earnings figures used everywhere else, so read them rather than take a number on trust. A company whose page cannot be read says so, because an empty list and a failed fetch are different things.",
+      "Recording a buy no longer needs a page change. It is deliberately limited to adding to a position you already hold: a sell needs its rationale and falsifier, and a new position needs its class, ceiling and invalidator, and a four-field box that let you past those gates would be the one change that quietly undid the discipline.",
+    ],
+  },
   {
     version: "8.9.0",
     date: "2026-08-26",
