@@ -3,7 +3,7 @@ import { cache } from "react";
 import { connectDb } from "./db";
 import { getCurrentUserId } from "./auth/current-user";
 import { knownHoldingCompany } from "./holding-companies";
-import { HoldingModel, TransactionModel, CashEntryModel, WatchlistEntryModel, SbpRateModel, MutualFundModel, SavingsAccountModel, AppSettingsModel, CommodityTradeModel, FundamentalModel, FeedSnapshotModel, UserModel, DEFAULT_SETTINGS, type Holding, type Transaction } from "./models";
+import { PmexAccountModel, HoldingModel, TransactionModel, CashEntryModel, WatchlistEntryModel, SbpRateModel, MutualFundModel, SavingsAccountModel, AppSettingsModel, CommodityTradeModel, FundamentalModel, FeedSnapshotModel, UserModel, DEFAULT_SETTINGS, type Holding, type Transaction } from "./models";
 import { fetchFundamentals } from "./prices/fundamentals";
 import { fetchPayouts } from "./prices/payouts";
 import type { FundamentalsInput } from "./calculations/dividend-forecast";
@@ -29,7 +29,7 @@ import { getPriceFreshness } from "./prices";
 import { evaluateZone, sellableShares, zoneBuyFactor, distanceToZonePct, NO_ZONE_FACTOR, type ZoneEntry, type ZoneStatus } from "./calculations/zones";
 import { planDeployment, type DeployCandidate, type DeployPlan } from "./calculations/deploy-plan";
 import { resolveStandIn, validateLinks, type StandInGroup } from "./calculations/standin";
-import { summarisePortfolio, computeCashBalance, type PortfolioSummary, type CashSummary } from "./calculations";
+import { summarisePortfolio, computeCashBalance, summarisePmexAccount, type PortfolioSummary, type CashSummary, type PmexAccountSummary, type PmexMovement } from "./calculations";
 import { forecastDividends, type DividendForecast } from "./calculations/dividend-forecast";
 import { computeSotp, deriveSharesOutstanding, type SotpResult } from "./calculations/sotp";
 import { computeIntrinsic, intrinsicSensitivity, normalizedEps, robustGrowthPct, sectorFairPE, type IntrinsicInputs, type IntrinsicResult, type Sensitivity } from "./calculations/intrinsic";
@@ -1503,6 +1503,43 @@ export type PmexOverview = {
   // prices, so only the mark the user entered is treated as truth.
   refs: Array<{ symbol: string; label: string; pkr: number | null; unit: string; kind: string }>;
 };
+
+// The PMEX account itself: what it holds and what trading it cost. Separate
+// from the contract list because PMEX publishes profit per session and never
+// per position, so this can be known exactly while the contracts cannot be
+// reconstructed at all. Null when no statement has been recorded.
+export type PmexAccountView = {
+  accountNo: string;
+  balanceAsOf: string;
+  statementFrom: string;
+  statementTo: string;
+  sessions: Array<{ date: string; contract: string; realised: number; unrealised: number }>;
+} & PmexAccountSummary;
+
+async function _getPmexAccount(): Promise<PmexAccountView | null> {
+  if (!(await tryConnect())) return null;
+  const doc = await PmexAccountModel.findOne({ userId: await meId() }).sort({ balanceAsOf: -1 }).lean();
+  if (!doc) return null;
+  const summary = summarisePmexAccount(
+    doc.openingBalance,
+    (doc.movements ?? []) as PmexMovement[],
+    doc.balance
+  );
+  return {
+    accountNo: doc.accountNo,
+    balanceAsOf: doc.balanceAsOf,
+    statementFrom: doc.statementFrom ?? "",
+    statementTo: doc.statementTo ?? "",
+    sessions: (doc.sessions ?? []).map((s) => ({
+      date: s.date,
+      contract: s.contract ?? "",
+      realised: s.realised ?? 0,
+      unrealised: s.unrealised ?? 0,
+    })),
+    ...summary,
+  };
+}
+export const getPmexAccount = cache(_getPmexAccount);
 
 export async function getPmexOverview(endYear?: number): Promise<PmexOverview> {
   const { trades, settings } = await getCommodityTradesValued();

@@ -1,7 +1,7 @@
 // Single source of truth for the app version + changelog.
 // Bump APP_VERSION and prepend a CHANGELOG entry on every release.
 
-export const APP_VERSION = "8.5.0";
+export const APP_VERSION = "8.6.0";
 
 export const BUILD_DATE =
   process.env.NEXT_PUBLIC_BUILD_DATE ?? "";
@@ -17,6 +17,18 @@ export type ChangelogEntry = {
 
 // Reverse-chronological. Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: "8.6.0",
+    date: "2026-08-26",
+    title: "Five positions that had quietly stopped counting",
+    changes: [
+      "Five holdings were carrying share counts and costs that no longer matched the ledger, and one of them — ABL — was sitting at zero shares while 250 of them were recorded against it. The cause was two one-off import scripts that wrote transactions straight into the database and never refreshed the cached position they belong to. INDU, LUCK, MUREB and PTL were understated the same way.",
+      "Every holding has been rebuilt from its transactions, and the arithmetic was checked against the contract notes that caused the drift before anything was written. There is now a recompute script to run whenever a script touches transactions directly, so the cache cannot silently fall behind the ledger again.",
+      "The PMEX account is recorded for the first time: balance, deposits, what each trading session made, and what commission, fees and CGT took out of it. Every figure cross-foots against the statement's own closing balance, and the two documents are checked against each other before anything is stored — a ledger that does not add up is shown as unverified rather than presented as fact.",
+      "No PMEX contract rows were created. Those statements report profit per session and carry no entry price, exit price, lot count or lot size anywhere, so a contract cannot be described from them. An empty contract table is honest; one filled from a guessed lot size would corrupt every number derived from it.",
+      "The daily NAV relay stopped running on 14 August, which is why fund values were being carried at a two-week-old price. It tries an ordinary request before reaching for a browser now, and a failure while cleaning up its temporary profile no longer throws away a successful fetch.",
+    ],
+  },
   {
     version: "8.5.0",
     date: "2026-08-26",

@@ -1,19 +1,25 @@
 // Home-IP NAV relay: MUFAP blocks datacentre IPs (the VPS gets 403) but serves
-// real browsers fine — so this script, run daily by Windows Task Scheduler on
-// the user's PC, drives a throwaway headless Edge to mufap.com.pk, pulls the
-// RAW fund-price HTML via a same-origin fetch inside the page (the rendered
-// DOM virtualises down to ~30 cards; the server HTML carries all ~400 funds),
-// gzips it (~38 KB), and POSTs it to the site's machine-only relay endpoint.
-// The SERVER parses and validates — this script never computes a NAV.
+// a home connection fine — so this script, run daily by Windows Task Scheduler
+// on the user's PC, pulls the RAW fund-price HTML from mufap.com.pk (the
+// rendered DOM virtualises down to ~30 cards; the server HTML carries all ~400
+// funds), gzips it (~38 KB), and POSTs it to the site's machine-only relay
+// endpoint. The SERVER parses and validates — this script never computes a NAV.
+//
+// Three ways in, cheapest first: curl, then Node's fetch, then a real Edge
+// window parked off-screen for when Cloudflare actually challenges. The browser
+// was the only path for a while, which meant a locked temp profile or a stray
+// EPERM lost the whole day's NAVs.
 //
 // Config: tools/nav-relay.env (not committed) with
 //   RELAY_URL=https://portfolio.apex-logic.net/api/funds/nav-relay
 //   CRON_SECRET=...
-import { spawn } from "node:child_process";
+//   BASIC_USER=... BASIC_PASS=...   (to pass the site's session middleware)
+import { spawn, execFileSync } from "node:child_process";
 import { readFileSync, mkdtempSync, rmSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
+import { gzipSync } from "node:zlib";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const MUFAP_URL = "https://mufap.com.pk/WebPost/WebPostById?title=Open-FundScheme";
@@ -99,23 +105,83 @@ async function extractHtmlGz(windowed) {
   } finally {
     edge.kill();
     await sleep(500);
-    rmSync(profile, { recursive: true, force: true });
+    // Windows keeps a lock on the profile for a moment after Edge exits, so
+    // this can throw EPERM. A temp directory left behind is litter; letting it
+    // abort a successful extraction was losing the whole day's NAVs.
+    try {
+      rmSync(profile, { recursive: true, force: true });
+    } catch {
+      /* the OS will clear it; nothing here depends on it */
+    }
   }
 }
 
-async function main() {
-  if (!EDGE) throw new Error("msedge.exe not found");
-  const env = loadEnv();
+const UA =
+  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124 Safari/537.36";
 
+// MUFAP serves this page to an ordinary request from a home IP, so the browser
+// above is only needed when Cloudflare decides to challenge. Try the cheap path
+// first — no Edge, no temp profile, no devtools port.
+//
+// curl before Node's fetch, and that ordering is not arbitrary: Cloudflare
+// fingerprints the TLS handshake, and Node's is the one it refuses (403) while
+// curl's sails through with the same URL, headers and IP. curl.exe ships with
+// Windows, so this is not a new dependency.
+const CURL = ["C:/Windows/System32/curl.exe", "/usr/bin/curl"].find(existsSync) ?? "curl";
+
+function curlHtml() {
+  return execFileSync(
+    CURL,
+    ["-sS", "--compressed", "--max-time", "60", "-A", UA, "-H", "accept-language: en-US,en;q=0.9", MUFAP_URL],
+    { maxBuffer: 64 * 1024 * 1024, encoding: "utf8" }
+  );
+}
+
+async function nodeFetchHtml() {
+  const res = await fetch(MUFAP_URL, {
+    headers: { "user-agent": UA, accept: "text/html,application/xhtml+xml", "accept-language": "en-US,en;q=0.9" },
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.text();
+}
+
+async function directFetchGz() {
+  let html = "";
+  let firstErr = "";
+  try {
+    html = curlHtml();
+  } catch (e) {
+    firstErr = `curl: ${String(e.message ?? e).slice(0, 60)}`;
+    html = await nodeFetchHtml();
+  }
+  // Same guard the in-page extraction uses: a challenge page has no fund rows.
+  if (!html.includes("FundID=")) {
+    throw new Error(`page has no fund rows (${html.length} bytes)${firstErr ? `; ${firstErr}` : ""}`);
+  }
+  return gzipSync(Buffer.from(html, "utf8")).toString("base64");
+}
+
+async function main() {
+  const env = loadEnv();
+  const stamp = () => new Date().toISOString();
+
+  // Cheapest first, browser only if MUFAP actually pushes back.
   let htmlGz;
   if (process.env.NAV_RELAY_WINDOWED === "1") {
     htmlGz = await extractHtmlGz(true);
   } else {
     try {
-      htmlGz = await extractHtmlGz(false);
-    } catch (e) {
-      console.log(`${new Date().toISOString()} headless blocked (${e.message.slice(0, 90)}…) — retrying with off-screen window`);
-      htmlGz = await extractHtmlGz(true);
+      htmlGz = await directFetchGz();
+      console.log(`${stamp()} fetched directly (no browser needed)`);
+    } catch (direct) {
+      console.log(`${stamp()} direct fetch failed (${String(direct.message).slice(0, 90)}…) — falling back to a browser`);
+      if (!EDGE) throw new Error("direct fetch failed and msedge.exe not found");
+      try {
+        htmlGz = await extractHtmlGz(false);
+      } catch (e) {
+        console.log(`${stamp()} headless blocked (${e.message.slice(0, 90)}…) — retrying with off-screen window`);
+        htmlGz = await extractHtmlGz(true);
+      }
     }
   }
 

@@ -36,6 +36,7 @@ export { valueSavings, valueFund, type SavingsValuation, type FundValuation } fr
 export { type TaxSettings } from "./tax";
 export { computeRisk, maxDrawdown, type RiskMetrics } from "./risk";
 export { valueTrade, type TradeValuation, type CommodityTradeInput } from "./pmex";
+export { summarisePmexAccount, costDragRatio, type PmexAccountSummary, type PmexMovement, type PmexMovementKind, type PmexSessionPl } from "./pmex-account";
 export {
   buildDividendProfiles,
   forecastDividends,

@@ -5,7 +5,7 @@ import { Stat, StatRow } from "@/components/ui/Stat";
 import { Card } from "@/components/ui/Card";
 import { CommoditiesView } from "./CommoditiesView";
 import { FyPicker } from "./FyPicker";
-import { getPmexOverview, checkDataAvailability } from "@/lib/data";
+import { getPmexOverview, getPmexAccount, checkDataAvailability } from "@/lib/data";
 import { fmtRs, fmtSignedRs } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
@@ -27,6 +27,7 @@ export default async function CommoditiesPage({
   const { trades, settings, summary, years, refs } = await getPmexOverview(
     Number.isFinite(wanted) && wanted > 2000 ? wanted : undefined
   );
+  const account = await getPmexAccount();
 
   const { realised, open, stats, byInstrument, fy } = summary;
   const total = realised.net + open.net;
@@ -54,6 +55,71 @@ export default async function CommoditiesPage({
           hint={open.leverage != null ? `${open.leverage.toFixed(1)}x on ${fmtRs(open.marginPosted)} margin` : undefined}
         />
       </StatRow>
+
+      {account && (
+        <Card className="mt-6">
+          <div className="flex flex-wrap items-baseline justify-between gap-2">
+            <div className="label-cap">PMEX account {account.accountNo}</div>
+            <div className="text-[12px]" style={{ color: "var(--muted)" }}>
+              statement {account.statementFrom} to {account.statementTo}
+            </div>
+          </div>
+          <div className="mt-3 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            <Stat label={`Balance ${account.balanceAsOf}`} value={fmtRs(account.closingBalance)} size="lg" />
+            <Stat
+              label="Trading P/L"
+              value={fmtSignedRs(account.tradingPl)}
+              tone={account.tradingPl >= 0 ? "positive" : "negative"}
+              hint={`realised ${fmtSignedRs(account.realisedPl)}, mark ${fmtSignedRs(account.unrealisedPl)}`}
+            />
+            <Stat
+              label="Cost of trading"
+              value={fmtRs(account.totalCosts)}
+              tone="muted"
+              hint={`comm ${fmtRs(account.commission)} · fees ${fmtRs(account.fees)} · CGT ${fmtRs(account.cgt)} + ${fmtRs(account.cgtFee)} fee`}
+            />
+            <Stat
+              label="After costs"
+              value={fmtSignedRs(account.netOfCosts)}
+              tone={account.netOfCosts >= 0 ? "positive" : "negative"}
+              hint={`deposited ${fmtRs(account.deposits)}`}
+            />
+          </div>
+          {!account.reconciles && (
+            <p className="mt-3 text-[13px]" style={{ color: "var(--negative)" }}>
+              This ledger does not add up: opening plus movements comes to {fmtRs(account.computedClosing)} against a
+              printed balance of {fmtRs(account.closingBalance)}, a gap of {fmtRs(Math.abs(account.discrepancy))}. Treat
+              every figure above as unverified until the missing row is found.
+            </p>
+          )}
+          {account.sessions.length > 0 && (
+            <div className="mt-4">
+              <div className="label-cap mb-2" style={{ color: "var(--muted)" }}>
+                By session
+              </div>
+              <ul className="space-y-1 font-mono text-[13px]">
+                {account.sessions.map((s, i) => (
+                  <li key={`${s.date}-${i}`} className="flex flex-wrap items-baseline gap-x-3">
+                    <span style={{ color: "var(--muted)" }}>{s.date}</span>
+                    <span className="font-medium">{s.contract}</span>
+                    <span style={{ color: s.realised >= 0 ? "var(--positive)" : "var(--negative)" }}>
+                      {fmtSignedRs(s.realised)}
+                    </span>
+                    {s.unrealised !== 0 && (
+                      <span style={{ color: "var(--muted)" }}>mark {fmtSignedRs(s.unrealised)}</span>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+          <p className="mt-4 text-[13px]" style={{ color: "var(--muted)" }}>
+            PMEX reports profit per session, not per position — these statements carry no entry price, exit price, lot
+            count or lot size. The account is therefore recorded exactly, and no contract rows are invented from it. Add
+            a contract below by hand if you have the trade detail.
+          </p>
+        </Card>
+      )}
 
       {years.length > 1 && (
         <div className="mt-6">
