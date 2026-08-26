@@ -48,6 +48,12 @@ const nextConfig = {
       { source: "/patterns", destination: "/screener", permanent: true },
       { source: "/backtest", destination: "/screener", permanent: true },
       { source: "/glossary", destination: "/", permanent: true },
+      // 26 Aug: the zakat calculator is gone at the owner's request — this app
+      // records what happened, and how much zakat is owed is his call to make,
+      // not a number for a portfolio tracker to assert. The zakat DEDUCTED on
+      // dividend warrants stays exactly where it was: that is money a payer
+      // actually withheld, and it is part of what each dividend netted.
+      { source: "/zakat", destination: "/wealth", permanent: true },
     ];
   },
   reactStrictMode: true,

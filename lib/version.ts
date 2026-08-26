@@ -1,7 +1,7 @@
 // Single source of truth for the app version + changelog.
 // Bump APP_VERSION and prepend a CHANGELOG entry on every release.
 
-export const APP_VERSION = "8.7.0";
+export const APP_VERSION = "8.8.0";
 
 export const BUILD_DATE =
   process.env.NEXT_PUBLIC_BUILD_DATE ?? "";
@@ -17,6 +17,17 @@ export type ChangelogEntry = {
 
 // Reverse-chronological. Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: "8.8.0",
+    date: "2026-08-26",
+    title: "The zakat calculator is gone, and cash sits at nil",
+    changes: [
+      "The zakat page has been removed at your request. What is owed is your call to make, and a portfolio tracker asserting a figure — however carefully it computed the nisab — was overstepping. /zakat now redirects to Wealth, and the calculator, its nisab lookup and its tests are out of the codebase entirely; nothing else was reading them.",
+      "The zakat DEDUCTED on dividend warrants stays exactly where it was, on the dividends page, in the ledger and in the export. That is money a payer actually withheld at source and it is part of what each dividend netted — recording it is not the same as calculating what you owe.",
+      "Brokerage cash is now nil, which is what the account actually holds. The derived balance had drifted to Rs 365,438.90: it is computed from deposits, sells and dividends less buys, and this book was rebuilt from a tax certificate that carries every trade and no cash movements at all. Seven deposit rows from two weeks stood against years of trading.",
+      "The gap is recorded as a dated outflow in the cash ledger rather than applied as a silent correction, and its note says plainly that it is a reconciliation and not a bank withdrawal. Money really did leave — Rs 25,000 to PMEX and Rs 35,000 into MCBCMO on 19 August alone — it was simply never written down as a cash movement.",
+    ],
+  },
   {
     version: "8.7.0",
     date: "2026-08-26",

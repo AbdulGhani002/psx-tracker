@@ -23,7 +23,6 @@ const MORE = [
   { href: "/heatmap", label: "Heatmap" },
   { href: "/rotation", label: "Sector rotation" },
   { href: "/report", label: "Statement (PDF)" },
-  { href: "/zakat", label: "Zakat" },
   { href: "/changelog", label: "Changelog" },
   { href: "/settings", label: "Settings" },
 ];
