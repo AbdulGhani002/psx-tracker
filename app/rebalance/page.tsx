@@ -88,7 +88,7 @@ export default async function RebalancePage() {
             minHoldingShares: r.minHoldingShares,
           }))}
           zones={plan.board.rows.map((r) => ({ symbol: r.symbol, buyZoneLow: r.buyZoneLow, buyZoneHigh: r.buyZoneHigh }))}
-          serverWarnings={plan.warnings.filter((w) => w.includes("stale"))}
+          serverWarnings={plan.serverWarnings}
           watchedCount={plan.board.rows.length}
         />
       </Section>

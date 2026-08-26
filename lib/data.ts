@@ -1763,6 +1763,10 @@ export type DeploymentPlan = DeployPlan & {
   standIns: StandInView[];
   candidates: DeployCandidate[]; // what the browser calculator re-runs on
   fundsLabel: string;
+  // Warnings the browser cannot regenerate: it re-runs planDeployment on the
+  // candidates, so it reproduces that model's own warnings but knows nothing
+  // about stale quotes, stand-in problems or where the cash came from.
+  serverWarnings: string[];
 };
 
 // What to buy right now, and what stays put. Every name with a target weight is
@@ -1772,12 +1776,13 @@ export type DeploymentPlan = DeployPlan & {
 // is not a fact until it goes through the decision gate, and budgeting unsold
 // shares would be spending money you do not have yet.
 async function _getDeploymentPlan(): Promise<DeploymentPlan> {
-  const [board, summary, funds, settings, standIns] = await Promise.all([
+  const [board, summary, funds, settings, standIns, cashSummary] = await Promise.all([
     getZoneBoard(),
     getPortfolioSummary(),
     getMutualFundsValued().catch(() => []),
     getAppSettings(),
     getStandInGroups().catch(() => ({ groups: [] as StandInView[], problems: [] as string[] })),
+    getCashSummary().catch(() => null),
   ]);
   // A stand-in and the name it holds a place for are ONE allocation. Judged
   // apart, the stand-in looks unsized and the primary looks permanently
@@ -1834,28 +1839,42 @@ async function _getDeploymentPlan(): Promise<DeploymentPlan> {
     candidates,
     equityValue: summary.totalValue,
     fundsValue,
-    // Zero on purpose: the derived brokerage balance is not money anyone
-    // counted, so it must never fund an order. Real cash to deploy is typed
-    // into the box on the Rebalance page.
-    brokerCash: 0,
+    // The brokerage balance can fund an order again, now that it is walked in
+    // date order, floored at zero and has tax taken out of sale proceeds. It is
+    // still DERIVED, so where it leans on deposits nobody recorded the plan says
+    // so below rather than presenting it as counted money.
+    brokerCash: cashSummary?.balance ?? 0,
     reservePct: (settings as any).mfCashReservePct ?? 5,
     concentrationCap: (settings as any).concentrationCap ?? 25,
     unpriced: board.unpriced,
   });
+  const serverWarnings: string[] = [];
+  if (cashSummary && cashSummary.impliedDeposits > 0) {
+    serverWarnings.push(
+      `Rs ${Math.round(cashSummary.impliedDeposits).toLocaleString()} of the cash balance is assumed, not recorded: spending ran past the deposits in the ledger ${cashSummary.topUps.length} time(s), so a deposit is taken to have happened each time. Check it against a bank statement before sizing an order on it.`
+    );
+  }
+  if (cashSummary && cashSummary.cgtWithheld > 0) {
+    serverWarnings.push(
+      `Rs ${Math.round(cashSummary.cgtWithheld).toLocaleString()} of capital gains tax is held back out of sale proceeds, so it is not offered here as money to deploy.`
+    );
+  }
   const staleBuys = board.rows.filter((r) => r.priceStale).map((r) => r.symbol);
   if (staleBuys.length > 0) {
-    plan.warnings.push(
+    serverWarnings.push(
       `Skipped on stale prices: ${staleBuys.join(", ")}. The last quote is a week or more old, so the band cannot be trusted — refresh prices first.`
     );
   }
-  for (const problem of standIns.problems) plan.warnings.push(problem);
-  for (const g of standIns.groups) for (const w of g.warnings) plan.warnings.push(w);
+  for (const problem of standIns.problems) serverWarnings.push(problem);
+  for (const g of standIns.groups) for (const w of g.warnings) serverWarnings.push(w);
+  for (const w of serverWarnings) plan.warnings.push(w);
   return {
     ...plan,
     board,
     standIns: standIns.groups,
     candidates,
     fundsLabel: funds.length === 1 ? funds[0].name : funds.length > 1 ? `${funds.length} funds` : "your fund",
+    serverWarnings,
   };
 }
 
