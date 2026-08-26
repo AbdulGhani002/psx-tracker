@@ -1,20 +1,24 @@
 import "./globals.css";
 import type { Metadata } from "next";
 import Link from "next/link";
-import { Poppins, IBM_Plex_Sans, IBM_Plex_Mono } from "next/font/google";
+import { Instrument_Serif, Roboto, Roboto_Mono } from "next/font/google";
 import { SiteNav } from "@/components/layout/SiteNav";
 import { ThemeScript } from "@/components/layout/ThemeToggle";
 import { NoNumberScroll } from "@/components/ui/NoNumberScroll";
 import { PwaRegister } from "@/components/layout/PwaRegister";
+import { CommandPalette } from "@/components/layout/CommandPalette";
 import { APP_VERSION } from "@/lib/version";
 
 // Self-hosted, preloaded fonts — no external render-blocking round-trips.
-// Poppins matches the Apex Logic site so the two properties read as one brand.
-// Plex Sans stays on body copy: it is far more legible than Poppins in the
-// dense tables, and Plex Mono keeps the tabular figures the numbers rely on.
-const display = Poppins({ subsets: ["latin"], weight: ["400", "500", "600"], style: ["normal", "italic"], display: "swap", variable: "--font-display" });
-const sans = IBM_Plex_Sans({ subsets: ["latin"], weight: ["300", "400", "500", "600"], display: "swap", variable: "--font-sans" });
-const mono = IBM_Plex_Mono({ subsets: ["latin"], weight: ["400", "500"], display: "swap", variable: "--font-mono" });
+//
+// Two faces, two jobs. Instrument Serif is a masthead: high-contrast, drawn for
+// size, and used only for the logo and headlines — it is never asked to be
+// legible at 11px, which is exactly where display serifs fall apart. Roboto
+// carries every word actually read, and Roboto Mono every figure, so columns of
+// money line up on the decimal.
+const display = Instrument_Serif({ subsets: ["latin"], weight: ["400"], style: ["normal", "italic"], display: "swap", variable: "--font-display" });
+const sans = Roboto({ subsets: ["latin"], weight: ["300", "400", "500", "700"], display: "swap", variable: "--font-sans" });
+const mono = Roboto_Mono({ subsets: ["latin"], weight: ["400", "500"], display: "swap", variable: "--font-mono" });
 
 export const metadata: Metadata = {
   title: "PSX Portfolio",
@@ -22,7 +26,7 @@ export const metadata: Metadata = {
 };
 
 export const viewport = {
-  themeColor: "#12314f",
+  themeColor: "#16150f",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
@@ -34,13 +38,14 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <body>
         <NoNumberScroll />
         <PwaRegister />
+        <CommandPalette />
         <div className="min-h-screen flex flex-col">
           <SiteNav />
-          <main className="flex-1 w-full max-w-[1000px] mx-auto px-6 py-10 fade-in">
+          <main className="flex-1 w-full max-w-[1180px] mx-auto px-6 py-10 fade-in">
             {children}
           </main>
           <footer className="border-t border-rule mt-16">
-            <div className="max-w-[1000px] mx-auto px-6 py-6 flex justify-between items-center">
+            <div className="max-w-[1180px] mx-auto px-6 py-6 flex justify-between items-center">
               <span className="label-cap">PSX Portfolio</span>
               <Link href="/changelog" className="label-cap hover:text-[var(--accent-deep)] transition-colors">
                 v{APP_VERSION}

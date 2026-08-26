@@ -5,105 +5,115 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ─────────────────────────────────────────────────────────────────────────────
+   The palette is a printed one: warm paper, true ink, and colour spent only
+   where it carries meaning. Gains and losses sit close to ink rather than
+   glowing — a page of numbers should read as a page, not a dashboard, and a
+   loss should not shout across the room. One accent, burnt sienna, and it is
+   used for emphasis and links, never for decoration.
+   ───────────────────────────────────────────────────────────────────────── */
 :root {
   color-scheme: light;
-  --ink: #22242a;
-  --paper: #edeae3;
-  --paper-2: #e3dfd5;
-  --muted: #5c5f68;
-  --rule: #d4d1c8;
-  --accent: #0b4c9e;
-  --accent-deep: #12314f;
-  --positive: #1e7a4d;
-  --negative: #c0392b;
-  --amber: #ff7a1a;
-  --inverted-bg: #12314f;
-  --inverted-fg: #ffffff;
+  --paper: #f4f1ea;
+  --paper-2: #eae5da;
+  --ink: #16150f;
+  --muted: #6b6656;
+  --rule: #ddd7c8;
+  --rule-strong: #b9b1a0;
+  --accent: #8a4b1e;
+  --accent-deep: #63340f;
+  --positive: #2f6b3f;
+  --negative: #9b2c2c;
+  --amber: #a8741c;
+  --inverted-bg: #16150f;
+  --inverted-fg: #f4f1ea;
 
   /* Chart series, fixed order — never cycled, never reassigned by rank.
-     Validated for CVD separation and contrast against the surface each set
-     actually renders on. --series-* sit on the page canvas; --panel-series-*
-     sit on the inverted navy panel, which stays dark in both themes. */
-  --series-1: #2a78d6;
-  --series-2: #eb6834;
-  --series-3: #1baf7a;
-  --series-4: #eda100;
-  --series-5: #e87ba4;
-  --series-6: #008300;
-  --series-7: #4a3aa7;
-  --series-8: #e34948;
+     Chosen as printing inks: separable under colour-vision deficiency without
+     any of them turning fluorescent on paper. --series-* sit on the page;
+     --panel-series-* sit on the inverted ink panel, dark in both themes. */
+  --series-1: #2d5f7c;
+  --series-2: #a85a2c;
+  --series-3: #4a7c59;
+  --series-4: #97781f;
+  --series-5: #7d4f6d;
+  --series-6: #2f6b6b;
+  --series-7: #8c3b3b;
+  --series-8: #56594a;
 
-  --ramp-1: #051b33;
-  --ramp-2: #002b53;
-  --ramp-3: #003b74;
-  --ramp-4: #004d92;
-  --ramp-5: #0b60ab;
-  --ramp-6: #2c74be;
-  --ramp-7: #4c89cb;
-  --ramp-8: #6e9ed2;
+  /* Sequential ramp, one hue: weight is a magnitude, not a category. */
+  --ramp-1: #3d2410;
+  --ramp-2: #5a3417;
+  --ramp-3: #77451f;
+  --ramp-4: #925628;
+  --ramp-5: #a86c3f;
+  --ramp-6: #bc855c;
+  --ramp-7: #cd9f7c;
+  --ramp-8: #dcb99e;
 
-  /* Valuation zones, worst to best. A four-step scale, so the two greens are
+  /* Valuation zones, best to worst. A four-step scale, so the two greens are
      deliberately a full step apart rather than shades of each other. */
-  --zone-strong-buy: #0f5132;
-  --zone-buy: #1e7a4d;
-  --zone-fair: #ff7a1a;
-  --zone-expensive: #c0392b;
+  --zone-strong-buy: #234f2e;
+  --zone-buy: #4a7c59;
+  --zone-fair: #a8741c;
+  --zone-expensive: #9b2c2c;
 }
 
 :root, :root[data-theme="dark"] {
-  --panel-series-1: #3987e5;
-  --panel-series-2: #d95926;
-  --panel-series-3: #199e70;
-  --panel-series-4: #c98500;
-  --panel-series-5: #d55181;
-  --panel-series-6: #008300;
-  --panel-series-7: #9085e9;
-  --panel-series-8: #e66767;
+  --panel-series-1: #7fa9c6;
+  --panel-series-2: #d99055;
+  --panel-series-3: #8bb897;
+  --panel-series-4: #c9ad5e;
+  --panel-series-5: #b98aa8;
+  --panel-series-6: #6faaaa;
+  --panel-series-7: #c47b7b;
+  --panel-series-8: #9a9d84;
 }
 
 :root[data-theme="dark"] {
   color-scheme: dark;
-  --ink: #e8edf4;          /* primary text becomes light */
-  --paper: #0b1622;        /* deep navy-black */
-  --paper-2: #12202f;      /* raised surfaces */
-  --muted: #8fa0b4;
-  --rule: #24384d;
-  --accent: #4a9eff;       /* brighter blue so it holds up on the dark canvas */
-  --accent-deep: #7fbcff;
-  --positive: #4ade80;
-  --negative: #f87171;
-  --amber: #ffa351;
-  --inverted-bg: #1b2e42;  /* inverted cards: lighter than paper so they still read as panels */
-  --inverted-fg: #e8edf4;
+  --paper: #14130f;        /* ink, dimmed — the press run at night */
+  --paper-2: #1c1a15;
+  --ink: #ece7da;
+  --muted: #948d7c;
+  --rule: #2e2b23;
+  --rule-strong: #4a4538;
+  --accent: #cf8a4e;
+  --accent-deep: #e0a672;
+  --positive: #7fa66a;
+  --negative: #cc6b5a;
+  --amber: #c99a4a;
+  --inverted-bg: #24211a;  /* inverted cards: lighter than paper so they read as panels */
+  --inverted-fg: #ece7da;
 
-  --series-1: #3987e5;
-  --series-2: #d95926;
-  --series-3: #199e70;
-  --series-4: #c98500;
-  --series-5: #d55181;
-  --series-6: #008300;
-  --series-7: #9085e9;
-  --series-8: #e66767;
+  --series-1: #7fa9c6;
+  --series-2: #d99055;
+  --series-3: #8bb897;
+  --series-4: #c9ad5e;
+  --series-5: #b98aa8;
+  --series-6: #6faaaa;
+  --series-7: #c47b7b;
+  --series-8: #9a9d84;
 
-  --ramp-1: #bfebff;
-  --ramp-2: #a5d4ff;
-  --ramp-3: #8fbef4;
-  --ramp-4: #7ba9dc;
-  --ramp-5: #6b94c2;
-  --ramp-6: #5d7fa6;
-  --ramp-7: #506b89;
-  --ramp-8: #44576c;
+  --ramp-1: #f0d9c4;
+  --ramp-2: #e3c2a4;
+  --ramp-3: #d3aa88;
+  --ramp-4: #c1926e;
+  --ramp-5: #ad7b58;
+  --ramp-6: #986646;
+  --ramp-7: #825336;
+  --ramp-8: #6c4229;
 
-  --zone-strong-buy: #22c55e;
-  --zone-buy: #4ade80;
-  --zone-fair: #ffa351;
-  --zone-expensive: #f87171;
+  --zone-strong-buy: #5e8f4a;
+  --zone-buy: #8db070;
+  --zone-fair: #c99a4a;
+  --zone-expensive: #cc6b5a;
 }
 
 html, body {
   background: var(--paper);
   color: var(--ink);
-  font-family: var(--font-sans), 'IBM Plex Sans', system-ui, sans-serif;
+  font-family: var(--font-sans), Roboto, system-ui, sans-serif;
   font-weight: 400;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
@@ -115,21 +125,35 @@ html, body {
   color: var(--paper);
 }
 
+/* ── Type ────────────────────────────────────────────────────────────────────
+   Two faces doing two jobs. The serif is a masthead: it sets the logo and the
+   headlines and nothing else, so it never has to be legible at 11px. Roboto
+   carries every word you actually read, and Roboto Mono every figure, so
+   columns of money line up on the decimal.
+   ───────────────────────────────────────────────────────────────────────── */
 .font-display {
-  font-family: var(--font-display), 'Poppins', system-ui, sans-serif;
-  font-weight: 500;
-  letter-spacing: -0.015em;
+  font-family: var(--font-display), "Instrument Serif", Georgia, serif;
+  font-weight: 400;
+  letter-spacing: -0.005em;
 }
 
 .font-display-italic {
-  font-family: var(--font-display), 'Poppins', system-ui, sans-serif;
-  font-weight: 500;
-  letter-spacing: -0.015em;
+  font-family: var(--font-display), "Instrument Serif", Georgia, serif;
+  font-weight: 400;
   font-style: italic;
+  letter-spacing: -0.005em;
+}
+
+/* The masthead. Tight, large, and never bolder than the face was drawn. */
+.masthead {
+  font-family: var(--font-display), "Instrument Serif", Georgia, serif;
+  font-weight: 400;
+  letter-spacing: -0.02em;
+  line-height: 0.95;
 }
 
 .label-cap {
-  font-family: var(--font-mono), 'IBM Plex Mono', ui-monospace, monospace;
+  font-family: var(--font-mono), "Roboto Mono", ui-monospace, monospace;
   font-size: 10px;
   letter-spacing: 0.12em;
   text-transform: uppercase;
@@ -137,7 +161,7 @@ html, body {
 }
 
 .section-eyebrow {
-  font-family: var(--font-sans), 'IBM Plex Sans', system-ui, sans-serif;
+  font-family: var(--font-sans), Roboto, system-ui, sans-serif;
   font-size: 11px;
   font-weight: 500;
   letter-spacing: 0.18em;
@@ -146,12 +170,17 @@ html, body {
 }
 
 .mono-num {
-  font-family: var(--font-mono), 'IBM Plex Mono', ui-monospace, monospace;
+  font-family: var(--font-mono), "Roboto Mono", ui-monospace, monospace;
   font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
 }
 
-input:focus, button:focus, select:focus, textarea:focus {
-  outline: 1px solid var(--ink);
+/* A rule that means "new section", the way a broadsheet uses one. */
+.rule-heavy { border-top: 2px solid var(--ink); }
+.rule-hair { border-top: 1px solid var(--rule); }
+
+input:focus-visible, button:focus-visible, select:focus-visible, textarea:focus-visible, a:focus-visible {
+  outline: 2px solid var(--accent);
   outline-offset: 2px;
 }
 
@@ -212,6 +241,19 @@ table {
   font-variant-numeric: tabular-nums;
 }
 
+/* Data rows: a whole-row tint on hover, no borders moving, nothing shifting. */
+.row-hover {
+  transition: background-color 120ms linear;
+}
+.row-hover:hover {
+  background: var(--paper-2);
+}
+
+/* ── Motion ──────────────────────────────────────────────────────────────────
+   Entrances only, and short. Nothing loops, nothing bounces, and no money
+   figure is ever animated from a wrong value to a right one — a number that
+   counts up is, for a moment, lying.
+   ───────────────────────────────────────────────────────────────────────── */
 .fade-in {
   animation: fadeIn 200ms ease-out;
 }
@@ -230,6 +272,20 @@ table {
   to { opacity: 1; transform: none; }
 }
 
+/* Stagger: children arrive in reading order rather than all at once. */
+.stagger > * { animation: fadeInUp 380ms cubic-bezier(0.22, 1, 0.36, 1) both; }
+.stagger > *:nth-child(1) { animation-delay: 0ms; }
+.stagger > *:nth-child(2) { animation-delay: 40ms; }
+.stagger > *:nth-child(3) { animation-delay: 80ms; }
+.stagger > *:nth-child(4) { animation-delay: 120ms; }
+.stagger > *:nth-child(5) { animation-delay: 160ms; }
+.stagger > *:nth-child(6) { animation-delay: 200ms; }
+.stagger > *:nth-child(n+7) { animation-delay: 240ms; }
+
+/* A rule that draws itself in, the way a headline underline would. */
+.rule-draw { transform-origin: left; animation: ruleDraw 520ms cubic-bezier(0.22, 1, 0.36, 1) both; }
+@keyframes ruleDraw { from { transform: scaleX(0); } to { transform: scaleX(1); } }
+
 /* Shimmer placeholder used by route-level loading skeletons. */
 .skeleton {
   background: linear-gradient(90deg, var(--paper-2) 25%, var(--rule) 37%, var(--paper-2) 63%);
@@ -247,8 +303,35 @@ table {
 .grow-bar { transform-origin: bottom; animation: growBar 480ms cubic-bezier(0.22, 1, 0.36, 1) both; }
 @keyframes growBar { from { transform: scaleY(0); } to { transform: scaleY(1); } }
 
+/* Overlay + panel for the command palette and quick-add sheet. */
+.overlay-in { animation: overlayIn 140ms ease-out both; }
+@keyframes overlayIn { from { opacity: 0; } to { opacity: 1; } }
+.panel-in { animation: panelIn 200ms cubic-bezier(0.22, 1, 0.36, 1) both; }
+@keyframes panelIn {
+  from { opacity: 0; transform: translateY(-6px) scale(0.995); }
+  to { opacity: 1; transform: none; }
+}
+
+/* Links and quiet interactive text. */
+.link-underline {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  text-decoration-thickness: 1px;
+  text-decoration-color: var(--rule-strong);
+  transition: text-decoration-color 120ms linear, color 120ms linear;
+}
+.link-underline:hover {
+  color: var(--accent);
+  text-decoration-color: var(--accent);
+}
+
 @media (prefers-reduced-motion: reduce) {
-  .fade-in, .fade-in-up, .skeleton, .grow-bar { animation: none; transform: none; }
+  .fade-in, .fade-in-up, .skeleton, .grow-bar, .rule-draw,
+  .overlay-in, .panel-in, .stagger > * {
+    animation: none !important;
+    transform: none !important;
+  }
+  .row-hover, .link-underline { transition: none; }
 }
 
 .divider {

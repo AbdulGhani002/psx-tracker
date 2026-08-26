@@ -1,14 +1,14 @@
 export const CHART_THEME = {
   background: "var(--inverted-bg)",
-  text: "#9fb3c8",
+  text: "#a89f8a",
   textBright: "var(--inverted-fg)",
-  grid: "#274058",
+  grid: "#3a352a",
   accent: "var(--accent)",
   cream: "var(--inverted-fg)",
   amber: "var(--amber)",
   positive: "var(--positive)",
   negative: "var(--negative)",
-  muted: "#9fb3c8",
+  muted: "#a89f8a",
 };
 
 export const AXIS_PROPS = {

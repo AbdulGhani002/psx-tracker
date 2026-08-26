@@ -9,6 +9,7 @@ import { ThemeToggle } from "./ThemeToggle";
 const PRIMARY = [
   { href: "/", label: "Overview" },
   { href: "/holdings", label: "Holdings" },
+  { href: "/companies", label: "Companies" },
   { href: "/commodities", label: "PMEX" },
   { href: "/decisions", label: "Decisions" },
   { href: "/wealth", label: "Wealth" },
@@ -63,9 +64,9 @@ export function SiteNav() {
 
   return (
     <header className="border-b border-ink sticky top-0 z-30" style={{ background: "var(--paper)" }}>
-      <div className="max-w-[1000px] mx-auto px-6 py-4 flex items-center justify-between gap-4">
-        <Link href="/" className="font-display text-[19px] tracking-tight shrink-0" onClick={() => setMobileOpen(false)}>
-          PSX Portfolio
+      <div className="max-w-[1180px] mx-auto px-6 py-4 flex items-center justify-between gap-4">
+        <Link href="/" className="masthead text-[26px] shrink-0" onClick={() => setMobileOpen(false)}>
+          PSX&nbsp;Portfolio
         </Link>
 
         <nav className="hidden md:flex items-center gap-x-5">
@@ -75,11 +76,15 @@ export function SiteNav() {
               <Link
                 key={item.href}
                 href={item.href}
-                className="label-cap transition-colors hover:text-ink whitespace-nowrap"
-                style={{ color: active ? "var(--ink)" : undefined }}
+                className="label-cap transition-colors hover:text-ink whitespace-nowrap pb-1"
+                style={{
+                  color: active ? "var(--ink)" : undefined,
+                  // An underline, not a dot. The rule is how print marks the
+                  // section you are reading.
+                  borderBottom: active ? "2px solid var(--accent)" : "2px solid transparent",
+                }}
               >
                 {item.label}
-                {active && <span aria-hidden className="ml-1 inline-block w-1 h-1 rounded-full align-middle" style={{ background: "var(--accent)" }} />}
               </Link>
             );
           })}
@@ -88,11 +93,13 @@ export function SiteNav() {
           <div className="relative" ref={moreRef}>
             <button
               onClick={() => setMoreOpen(!moreOpen)}
-              className="label-cap transition-colors hover:text-ink whitespace-nowrap"
-              style={{ color: moreActive ? "var(--ink)" : undefined }}
+              className="label-cap transition-colors hover:text-ink whitespace-nowrap pb-1"
+              style={{
+                color: moreActive ? "var(--ink)" : undefined,
+                borderBottom: moreActive ? "2px solid var(--accent)" : "2px solid transparent",
+              }}
             >
-              More <span className="inline-block" style={{ transform: moreOpen ? "rotate(180deg)" : "none" }}>▾</span>
-              {moreActive && <span aria-hidden className="ml-1 inline-block w-1 h-1 rounded-full align-middle" style={{ background: "var(--accent)" }} />}
+              More <span className="inline-block transition-transform" style={{ transform: moreOpen ? "rotate(180deg)" : "none" }}>▾</span>
             </button>
             {moreOpen && (
               <div
@@ -123,6 +130,16 @@ export function SiteNav() {
             )}
           </div>
 
+          <button
+            onClick={() => window.dispatchEvent(new Event("psx:open-palette"))}
+            className="label-cap flex items-center gap-1.5 px-2 py-1 transition-colors hover:text-ink"
+            style={{ border: "1px solid var(--rule-strong)" }}
+            aria-label="Jump to anything"
+            title="Jump to anything (Ctrl/Cmd + K)"
+          >
+            Jump<span aria-hidden>⌘K</span>
+          </button>
+
           <ThemeToggle compact />
         </nav>
 
@@ -136,7 +153,7 @@ export function SiteNav() {
 
       {mobileOpen && (
         <nav className="md:hidden border-t border-rule" style={{ background: "var(--paper-2)" }}>
-          <div className="max-w-[1000px] mx-auto px-6 py-2 grid grid-cols-2 gap-x-6">
+          <div className="max-w-[1180px] mx-auto px-6 py-2 grid grid-cols-2 gap-x-6">
             {ALL.map((item) => {
               const active = isActive(item.href);
               return (
