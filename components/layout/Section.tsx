@@ -23,8 +23,7 @@ export function Section({ number, title, display, children, action, description 
             style={{
               fontSize: "clamp(22px, 3vw, 30px)",
               lineHeight: 1.1,
-              letterSpacing: "-0.01em",
-              fontVariationSettings: "'opsz' 144",
+              letterSpacing: "-0.01em",
             }}
           >
             {display}

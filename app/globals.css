@@ -7,35 +7,97 @@
 
 :root {
   color-scheme: light;
-  --ink: #1d1c1a;
-  --paper: #f5f1e8;
-  --paper-2: #ede7d8;
-  --muted: #5a554a;
-  --rule: #d8d2c4;
-  --accent: #c8884a;
-  --accent-deep: #9a5a3a;
-  --positive: #6b7d5e;
-  --negative: #a85a4a;
-  --amber: #d4a574;
-  --inverted-bg: #1d1c1a;
-  --inverted-fg: #f5f1e8;
+  --ink: #22242a;
+  --paper: #edeae3;
+  --paper-2: #e3dfd5;
+  --muted: #5c5f68;
+  --rule: #d4d1c8;
+  --accent: #0b4c9e;
+  --accent-deep: #12314f;
+  --positive: #1e7a4d;
+  --negative: #c0392b;
+  --amber: #ff7a1a;
+  --inverted-bg: #12314f;
+  --inverted-fg: #ffffff;
+
+  /* Chart series, fixed order — never cycled, never reassigned by rank.
+     Validated for CVD separation and contrast against the surface each set
+     actually renders on. --series-* sit on the page canvas; --panel-series-*
+     sit on the inverted navy panel, which stays dark in both themes. */
+  --series-1: #2a78d6;
+  --series-2: #eb6834;
+  --series-3: #1baf7a;
+  --series-4: #eda100;
+  --series-5: #e87ba4;
+  --series-6: #008300;
+  --series-7: #4a3aa7;
+  --series-8: #e34948;
+
+  --ramp-1: #051b33;
+  --ramp-2: #002b53;
+  --ramp-3: #003b74;
+  --ramp-4: #004d92;
+  --ramp-5: #0b60ab;
+  --ramp-6: #2c74be;
+  --ramp-7: #4c89cb;
+  --ramp-8: #6e9ed2;
+
+  /* Valuation zones, worst to best. A four-step scale, so the two greens are
+     deliberately a full step apart rather than shades of each other. */
+  --zone-strong-buy: #0f5132;
+  --zone-buy: #1e7a4d;
+  --zone-fair: #ff7a1a;
+  --zone-expensive: #c0392b;
+}
+
+:root, :root[data-theme="dark"] {
+  --panel-series-1: #3987e5;
+  --panel-series-2: #d95926;
+  --panel-series-3: #199e70;
+  --panel-series-4: #c98500;
+  --panel-series-5: #d55181;
+  --panel-series-6: #008300;
+  --panel-series-7: #9085e9;
+  --panel-series-8: #e66767;
 }
 
 :root[data-theme="dark"] {
   color-scheme: dark;
-  --ink: #ece6d8;          /* primary text becomes light */
-  --paper: #17161300;      /* placeholder, overridden below */
-  --paper: #171613;        /* warm near-black */
-  --paper-2: #211f1b;      /* raised surfaces */
-  --muted: #9a9385;
-  --rule: #34322c;
-  --accent: #d49a5e;       /* a touch brighter for dark bg */
-  --accent-deep: #e0a86a;
-  --positive: #8fa07f;
-  --negative: #c87b68;
-  --amber: #d4a574;
-  --inverted-bg: #2a2823;  /* inverted cards: lighter than paper so they still read as panels */
-  --inverted-fg: #ece6d8;
+  --ink: #e8edf4;          /* primary text becomes light */
+  --paper: #0b1622;        /* deep navy-black */
+  --paper-2: #12202f;      /* raised surfaces */
+  --muted: #8fa0b4;
+  --rule: #24384d;
+  --accent: #4a9eff;       /* brighter blue so it holds up on the dark canvas */
+  --accent-deep: #7fbcff;
+  --positive: #4ade80;
+  --negative: #f87171;
+  --amber: #ffa351;
+  --inverted-bg: #1b2e42;  /* inverted cards: lighter than paper so they still read as panels */
+  --inverted-fg: #e8edf4;
+
+  --series-1: #3987e5;
+  --series-2: #d95926;
+  --series-3: #199e70;
+  --series-4: #c98500;
+  --series-5: #d55181;
+  --series-6: #008300;
+  --series-7: #9085e9;
+  --series-8: #e66767;
+
+  --ramp-1: #bfebff;
+  --ramp-2: #a5d4ff;
+  --ramp-3: #8fbef4;
+  --ramp-4: #7ba9dc;
+  --ramp-5: #6b94c2;
+  --ramp-6: #5d7fa6;
+  --ramp-7: #506b89;
+  --ramp-8: #44576c;
+
+  --zone-strong-buy: #22c55e;
+  --zone-buy: #4ade80;
+  --zone-fair: #ffa351;
+  --zone-expensive: #f87171;
 }
 
 html, body {
@@ -54,13 +116,15 @@ html, body {
 }
 
 .font-display {
-  font-family: var(--font-display), 'Fraunces', Georgia, serif;
-  font-variation-settings: 'opsz' 144;
+  font-family: var(--font-display), 'Poppins', system-ui, sans-serif;
+  font-weight: 500;
+  letter-spacing: -0.015em;
 }
 
 .font-display-italic {
-  font-family: var(--font-display), 'Fraunces', Georgia, serif;
-  font-variation-settings: 'opsz' 144;
+  font-family: var(--font-display), 'Poppins', system-ui, sans-serif;
+  font-weight: 500;
+  letter-spacing: -0.015em;
   font-style: italic;
 }
 

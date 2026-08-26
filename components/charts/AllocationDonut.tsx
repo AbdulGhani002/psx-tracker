@@ -4,17 +4,17 @@ import { fmtPct, fmtRs } from "@/lib/format";
 // so we never fight stroke-dashoffset math. Server-renderable (no client JS).
 export type DonutSlice = { label: string; value: number };
 
+// Fixed order — slot N always means the same slice, so a filter that drops a
+// series never repaints the survivors.
 const PALETTE = [
-  "var(--accent-deep)",
-  "var(--accent)",
-  "var(--amber)",
-  "#7a8a6a",
-  "#a85a4a",
-  "#6a7f9c",
-  "#c08a3e",
-  "#8a6a9c",
-  "#5a554a",
-  "#9aae7a",
+  "var(--series-1)",
+  "var(--series-2)",
+  "var(--series-3)",
+  "var(--series-4)",
+  "var(--series-5)",
+  "var(--series-6)",
+  "var(--series-7)",
+  "var(--series-8)",
 ];
 
 export function AllocationDonut({

@@ -5,14 +5,14 @@ import { fmtPct, fmtRs } from "@/lib/format";
 type Entry = { sector: string; value: number; percent: number };
 
 const PALETTE = [
-  "var(--accent)",
-  "var(--accent-deep)",
-  "var(--amber)",
-  "var(--positive)",
-  "#7a8a6a",
-  "#a85a4a",
-  "#5a554a",
-  "#d8a06a",
+  "var(--series-1)",
+  "var(--series-2)",
+  "var(--series-3)",
+  "var(--series-4)",
+  "var(--series-5)",
+  "var(--series-6)",
+  "var(--series-7)",
+  "var(--series-8)",
 ];
 
 export function SectorBar({ entries, totalValue }: { entries: Entry[]; totalValue: number }) {

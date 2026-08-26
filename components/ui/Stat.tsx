@@ -28,8 +28,7 @@ export function Stat({ label, value, hint, tone = "default", size = "md" }: Stat
         className="font-display mono-num mt-0.5"
         style={{
           fontSize: SIZE_PX[size],
-          color: TONE_COLOR[tone],
-          fontVariationSettings: "'opsz' 144",
+          color: TONE_COLOR[tone],
           lineHeight: 1.15,
         }}
       >

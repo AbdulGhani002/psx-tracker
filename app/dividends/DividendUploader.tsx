@@ -486,7 +486,7 @@ export function DividendUploader({ existingSymbols, existingWarrantNumbers }: Pr
                     {p.parsed?.companyName && (
                       <div
                         className="font-display mt-1"
-                        style={{ fontSize: 16, fontVariationSettings: "'opsz' 144" }}
+                        style={{ fontSize: 16 }}
                       >
                         {p.parsed.companyName}
                       </div>

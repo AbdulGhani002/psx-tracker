@@ -1,7 +1,7 @@
 // Single source of truth for the app version + changelog.
 // Bump APP_VERSION and prepend a CHANGELOG entry on every release.
 
-export const APP_VERSION = "8.8.0";
+export const APP_VERSION = "8.9.0";
 
 export const BUILD_DATE =
   process.env.NEXT_PUBLIC_BUILD_DATE ?? "";
@@ -17,6 +17,17 @@ export type ChangelogEntry = {
 
 // Reverse-chronological. Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: "8.9.0",
+    date: "2026-08-26",
+    title: "Navy, and the last of the cream swept out",
+    changes: [
+      "The app now wears the Apex Logic palette and typeface — Poppins on headings and figures, a navy accent, and a full light and dark set rebuilt around it — so the two properties read as one thing. Plex Sans keeps the body copy, because it is far more legible than Poppins in the dense tables, and Plex Mono keeps the tabular figures the numbers depend on.",
+      "Chart colour is now a fixed, named set rather than whatever came out of a cycle: eight series slots chosen for separation under colour-vision deficiency, in a second variant stepped for the inverted navy panel those charts actually sit on. Slots are pinned per series and never reassigned by rank, so a line does not change colour when the ordering does. Look-through weight uses a single-hue ramp, because weight is a magnitude and not a category.",
+      "Finishing the switch turned up things the first pass left behind. Twenty-two places still asked for 'opsz' 144 — an optical-size axis that belonged to the old variable display face and does nothing at all on the new one — so those are gone, and the weight and letter-spacing they were reaching for now come from the display class itself.",
+      "The valuation gauge was the last of the old cream-and-clay palette still hardcoded: it kept its warm greens and clay reds while everything around it turned navy, and it never followed the dark theme at all. Its four bands are tokens now, defined for both themes, with the two greens a deliberate step apart so a four-step scale still reads as four steps.",
+    ],
+  },
   {
     version: "8.8.0",
     date: "2026-08-26",

@@ -67,7 +67,7 @@ export function AuthForm({ siteKey }: { siteKey?: string }) {
       <div className="w-full max-w-[380px]">
         <div className="mb-9 text-center">
           <div className="label-cap mb-3" style={{ color: "var(--accent-deep)" }}>PSX Portfolio</div>
-          <h1 className="font-display text-[38px] leading-none tracking-tight" style={{ fontVariationSettings: "'opsz' 144" }}>
+          <h1 className="font-display text-[38px] leading-none tracking-tight">
             {mode === "signup" ? "Create your account." : "Welcome back."}
           </h1>
           <p className="text-[13px] text-muted mt-3">{mode === "signup" ? "Start tracking your PSX portfolio — free." : "Sign in to your portfolio."}</p>

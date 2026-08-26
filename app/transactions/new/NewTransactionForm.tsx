@@ -281,7 +281,7 @@ export function NewTransactionForm({ existingSymbols, defaultSymbol }: Props) {
                   <div className="text-[12px]" style={{ color: "var(--negative)" }}>{lookupError}</div>
                 ) : lookup ? (
                   <div className="text-[13px] leading-relaxed">
-                    <div className="font-display" style={{ fontSize: 17, fontVariationSettings: "'opsz' 144" }}>
+                    <div className="font-display" style={{ fontSize: 17 }}>
                       {lookup.name}
                     </div>
                     <div className="mt-1 text-muted text-[12px]">

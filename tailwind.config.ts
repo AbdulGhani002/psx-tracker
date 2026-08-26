@@ -19,7 +19,7 @@ const config: Config = {
         "inverted-fg": "var(--inverted-fg)",
       },
       fontFamily: {
-        display: ["var(--font-display)", '"Fraunces"', "Georgia", "serif"],
+        display: ["var(--font-display)", '"Poppins"', "system-ui", "sans-serif"],
         sans: ["var(--font-sans)", '"IBM Plex Sans"', "system-ui", "sans-serif"],
         mono: ["var(--font-mono)", '"IBM Plex Mono"', "ui-monospace", "monospace"],
       },

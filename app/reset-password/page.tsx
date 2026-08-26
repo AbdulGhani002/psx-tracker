@@ -32,7 +32,7 @@ function ResetForm() {
   return (
     <div className="min-h-screen flex flex-col items-center justify-center px-6" style={{ background: "var(--paper)" }}>
       <div className="w-full max-w-[380px]">
-        <h1 className="font-display text-[32px] text-center mb-6" style={{ fontVariationSettings: "'opsz' 144" }}>Set a new password</h1>
+        <h1 className="font-display text-[32px] text-center mb-6">Set a new password</h1>
         {!token ? (
           <p className="text-[13px] text-center text-muted">This reset link is missing its token. Request a new one from the login page.</p>
         ) : done ? (

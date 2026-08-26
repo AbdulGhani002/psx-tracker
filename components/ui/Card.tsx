@@ -19,7 +19,7 @@ export function CardHeader({ title, eyebrow }: { title: string; eyebrow?: string
   return (
     <div className="mb-4">
       {eyebrow && <div className="label-cap mb-1.5">{eyebrow}</div>}
-      <div className="font-display text-[18px]" style={{ fontVariationSettings: "'opsz' 144" }}>
+      <div className="font-display text-[18px]">
         {title}
       </div>
     </div>

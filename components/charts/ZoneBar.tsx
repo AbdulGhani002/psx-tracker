@@ -1,11 +1,14 @@
 import type { ZoneLabel } from "@/lib/calculations/intrinsic";
 import { fmtRs } from "@/lib/format";
 
+// Tokens, not literals: these four were the last of the old warm palette left
+// hardcoded, so the gauge kept its cream-and-clay colours while everything
+// around it turned navy — and it never followed the dark theme at all.
 const ZONE_COLORS: Record<string, string> = {
-  "strong buy": "#4f7a4a",
-  buy: "#8fa07f",
-  fair: "#d4a574",
-  expensive: "#c87b68",
+  "strong buy": "var(--zone-strong-buy)",
+  buy: "var(--zone-buy)",
+  fair: "var(--zone-fair)",
+  expensive: "var(--zone-expensive)",
 };
 
 // A horizontal "where does today's price sit" gauge. The bar is split into the

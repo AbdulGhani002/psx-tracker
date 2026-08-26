@@ -236,7 +236,7 @@ function SummaryStat({ label, value }: { label: string; value: string }) {
       <div className="text-[10px] tracking-stat uppercase font-mono" style={{ color: "rgba(245,241,232,0.65)" }}>
         {label}
       </div>
-      <div className="font-display mono-num text-[22px]" style={{ fontVariationSettings: "'opsz' 144" }}>
+      <div className="font-display mono-num text-[22px]">
         {value}
       </div>
     </div>

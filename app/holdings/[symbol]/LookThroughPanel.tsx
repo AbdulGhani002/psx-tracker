@@ -8,8 +8,10 @@ import { Toggle } from "@/components/ui/Toggle";
 import { Stat, StatRow } from "@/components/ui/Stat";
 import { fmtRs, fmtCompact, fmtNum } from "@/lib/format";
 
-const LT_COLORS = ["#E6B422", "#DDA01A", "#CE7E12", "#B9620F", "#9C4A12", "#7B3A14", "#5E3410", "#46280E"];
-const UNLISTED_SHADES = ["#8C7A5C", "#9C8A6C", "#7C6A4C", "#A89A7C", "#6E6048"];
+// Look-through weight is a magnitude, so this is a one-hue sequential ramp,
+// not categorical hues.
+const LT_COLORS = ["var(--ramp-8)", "var(--ramp-7)", "var(--ramp-6)", "var(--ramp-5)", "var(--ramp-4)", "var(--ramp-3)", "var(--ramp-2)", "var(--ramp-1)"];
+const UNLISTED_SHADES = ["#6B7280", "#7E8794", "#5A6472", "#909AA6", "#4A5462"];
 
 // Shares of a constituent owned per ONE share of the holding company.
 function fmtPerShare(v: number): string {
@@ -163,7 +165,7 @@ export function LookThroughPanel({ symbol, initial, result, known }: { symbol: s
                   </div>
                 ))}
                 {legacyLump > 0 && (
-                  <div title={`Other unlisted: ${((legacyLump / gross) * 100).toFixed(1)}%`} style={{ width: `${(legacyLump / gross) * 100}%`, background: "#6E6048" }} />
+                  <div title={`Other unlisted: ${((legacyLump / gross) * 100).toFixed(1)}%`} style={{ width: `${(legacyLump / gross) * 100}%`, background: "#5A6472" }} />
                 )}
               </div>
             </div>

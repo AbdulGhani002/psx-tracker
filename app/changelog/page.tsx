@@ -45,7 +45,7 @@ export default function ChangelogPage() {
               </div>
               <h2
                 className="font-display mt-3"
-                style={{ fontSize: 22, fontVariationSettings: "'opsz' 144", lineHeight: 1.2 }}
+                style={{ fontSize: 22, lineHeight: 1.2 }}
               >
                 {entry.title}
               </h2>

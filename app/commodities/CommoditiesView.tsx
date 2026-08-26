@@ -269,7 +269,7 @@ function TradeCard({ trade: t, refPkr, onChange }: { trade: Trade; refPkr: numbe
           <span className="text-[12px] text-muted font-mono">{t.lots} lot × {fmtNum(t.lotSize)} = {fmtNum(t.units)} units</span>
         </div>
         <div className="text-right">
-          <div className="font-display mono-num text-[22px]" style={{ fontVariationSettings: "'opsz' 144", color: t.netPL >= 0 ? "var(--positive)" : "var(--negative)" }}>
+          <div className="font-display mono-num text-[22px]" style={{ color: t.netPL >= 0 ? "var(--positive)" : "var(--negative)" }}>
             {fmtSignedRs(t.netPL)}
           </div>
           <div className="text-[11px] text-muted font-mono">{fmtSignedPct(t.returnPct, 1)} on {fmtRs(t.exposure)}</div>

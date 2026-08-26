@@ -23,7 +23,7 @@ function VerifyInner() {
   return (
     <div className="min-h-screen flex flex-col items-center justify-center px-6 text-center" style={{ background: "var(--paper)" }}>
       <div className="w-full max-w-[380px]">
-        <h1 className="font-display text-[30px] mb-4" style={{ fontVariationSettings: "'opsz' 144" }}>
+        <h1 className="font-display text-[30px] mb-4">
           {state === "verifying" ? "Confirming…" : state === "ok" ? "Email confirmed ✓" : "Link expired"}
         </h1>
         <p className="text-[13px] text-muted">

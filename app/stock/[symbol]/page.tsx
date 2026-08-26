@@ -19,7 +19,7 @@ function SubScore({ label, value, max = 100, reasons, invert }: { label: string;
     <div className="border border-rule p-4" style={{ background: "var(--paper-2)" }}>
       <div className="flex items-baseline justify-between mb-1">
         <span className="label-cap">{label}</span>
-        <span className="font-display mono-num text-[22px]" style={{ fontVariationSettings: "'opsz' 144", color }}>{value}<span className="text-[12px] text-muted">/{max}</span></span>
+        <span className="font-display mono-num text-[22px]" style={{ color }}>{value}<span className="text-[12px] text-muted">/{max}</span></span>
       </div>
       <span className="block h-1.5 w-full rounded-sm overflow-hidden mb-2" style={{ background: "var(--rule)" }}>
         <span className="block h-full" style={{ width: `${value}%`, background: color }} />
@@ -55,14 +55,14 @@ export default async function StockPage({ params }: { params: { symbol: string }
 
       <Section number="01" title="AI rating" display={`${r.overall}/100 — ${r.verdict}`} description={`Overall = 40% Fundamental + 30% Technical + 20% Safety + 10% News. News score ${r.scores.news}/100 from tagged press coverage (neutral 50 when under 2 recent articles).`}>
         <div className="flex items-center gap-4 mb-6">
-          <div className="font-display mono-num text-[56px] leading-none" style={{ fontVariationSettings: "'opsz' 144" }}>{r.overall}</div>
+          <div className="font-display mono-num text-[56px] leading-none">{r.overall}</div>
           <div>
             <div className="text-[22px]" style={{ color: "var(--accent)" }} title={`${r.stars}/5`}>{"★".repeat(Math.floor(r.stars))}<span style={{ color: "var(--rule)" }}>{"★".repeat(5 - Math.floor(r.stars))}</span></div>
             <Badge tone={tone as any}>{r.verdict}</Badge>
           </div>
           <div className="ml-auto text-right">
             <div className="label-cap">Price</div>
-            <div className="font-display mono-num text-[24px]" style={{ fontVariationSettings: "'opsz' 144" }}>{fmtRs(d.price ?? 0, true)}</div>
+            <div className="font-display mono-num text-[24px]">{fmtRs(d.price ?? 0, true)}</div>
           </div>
         </div>
         <div className="grid md:grid-cols-3 gap-4">

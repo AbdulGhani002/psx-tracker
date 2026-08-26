@@ -23,7 +23,7 @@ export function OutcomeCard({ horizon, multiple, value, cagr, emphasis = false }
       </div>
       <div
         className="font-display mt-1 mono-num"
-        style={{ fontSize: 36, fontVariationSettings: "'opsz' 144", lineHeight: 1 }}
+        style={{ fontSize: 36, lineHeight: 1 }}
       >
         {multiple}
       </div>

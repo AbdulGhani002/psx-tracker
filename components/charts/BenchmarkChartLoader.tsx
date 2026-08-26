@@ -172,8 +172,7 @@ export function BenchmarkChartLoader() {
                     <div className="label-cap">{SERIES_META[k].short}</div>
                     <div
                       className="font-display mono-num text-[22px] mt-1"
-                      style={{
-                        fontVariationSettings: "'opsz' 144",
+                      style={{
                         color: r >= 0 ? "var(--positive)" : "var(--negative)",
                       }}
                     >

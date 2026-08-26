@@ -199,7 +199,7 @@ export default async function WealthPage() {
                     {netWorth.total > 0 ? fmtPct(b.value / netWorth.total, 1) : "—"} of net worth
                   </div>
                 </div>
-                <div className="font-display mono-num text-[22px]" style={{ fontVariationSettings: "'opsz' 144" }}>
+                <div className="font-display mono-num text-[22px]">
                   {fmtRs(b.value)}
                 </div>
               </div>

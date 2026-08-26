@@ -99,8 +99,7 @@ export function TargetsEditor({ initial }: Props) {
           <div className="label-cap">Total</div>
           <div
             className="font-display mono-num text-[20px]"
-            style={{
-              fontVariationSettings: "'opsz' 144",
+            style={{
               color:
                 Math.abs(offBy) < 0.05
                   ? "var(--positive)"

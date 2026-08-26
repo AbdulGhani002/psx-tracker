@@ -125,7 +125,7 @@ async function TopBlock() {
             <div className="flex items-center justify-between gap-4 flex-wrap">
               <div>
                 <div className="label-cap">Net worth (all assets)</div>
-                <div className="font-display mono-num text-[28px] mt-1" style={{ fontVariationSettings: "'opsz' 144" }}>
+                <div className="font-display mono-num text-[28px] mt-1">
                   {fmtRs(netWorth.total)}
                 </div>
                 {usdPkr && <div className="font-mono text-[12px] text-muted mt-0.5">{usd(netWorth.total)}</div>}

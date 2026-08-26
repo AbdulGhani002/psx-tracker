@@ -269,7 +269,7 @@ function Stat({ label, value, note }: { label: string; value: string; note?: str
   return (
     <div>
       <div className="text-[10px] tracking-stat uppercase font-mono" style={{ color: "rgba(245,241,232,0.65)" }}>{label}</div>
-      <div className="font-display mono-num text-[22px]" style={{ fontVariationSettings: "'opsz' 144" }}>{value}</div>
+      <div className="font-display mono-num text-[22px]">{value}</div>
       {note && <div className="text-[10px] font-mono mt-0.5" style={{ color: "rgba(245,241,232,0.5)" }}>{note}</div>}
     </div>
   );

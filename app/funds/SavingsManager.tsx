@@ -170,7 +170,7 @@ function SavingsCard({ account, inflationPct, podWhtPct, onChange }: { account: 
     <Card>
       <div className="flex items-start justify-between gap-4 flex-wrap">
         <div>
-          <div className="font-display text-[18px]" style={{ fontVariationSettings: "'opsz' 144" }}>
+          <div className="font-display text-[18px]">
             {account.name}
           </div>
           <div className="text-[11px] text-muted font-mono mt-0.5">
@@ -185,7 +185,7 @@ function SavingsCard({ account, inflationPct, podWhtPct, onChange }: { account: 
           </div>
         </div>
         <div className="text-right">
-          <div className="font-display mono-num text-[26px]" style={{ fontVariationSettings: "'opsz' 144" }}>
+          <div className="font-display mono-num text-[26px]">
             {fmtRs(account.balance)}
           </div>
           <div className="text-[11px] font-mono mt-0.5" style={{ color: "var(--positive)" }}>
