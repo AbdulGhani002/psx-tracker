@@ -807,13 +807,18 @@ async function _getCashSummary(): Promise<CashSummary> {
       dividendsCollected: 0,
       proceedsFromSells: 0,
       spentOnBuys: 0,
+      impliedDeposits: 0,
+      topUps: [],
+      cgtWithheld: 0,
     };
   }
-  const [entries, txs] = await Promise.all([
+  const [entries, txs, settings] = await Promise.all([
     CashEntryModel.find({ userId: await meId() }).lean(),
     TransactionModel.find({ userId: await meId(), deletedAt: null }).lean(),
+    getAppSettings() as Promise<any>,
   ]);
-  return computeCashBalance(txs as any, entries as any);
+  const cgtRatePct = settings.filerStatus === "filer" ? settings.cgtRateFiler : settings.cgtRateNonFiler;
+  return computeCashBalance(txs as any, entries as any, { cgtRatePct });
 }
 
 export async function getCashEntries() {

@@ -400,7 +400,7 @@ export async function buildBenchmarkSeries({
       const txs = transactions.filter((t) => new Date(t.date).toISOString().slice(0, 10) <= dIso);
       const entries = ex.cashEntries.filter((e) => new Date(e.date).toISOString().slice(0, 10) <= dIso);
       try {
-        return Math.max(0, computeCashBalance(txs as any, entries as any).balance);
+        return computeCashBalance(txs as any, entries as any).balance;
       } catch {
         return 0;
       }

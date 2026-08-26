@@ -1,7 +1,7 @@
 // Single source of truth for the app version + changelog.
 // Bump APP_VERSION and prepend a CHANGELOG entry on every release.
 
-export const APP_VERSION = "8.4.1";
+export const APP_VERSION = "8.5.0";
 
 export const BUILD_DATE =
   process.env.NEXT_PUBLIC_BUILD_DATE ?? "";
@@ -17,6 +17,18 @@ export type ChangelogEntry = {
 
 // Reverse-chronological. Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: "8.5.0",
+    date: "2026-08-26",
+    title: "Cash that can rest at zero but never go below it",
+    changes: [
+      "Liquid cash is back, on a rule that matches how this book was actually built. The trade ledger came from an NCCPL certificate that carries every trade and no cash movements, so the deposit side is knowingly incomplete — which is why the derived balance used to go negative and was pulled out of net worth entirely.",
+      "A negative brokerage balance is not a fact about the world: shares cannot be bought with money that was never there. So the balance is walked in date order and, the moment it would dip under, the shortfall is booked as a deposit that happened but was never written down. Cash can sit at zero. It cannot go below.",
+      "Those assumed deposits are kept with their date and amount rather than folded into the total, because \"we decided money arrived here\" is a claim that has to be checkable against a bank statement. Recorded deposits and gross spend are still reported separately and unchanged.",
+      "Capital gains tax now comes out of a sale before the proceeds count as spendable. It is 15% of the REALISED GAIN matched FIFO — not 15% of the proceeds, and nothing at all on a loss. NCCPL actually collects later, so the broker does credit the full amount on the day; holding it back anyway is the point, because money already owed to the FBR is not money you can deploy. The rate follows your filer status, and the withheld figure is shown rather than buried.",
+      "Same-day ordering puts money in before money out, so funding a purchase on the day you make it no longer invents an assumed deposit that the next row cancels.",
+    ],
+  },
   {
     version: "8.4.1",
     date: "2026-08-26",
