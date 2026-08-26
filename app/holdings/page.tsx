@@ -2,13 +2,10 @@ import Link from "next/link";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { Section } from "@/components/layout/Section";
 import { SetupBanner } from "@/components/layout/SetupBanner";
-import { Table, type Column } from "@/components/ui/Table";
-import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
-import { getPortfolioSummary, checkDataAvailability } from "@/lib/data";
+import { getPortfolioSummary, checkDataAvailability, getSparklines } from "@/lib/data";
 import { getPriceFreshness } from "@/lib/prices";
-import { fmtRs, fmtNum, fmtSignedPct, fmtPct } from "@/lib/format";
-import type { PositionRow } from "@/lib/calculations";
+import { HoldingsTable, type HoldingRow } from "./HoldingsTable";
 
 const STALE_AFTER_DAYS = 7;
 
@@ -32,96 +29,31 @@ export default async function HoldingsPage({
   const historical = summary.positions.filter((p) => p.shares <= 0);
   const rows = showAll ? summary.positions : active;
 
-  const columns: Column<PositionRow>[] = [
-    {
-      key: "symbol",
-      header: "Symbol",
-      render: (r) => (
-        <Link
-          href={`/holdings/${r.symbol}`}
-          className="font-mono text-[13px] font-medium hover:text-[var(--accent-deep)]"
-        >
-          {r.symbol}
-        </Link>
-      ),
-    },
-    {
-      key: "sector",
-      header: "Sector",
-      render: (r) => (
-        <span className="text-[12px] text-muted">{r.sector}</span>
-      ),
-    },
-    { key: "shares", header: "Shares", align: "right", mono: true, render: (r) => fmtNum(r.shares) },
-    { key: "avgCost", header: "Avg Cost", align: "right", mono: true, render: (r) => fmtRs(r.avgCost, true) },
-    {
-      key: "currentPrice",
-      header: "Price",
-      align: "right",
-      mono: true,
-      // No quote = unknown, not zero. Say so rather than print "Rs 0.00".
-      render: (r) => {
-        if (!r.priceKnown) return <Badge tone="negative">no price</Badge>;
-        const f = freshness.get(r.symbol);
-        if (f && f.ageDays >= STALE_AFTER_DAYS) {
-          return (
-            <span className="inline-flex items-center gap-1.5" title={f.asOf ? `PSX: as of ${f.asOf}` : `last quote ${f.timestamp.toISOString().slice(0, 10)}`}>
-              {fmtRs(r.currentPrice, true)}
-              <Badge tone="amber">{Math.floor(f.ageDays)}d old</Badge>
-            </span>
-          );
-        }
-        return fmtRs(r.currentPrice, true);
-      },
-    },
-    { key: "marketValue", header: "Market Value", align: "right", mono: true, render: (r) => (r.priceKnown ? fmtRs(r.marketValue) : <span className="text-muted">—</span>) },
-    {
-      key: "unrealizedPct",
-      header: "Unrealised",
-      align: "right",
-      mono: true,
-      render: (r) =>
-        !r.priceKnown ? (
-          <span className="text-muted">—</span>
-        ) : (
-        <span style={{ color: r.unrealizedPL >= 0 ? "var(--positive)" : "var(--negative)" }}>
-          {fmtSignedPct(r.unrealizedPct)}
-        </span>
-      ),
-    },
-    {
-      // Yield on cost: every dividend this position has EVER paid you, against
-      // what you actually paid for it — the income investor's compounding score.
-      key: "yoc",
-      header: "YoC",
-      align: "right",
-      mono: true,
-      render: (r) =>
-        r.totalCost > 0 && r.dividendsReceived > 0 ? (
-          <span style={{ color: "var(--positive)" }}>{fmtPct(r.dividendsReceived / r.totalCost, 1)}</span>
-        ) : (
-          <span className="text-muted">—</span>
-        ),
-    },
-    {
-      key: "alloc",
-      header: "% / Target",
-      align: "right",
-      mono: true,
-      render: (r) => {
-        const dev = Math.abs(r.deviation);
-        const tone = dev <= 3 ? "positive" : dev <= 6 ? "amber" : "negative";
-        return (
-          <div className="flex items-center justify-end gap-2">
-            <span>{fmtPct(r.currentPercent / 100, 1)}</span>
-            <span className="text-muted">/</span>
-            <span className="text-muted">{fmtPct(r.targetPercent / 100, 0)}</span>
-            <Badge tone={tone as any}>{fmtSignedPct(r.deviation / 100, 1)}</Badge>
-          </div>
-        );
-      },
-    },
-  ];
+  const spark = await getSparklines(rows.map((r) => r.symbol));
+  // Plain data across the boundary: the client sorts on numbers, so it must be
+  // handed numbers rather than cells that have already been formatted.
+  const tableRows: HoldingRow[] = rows.map((r) => {
+    const f = freshness.get(r.symbol);
+    return {
+      symbol: r.symbol,
+      name: r.name ?? "",
+      sector: r.sector ?? "",
+      shares: r.shares,
+      avgCost: r.avgCost,
+      price: r.currentPrice,
+      priceKnown: r.priceKnown,
+      marketValue: r.marketValue,
+      unrealizedPL: r.unrealizedPL,
+      unrealizedPct: r.unrealizedPct,
+      dividendsReceived: r.dividendsReceived,
+      totalCost: r.totalCost,
+      currentPercent: r.currentPercent,
+      targetPercent: r.targetPercent,
+      deviation: r.deviation,
+      staleDays: f ? f.ageDays : null,
+      spark: spark[r.symbol] ?? [],
+    };
+  });
 
   return (
     <div>
@@ -189,12 +121,7 @@ export default async function HoldingsPage({
             : undefined
         }
       >
-        <Table
-          columns={columns}
-          rows={rows}
-          rowKey={(r) => r.symbol}
-          empty="No holdings yet. Record your first transaction to begin."
-        />
+        <HoldingsTable rows={tableRows} staleAfterDays={STALE_AFTER_DAYS} />
       </Section>
     </div>
   );

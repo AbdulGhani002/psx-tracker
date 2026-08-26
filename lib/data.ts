@@ -1626,6 +1626,45 @@ export const getRiskMetrics = cache(_getRiskMetrics);
 
 export const getTodaysMovers = cache(_getTodaysMovers);
 
+// --- Sparklines -------------------------------------------------------------
+// A 90-day close series per symbol, thinned to ~40 points, for the trend
+// glyphs on the holdings table. Prices are GLOBAL, so this caches unprefixed
+// and is shared by every account.
+//
+// Cached hard, because the holdings page is the most-visited screen in the app
+// and it must not wait on a dozen round-trips to the exchange to draw a 60px
+// picture. A miss returns what it has — a table with no sparklines is a table;
+// a table that takes eight seconds is not.
+const SPARKLINE_KEY = "sparklines";
+const SPARKLINE_TTL_MS = 6 * 60 * 60 * 1000;
+
+export async function getSparklines(symbols: string[]): Promise<Record<string, number[]>> {
+  if (symbols.length === 0) return {};
+  try {
+    const snap = await getFeedSnapshot<Record<string, number[]>>(SPARKLINE_KEY);
+    const age = snap.updatedAt ? Date.now() - new Date(snap.updatedAt).getTime() : Infinity;
+    const have = snap.data ?? {};
+    const missing = symbols.filter((s) => !have[s]);
+    if (age < SPARKLINE_TTL_MS && missing.length === 0) return have;
+
+    const series = await fetchManyEod(symbols, 4);
+    const next: Record<string, number[]> = { ...have };
+    for (const s of symbols) {
+      const pts = series.get(s) ?? [];
+      if (pts.length === 0) continue; // keep the previous curve rather than blanking it
+      const closes = pts.slice(-90).map((p) => p.close);
+      // Thin to ~40 points: more than that is invisible at 60px wide and only
+      // makes the payload bigger.
+      const step = Math.max(1, Math.ceil(closes.length / 40));
+      next[s] = closes.filter((_, i) => i % step === 0);
+    }
+    await saveFeedSnapshot(SPARKLINE_KEY, next, "ok", `${Object.keys(next).length} symbols`).catch(() => {});
+    return next;
+  } catch {
+    return {};
+  }
+}
+
 export const getIntrinsicValuations = cache(_getIntrinsicValuations);
 
 export const getAllHoldings = cache(_getAllHoldings);
