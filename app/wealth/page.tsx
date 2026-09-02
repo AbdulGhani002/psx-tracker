@@ -270,6 +270,37 @@ export default async function WealthPage() {
             {fmtSignedRs(totalGain)} unrealised on the equity book. That unrealised figure is deliberately not added
             above — it is not this year&apos;s profit until you sell.
           </div>
+
+          {/* Filing season. The pack carries the one thing that cannot be
+              rebuilt from memory in April: what you held on 30 June and what
+              those specific shares cost. */}
+          <div className="mt-4 pt-4 border-t border-rule">
+            <div className="label-cap mb-2">Filing pack</div>
+            <p className="text-[12px] text-muted mb-3 max-w-[70ch]">
+              Dividends by payer, every FIFO disposal with its holding period, and your open positions as at 30 June at
+              the cost of the lots still open on that date — which is what the wealth statement asks for and what nobody
+              can reconstruct nine months later. It also lists what it does not cover, because a pack that quietly omits
+              your bank profit looks complete and is not.
+            </p>
+            <div className="flex flex-wrap gap-4">
+              {[thisFy - 1, thisFy].map((y) => (
+                <a
+                  key={y}
+                  href={`/api/export/tax-pack?year=${y}`}
+                  className="font-mono text-[11px] uppercase tracking-stat hover:text-[var(--accent-deep)]"
+                  style={{ color: "var(--accent)" }}
+                >
+                  Tax year {y} PDF
+                </a>
+              ))}
+              <a
+                href={`/api/export?sheet=fbr&year=${thisFy - 1}`}
+                className="font-mono text-[11px] uppercase tracking-stat text-muted hover:text-[var(--accent-deep)]"
+              >
+                TY{thisFy - 1} as CSV
+              </a>
+            </div>
+          </div>
         </Card>
       </Section>
 

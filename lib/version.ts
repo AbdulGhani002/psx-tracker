@@ -1,7 +1,7 @@
 // Single source of truth for the app version + changelog.
 // Bump APP_VERSION and prepend a CHANGELOG entry on every release.
 
-export const APP_VERSION = "9.2.0";
+export const APP_VERSION = "9.3.0";
 
 export const BUILD_DATE =
   process.env.NEXT_PUBLIC_BUILD_DATE ?? "";
@@ -17,6 +17,23 @@ export type ChangelogEntry = {
 
 // Reverse-chronological. Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: "9.3.0",
+    date: "2026-09-02",
+    title: "Two more signals, a badge that already existed, notes from any broker, and a filing pack",
+    changes: [
+      "The transactions table drew every record in one go, which on this account was about 19,000 pixels of page: slow to paint, impossible to scan, and unusable on a phone. It now pages at fifty with a size picker and a free-text search across symbol, note and date. Filtering, the record count and the CSV export still run over the whole filtered set, so only the drawing is paged and nothing you export is quietly cut short.",
+      "Foreign flows and market breadth were sitting unset on the regime scorecard because I had assumed neither had a usable feed. Both did. NCCPL foreign flows are already parsed by the analytics service, so the twenty-day net now scores itself with the five-day figure and the streak reported next to it, since five days is mostly noise but a turn shows there first.",
+      "Breadth had to be built. The market-watch board carries every symbol's move and the parser was discarding the column; it now derives each move from the previous close rather than reading the change column, which arrives with stray signs and reports a change for symbols that never traded. Names that did not trade are left out entirely instead of being counted as unchanged, which would drag every quiet day toward the middle.",
+      "One session of breadth is a coin toss, so the score reads a rolling ten-session average and says it is still collecting below three. That history only exists if something gathers it daily, so the snapshot cron now refreshes the regime feed: a day nobody opens the app was otherwise a day of breadth lost for good.",
+      "The scorecard is eight automatic signals and one judgement now, rather than six and three. Politics stays manual on purpose. There is no feed for whether the IMF programme is on track, and a sentiment score scraped off headlines would dress a guess up as a reading. Any fetched signal can still be overruled by hand, and setting one replaces the feed rather than being counted alongside it.",
+      "The Shariah screen has been in the app all along, computing KMI compliance and dividend purification, and only the alert cron ever read it. Holdings now carry the badge, a Shariah-only filter and a line saying what share of your equity value sits inside the KMI indices. Unknown is kept as its own state throughout: a symbol missing from the board has not failed the screen, it has not been checked, and the filter leaves it out rather than showing it as compliant.",
+      "Contract notes only parsed if they came from BMA. Writing a parser per brokerage house without a single sample of its paperwork would be inventing patterns and hoping, so the new fallback does not try to know any layout. It looks for the arithmetic every contract note must contain: rows where quantity times rate equals the amount, adding up to the total printed on the note.",
+      "That is also the safety rail. A line is a trade only if its own numbers multiply out, a note imports only if its rows match its stated total, a gap of more than five per cent is called a misread rather than a commission, an ambiguous buy-or-sell is refused instead of guessed, and total lines are skipped so a note can never be counted twice. Raw lines come back on every generic parse and the rows are labelled as inferred, because a wrong cost basis is silent and compounds through every number computed after it.",
+      "New: a filing pack as a PDF, for the last two tax years, from the Wealth page. Dividends by payer, every FIFO disposal with its real holding period, and the one thing nobody can reconstruct in April — your open positions as at 30 June at the cost of the lots still open on that date, which is what the wealth statement asks for. Getting that right means re-running the lot engine over a ledger truncated at the year end, because a sale in September changes today's average cost but must not change what you held in June.",
+      "The pack lists what it does not cover, in its own section: bank profit, fund income, salary, rent, and anything you did not record. A pack that quietly omits half your return looks complete and is not. It also flags dividends recorded with no withholding against them, which is nearly always a gap in the data rather than tax that was never deducted, and understates the credit you can claim.",
+    ],
+  },
   {
     version: "9.2.0",
     date: "2026-09-02",
