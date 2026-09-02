@@ -61,6 +61,10 @@ const nextConfig = {
       { source: "/heatmap", destination: "/holdings", permanent: true },
       { source: "/companies", destination: "/holdings", permanent: true },
       { source: "/commodities", destination: "/wealth", permanent: true },
+      // The /api/commodities routes went with the screen: nothing called them,
+      // and an unreferenced endpoint that can still WRITE to the trade ledger is
+      // a liability rather than clutter. The data layer, models and
+      // calculations stay, because /wealth reads them directly.
     ];
   },
   reactStrictMode: true,
