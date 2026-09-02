@@ -15,6 +15,11 @@ export type MarketRow = {
   sectorCode: string;
   listedIn: string[];
   price: number; // CURRENT, falling back to LDCP; 0 when unavailable
+  // The day's move, kept so market breadth can be counted without a second
+  // request. changePct is null when the row gave no usable close, which is not
+  // the same as a flat day and must not be counted as one.
+  changePct: number | null;
+  volume: number;
 };
 
 function strip(s: string): string {
@@ -42,11 +47,17 @@ export function parseMarketWatch(html: string): Map<string, MarketRow> {
     if (!/^[A-Z0-9.&-]{1,12}$/.test(symbol)) continue; // skip header/pager rows
     const current = num(cells[7]);
     const ldcp = num(cells[3]);
+    // Derived from LDCP rather than read from the CHANGE% column, because that
+    // column arrives with stray signs and percent marks and a symbol that has
+    // not traded shows a change against nothing.
+    const changePct = current > 0 && ldcp > 0 ? ((current - ldcp) / ldcp) * 100 : null;
     out.set(symbol, {
       symbol,
       sectorCode: cells[1],
       listedIn: cells[2].split(",").map((s) => s.trim()).filter(Boolean),
       price: current > 0 ? current : ldcp,
+      changePct,
+      volume: num(cells[10]),
     });
   }
   return out;

@@ -1,14 +1,14 @@
-// Fill in the half of the regime scorecard a machine can read.
+// Fill in the part of the regime scorecard a machine can read.
 //
-// Six of the nine signals come from data the app already fetches for other
+// Eight of the nine signals come from data the app already fetches for other
 // pages: the KSE-100 end-of-day series, Yahoo for Brent and the rupee, the SBP
-// rate table, and the CPI feed. Nothing new is scraped and nothing is paid for.
+// rate table, the CPI feed, the analytics service's NCCPL flows, and the PSX
+// market-watch board. Nothing new is paid for.
 //
-// The three that stay manual are foreign flows, politics and breadth. NCCPL
-// publishes FIPI as a dated PDF/HTML table that changes shape without notice,
-// politics is a judgement, and free breadth data for PSX is not reliable enough
-// to score automatically. Guessing them would make the total look more informed
-// than it is, so the scorecard reports them as unset until you set them.
+// Politics is the one signal that stays manual, and it stays manual on purpose.
+// There is no feed for "is the IMF programme on track", and a sentiment score
+// scraped off headlines would dress a guess up as a reading. It is your call,
+// and the scorecard says so on the page.
 //
 // Every fetch degrades on its own: a signal that cannot be read is marked
 // unknown and simply drops out of the average, rather than scoring zero and
@@ -17,6 +17,8 @@
 import { fetchEodSeries } from "@/lib/timeseries/psx-eod";
 import { fetchYahooDaily } from "@/lib/timeseries/yahoo";
 import { getSbpRateSteps, getInflationLive, getFeedSnapshot, saveFeedSnapshot } from "@/lib/data";
+import { getFlows } from "@/lib/analytics";
+import { fetchMarketWatch, isInIndex } from "@/lib/prices/marketwatch";
 import {
   scoreTrend200,
   scoreCross,
@@ -24,12 +26,22 @@ import {
   scorePkr,
   scorePolicy,
   scoreCpi,
+  scoreForeign,
+  scoreBreadth,
   SIGNAL_HINTS,
   type RegimeSignal,
 } from "@/lib/calculations/regime";
 
 export const REGIME_AUTO_KEY = "regime:auto";
+export const BREADTH_HISTORY_KEY = "regime:breadth";
 const FRESH_MS = 6 * 60 * 60 * 1000;
+
+// How many past sessions of breadth to average over. One session is a coin
+// toss; two weeks is a character.
+const BREADTH_WINDOW = 10;
+const BREADTH_MIN = 3; // below this, say we are still collecting rather than score it
+
+export type BreadthPoint = { date: string; advancePct: number; moved: number; medianChangePct: number };
 
 export type AutoSignals = {
   signals: RegimeSignal[];
@@ -195,7 +207,97 @@ export async function computeAutoSignals(): Promise<AutoSignals> {
     signals.push(unknown("cpi", "Inflation direction", "CPI feed unavailable"));
   }
 
+  // --- foreign flows ----------------------------------------------------------
+  // NCCPL's FIPI, already parsed by the analytics service for the flows data.
+  // It returns null when that service is down, which is a missing reading and
+  // not a flat one.
+  try {
+    const flows = await getFlows(90);
+    if (flows && Number.isFinite(flows.fipi_20d)) {
+      const s = scoreForeign(flows.fipi_20d, flows.fipi_5d);
+      const streak =
+        flows.streak > 1 ? `, ${flows.streak} sessions of net ${flows.streak_side}` : "";
+      signals.push({
+        key: "foreign",
+        label: "Foreign flows",
+        source: "auto",
+        score: s.score,
+        reading: s.reading + streak,
+        known: true,
+        hint: SIGNAL_HINTS.foreign,
+      });
+    } else {
+      signals.push(unknown("foreign", "Foreign flows", "flows service did not answer"));
+    }
+  } catch {
+    signals.push(unknown("foreign", "Foreign flows", "flows service unavailable"));
+  }
+
+  // --- breadth ----------------------------------------------------------------
+  try {
+    const breadth = await updateBreadthHistory();
+    if (breadth.points.length >= BREADTH_MIN) {
+      const avg =
+        breadth.points.reduce((s, p) => s + p.advancePct, 0) / breadth.points.length;
+      const s = scoreBreadth(avg, breadth.points.length);
+      signals.push({
+        key: "breadth",
+        label: "Market breadth",
+        source: "auto",
+        score: s.score,
+        reading: s.reading,
+        known: true,
+        hint: SIGNAL_HINTS.breadth,
+      });
+    } else {
+      signals.push(
+        unknown(
+          "breadth",
+          "Market breadth",
+          `still collecting — ${breadth.points.length} of ${BREADTH_MIN} sessions stored`
+        )
+      );
+    }
+  } catch {
+    signals.push(unknown("breadth", "Market breadth", "market-watch board unavailable"));
+  }
+
   return { signals, indexLevel, indexAsOf, ma50, ma200, at };
+}
+
+// Breadth needs a history and PSX publishes only today. So today is appended to
+// a stored series, one point per trading day, and the score reads the average.
+// Re-running on the same day overwrites that day rather than stacking it.
+export async function updateBreadthHistory(): Promise<{ points: BreadthPoint[]; today: BreadthPoint | null }> {
+  const stored = await getFeedSnapshot<BreadthPoint[]>(BREADTH_HISTORY_KEY);
+  const points: BreadthPoint[] = Array.isArray(stored.data) ? [...stored.data] : [];
+
+  const mw = await fetchMarketWatch();
+  if (!mw || mw.size === 0) return { points: points.slice(-BREADTH_WINDOW), today: null };
+
+  const members = [...mw.values()].filter((r) => isInIndex(r, "KSE100"));
+  // A name that did not trade has no opinion. Counting it as unchanged would
+  // drag every reading toward the middle on a quiet day.
+  const moved = members.filter((r) => r.changePct != null && Math.abs(r.changePct) > 0.0001);
+  if (moved.length < 20) return { points: points.slice(-BREADTH_WINDOW), today: null };
+
+  const advances = moved.filter((r) => (r.changePct as number) > 0).length;
+  const changes = moved.map((r) => r.changePct as number).sort((a, b) => a - b);
+  const median = changes[Math.floor(changes.length / 2)];
+
+  const today: BreadthPoint = {
+    date: new Date().toISOString().slice(0, 10),
+    advancePct: (advances / moved.length) * 100,
+    moved: moved.length,
+    medianChangePct: median,
+  };
+
+  const kept = points.filter((p) => p.date !== today.date);
+  kept.push(today);
+  kept.sort((a, b) => a.date.localeCompare(b.date));
+  const trimmed = kept.slice(-BREADTH_WINDOW);
+  await saveFeedSnapshot(BREADTH_HISTORY_KEY, trimmed, "ok", `${trimmed.length} sessions`).catch(() => {});
+  return { points: trimmed, today };
 }
 
 // Cached wrapper: the auto signals need several external fetches, and the

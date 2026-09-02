@@ -4,6 +4,7 @@ import { saveFeedSnapshot, warmPageCaches, getAllUserIds, refreshAllFundYields, 
 import { runAsUser } from "@/lib/auth/current-user";
 import { buildKse100SectorWeights, SECTOR_WEIGHTS_KEY } from "@/lib/feeds/sector-weights";
 import { computeBenchmark, benchmarkKey, BENCHMARK_RANGES } from "@/lib/feeds/benchmark";
+import { getAutoSignalsCached } from "@/lib/feeds/regime";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -55,6 +56,19 @@ export async function POST() {
     report.inflation = await refreshInflation();
   } catch (e) {
     report.inflation = { status: "error", note: String(e).slice(0, 200) };
+  }
+
+  // Market regime signals. Global data, and the only one here that MUST run on
+  // a schedule rather than on page load: breadth is a running average of daily
+  // advance counts, and PSX publishes only today. A day nobody opens the app is
+  // a day of breadth lost forever, so the cron is what actually collects it.
+  try {
+    const auto = await getAutoSignalsCached(true);
+    report.regime = auto.data
+      ? { status: auto.stale ? "stale" : "ok", note: `${auto.data.signals.filter((s) => s.known).length}/${auto.data.signals.length} signals read` }
+      : { status: "error", note: "no signals" };
+  } catch (e) {
+    report.regime = { status: "error", note: String(e).slice(0, 200) };
   }
 
   // Per-user warming: for every account, warm its page aggregates + its three

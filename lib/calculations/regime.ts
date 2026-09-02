@@ -8,12 +8,14 @@
 // them up, and read the total off a table. Dullness is the point. A number you
 // can reproduce next month beats a view you cannot.
 //
-// Some signals the app can read on its own (index against its own 200-day
-// average, oil, the rupee, the policy rate). Some it cannot without you: foreign
-// flows and politics have no free machine-readable feed worth trusting. Those
-// are entered by hand and the app says plainly which is which, because a
-// scorecard that hides its manual inputs is a scorecard that lies about how much
-// it knows.
+// Most signals the app reads on its own: the index against its own 200-day
+// average, oil, the rupee, the policy rate, inflation, NCCPL foreign flows and
+// market breadth. Politics it cannot read, because there is no feed for whether
+// the IMF programme is on track and a sentiment score scraped off headlines
+// would dress a guess up as a reading. So politics is entered by hand, any
+// fetched signal can be overruled by hand, and the app says plainly which is
+// which — a scorecard that hides its manual inputs is a scorecard that lies
+// about how much it knows.
 //
 // The output is not "buy" or "sell". It is a CASH FLOOR — the minimum share of
 // the portfolio that should not be in equities in this environment. That is the
@@ -236,6 +238,31 @@ export function scoreCpi(changePp: number): { score: number; reading: string } {
     score,
     reading: `CPI ${changePp >= 0 ? "+" : ""}${changePp.toFixed(1)}pp over 6 months`,
   };
+}
+
+// Foreign flows. PSX is thin enough that the marginal foreign bid moves it, so
+// sustained net selling is a real headwind whatever the fundamentals say. The
+// twenty-day net carries the score because five days is mostly noise; the
+// shorter number is reported next to it so a turn is visible early.
+export function scoreForeign(net20dUsdMn: number, net5dUsdMn: number): { score: number; reading: string } {
+  const n = Number.isFinite(net20dUsdMn) ? net20dUsdMn : 0;
+  const score = n > 25 ? 2 : n > 5 ? 1 : n < -25 ? -2 : n < -5 ? -1 : 0;
+  const fmt = (v: number) => (v >= 0 ? "+" : "") + v.toFixed(1);
+  return {
+    score,
+    reading: `foreigners net ${fmt(n)}m USD over 20 days, ${fmt(net5dUsdMn)}m over 5`,
+  };
+}
+
+// Breadth. A rally carried by four large caps is a fragile one, so this counts
+// how many names actually rose. Advances as a share of the names that moved at
+// all: a market where a third of the board is untraded should not be scored as
+// if two thirds of it fell.
+export function scoreBreadth(advancePct: number, sessions: number): { score: number; reading: string } {
+  const p = Number.isFinite(advancePct) ? advancePct : 50;
+  const score = p > 62 ? 2 : p > 54 ? 1 : p >= 46 ? 0 : p > 38 ? -1 : -2;
+  const over = sessions > 1 ? ` averaged over ${sessions} sessions` : " on the latest session only";
+  return { score, reading: `${p.toFixed(0)}% of moving KSE-100 names advancing${over}` };
 }
 
 function clamp(v: number): number {

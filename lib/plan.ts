@@ -126,7 +126,16 @@ export async function assemblePlan(): Promise<PlanView> {
       hint: SIGNAL_HINTS[m.key] ?? "",
     };
   });
-  const regime = scoreRegime([...autoSignals, ...manualSignals]);
+  // Foreign flows and breadth are now fetched AND manually settable, so the two
+  // lists overlap. Your judgement wins: a signal you have set overrides the feed
+  // for that key, and an unset manual entry never displaces a real reading.
+  // Without this both would be counted twice and quietly double-weighted.
+  const merged = new Map<string, RegimeSignal>();
+  for (const s of autoSignals) merged.set(s.key, s);
+  for (const s of manualSignals) {
+    if (s.known || !merged.has(s.key)) merged.set(s.key, s);
+  }
+  const regime = scoreRegime([...merged.values()]);
 
   // --- cash ------------------------------------------------------------------
   const usdRate = (await fetchUsdPkrSpot().catch(() => null)) ?? 0;

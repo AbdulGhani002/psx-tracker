@@ -72,7 +72,7 @@ export default async function PlanPage() {
       <Section
         number="02"
         title="Market regime"
-        description="Fundamentals say what to buy and price says when. Regime says how much, and what to leave alone. Six signals are read automatically; three are your judgement."
+        description="Fundamentals say what to buy and price says when. Regime says how much, and what to leave alone. Eight signals are read automatically; politics is your judgement, and you can overrule any of the others."
       >
         <StatRow>
           <Stat label="Regime" value={plan.regime.label} tone={tone as never} />
