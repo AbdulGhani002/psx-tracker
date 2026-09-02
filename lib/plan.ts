@@ -14,7 +14,10 @@ import {
   getMutualFundsValued,
   getCashSummary,
   getAppSettings,
+  getLadderBuys,
 } from "@/lib/data";
+import { runRuleCheck, type RuleCheck } from "@/lib/feeds/backtest";
+import type { DeployPlan } from "@/lib/calculations/deploy-plan";
 import { getAutoSignalsCached } from "@/lib/feeds/regime";
 import { scoreRegime, cashCheck, SIGNAL_HINTS, MANUAL_SIGNALS, type RegimeSignal, type RegimeVerdict } from "@/lib/calculations/regime";
 import { planLadder, ladderVerdict, type LadderPlan } from "@/lib/calculations/ladder";
@@ -50,6 +53,12 @@ export type PlanView = {
   cashCheck: ReturnType<typeof cashCheck>;
   ladder: LadderPlan;
   ladderVerdict: ReturnType<typeof ladderVerdict>;
+  // What the ready rupees actually buy. Null when nothing is armed, so the page
+  // shows an order list only when there is an order to place.
+  ladderBuys: DeployPlan | null;
+  // How these same rules would have done against the record. Null when the
+  // index history has not been collected yet.
+  ruleCheck: RuleCheck | null;
   equityValue: number;
   netWorth: number;
   investable: number;
@@ -177,9 +186,28 @@ export async function assemblePlan(): Promise<PlanView> {
     reservePct: pb.ladderReservePct ?? 10,
   });
 
+  // The names the ready money buys, and how the rules have actually performed.
+  // Both are best-effort: a failure here must never take the plan down with it,
+  // because the ladder verdict above is the part you act on.
+  const [ladderBuys, ruleCheck] = await Promise.all([
+    ladder.readyAmount > 0 ? getLadderBuys(ladder.readyAmount).catch(() => null) : Promise.resolve(null),
+    runRuleCheck({
+      rungs: (pb.rungs ?? []) as any,
+      reservePct: pb.ladderReservePct ?? 10,
+      armedAt: pb.armedAt ?? "",
+      // Sized off the real book so the test is about this portfolio, not a
+      // textbook one. The monthly figure is what the fund has been growing by.
+      startCash: Math.max(50000, Math.round(available)),
+      monthlyContribution: Math.max(0, Math.round(fundEarnedPerDay * 30)),
+      cashYieldPct: 11,
+    }).catch(() => null),
+  ]);
+
   return {
     regime,
     regimeStale: auto.stale,
+    ladderBuys,
+    ruleCheck,
     cash,
     cashPct,
     cashCheck: cashCheck(regime, cashPct),

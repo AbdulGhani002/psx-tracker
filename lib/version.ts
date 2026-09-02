@@ -1,7 +1,7 @@
 // Single source of truth for the app version + changelog.
 // Bump APP_VERSION and prepend a CHANGELOG entry on every release.
 
-export const APP_VERSION = "9.1.0";
+export const APP_VERSION = "9.2.0";
 
 export const BUILD_DATE =
   process.env.NEXT_PUBLIC_BUILD_DATE ?? "";
@@ -17,6 +17,20 @@ export type ChangelogEntry = {
 
 // Reverse-chronological. Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: "9.2.0",
+    date: "2026-09-02",
+    title: "The rules now name the shares, and prove themselves against the record",
+    changes: [
+      "The ladder used to say \"deploy Rs 52,758\" and stop there, which left the one question that actually costs money — which shares, how many — to be answered from memory at the exact moment the rules exist to protect you from. The Plan page now carries the order list: names, whole-share counts, cost, and the weight each position ends at. It is sized by your target weights and weighted by how far each price sits from its buy band, exactly as the Rebalance page does it, because two screens giving different answers to one question is worse than one screen giving none.",
+      "The ladder's reserve is taken out once, not twice. The armed amount arrives at the allocator as money already cleared for spending, so the deployment reserve is not charged a second time against it — that would have quietly shrunk every rung.",
+      "New on the Plan page: what these rules would actually have done. Your rungs are restated as falls from the high they were written against, then run against the whole KSE-100 record day by day, against three alternatives given identical money on identical days.",
+      "The result does not flatter the ladder, and it is on the page anyway. Over the last five years, a period in which the index tripled, buying on arrival returned about 40% a year against roughly 31% for the ladder. In the 2021-23 fall the same rules turned about -4.5% a year into +5%, and cut the worst drawdown from 19% to 5%. These rules are insurance: they cost in a rally and pay in a fall, and now you can see the size of both instead of guessing.",
+      "Cash earns in the simulation, at a rate you can change, because in Pakistan a money-market fund pays double digits and a backtest that pays nothing on idle cash makes every wait look worse than it is. The run is also shown at 0, 6, 11, 15 and 20 per cent so the one assumption that decides the answer is never hidden inside it.",
+      "Drawdown is measured on a unit price rather than the balance. An account taking a contribution every month keeps growing in rupees while its holdings fall, so peak-to-trough on the balance can read zero through a 45% bear market — which is how a backtest ends up quietly claiming a losing strategy never lost anything.",
+      "The comparison is honest by construction: every strategy is charged the same contributions on the same days and judged on money-weighted return, and the sub-periods are shown separately, because a single five-year number over a market that only went up is an advertisement rather than a test.",
+    ],
+  },
   {
     version: "9.1.0",
     date: "2026-08-26",

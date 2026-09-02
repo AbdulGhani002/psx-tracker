@@ -158,6 +158,129 @@ export default async function PlanPage() {
         </StatRow>
       </Section>
 
+      {plan.ladderBuys && plan.ladderBuys.rows.length > 0 && (
+        <Section
+          number="04"
+          title="What that money buys"
+          description="The rungs decide how much goes out. This decides which names it goes into, sized by your target weights and weighted by how far each price sits from its buy band. Whole shares only."
+        >
+          <div className="overflow-x-auto">
+            <table className="w-full text-[13px] tabular-nums">
+              <thead>
+                <tr className="border-b border-rule text-muted label-cap">
+                  <th className="text-left py-2">Name</th>
+                  <th className="text-right py-2">Price</th>
+                  <th className="text-right py-2">Shares</th>
+                  <th className="text-right py-2">Cost</th>
+                  <th className="text-right py-2">Weight after</th>
+                  <th className="text-left py-2 pl-4">Why this size</th>
+                </tr>
+              </thead>
+              <tbody>
+                {plan.ladderBuys.rows.map((r) => (
+                  <tr key={r.symbol} className="border-b border-rule/60">
+                    <td className="py-2 font-mono font-medium">{r.symbol}</td>
+                    <td className="py-2 text-right">{fmtRs(r.price, true)}</td>
+                    <td className="py-2 text-right">{r.shares.toLocaleString("en-PK")}</td>
+                    <td className="py-2 text-right">{fmtRs(r.rupees)}</td>
+                    <td className="py-2 text-right text-muted">{r.finalPct.toFixed(1)}%</td>
+                    <td className="py-2 pl-4 text-muted">{r.zoneReason}</td>
+                  </tr>
+                ))}
+                <tr className="font-medium">
+                  <td className="py-2">Total</td>
+                  <td />
+                  <td />
+                  <td className="py-2 text-right">{fmtRs(plan.ladderBuys.deployed)}</td>
+                  <td />
+                  <td />
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          {plan.ladderBuys.undeployed > 1 && (
+            <p className="mt-3 text-[13px] text-muted">
+              {fmtRs(plan.ladderBuys.undeployed)} of the armed amount buys no whole share at these prices and stays in
+              the fund.
+            </p>
+          )}
+          {plan.ladderBuys.warnings.map((w, i) => (
+            <p key={i} className="mt-2 text-[13px]" style={{ color: "var(--negative)" }}>
+              {w}
+            </p>
+          ))}
+        </Section>
+      )}
+
+      {plan.ruleCheck?.ok && plan.ruleCheck.windows.length > 0 && (
+        <Section
+          number="05"
+          title="Have these rules actually worked?"
+          description="Your own rungs, restated as falls from a high and run against the KSE-100 record. Every strategy gets the same money on the same days and is judged on money-weighted return, so none can win by being funded at a luckier moment."
+        >
+          <div className="overflow-x-auto">
+            <table className="w-full text-[13px] tabular-nums">
+              <thead>
+                <tr className="border-b border-rule text-muted label-cap">
+                  <th className="text-left py-2">Period</th>
+                  <th className="text-right py-2">Index</th>
+                  {plan.ruleCheck.windows[0].rows.map((r) => (
+                    <th key={r.key} className="text-right py-2 pl-3">
+                      {r.label}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {plan.ruleCheck.windows.map((w) => {
+                  const best = Math.max(...w.rows.map((r) => r.xirrPct ?? -999));
+                  return (
+                    <tr key={w.label} className="border-b border-rule/60">
+                      <td className="py-2">
+                        {w.label}
+                        <span className="text-muted"> · {w.years.toFixed(1)}y</span>
+                      </td>
+                      <td className="py-2 text-right text-muted">
+                        {w.indexReturnPct >= 0 ? "+" : ""}
+                        {w.indexReturnPct.toFixed(0)}%
+                      </td>
+                      {w.rows.map((r) => (
+                        <td
+                          key={r.key}
+                          className="py-2 text-right pl-3"
+                          style={{
+                            fontWeight: (r.xirrPct ?? -999) === best ? 600 : 400,
+                            color: (r.xirrPct ?? 0) < 0 ? "var(--negative)" : "inherit",
+                          }}
+                        >
+                          {r.xirrPct == null ? "n/a" : `${r.xirrPct >= 0 ? "+" : ""}${r.xirrPct.toFixed(1)}%`}
+                        </td>
+                      ))}
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+
+          <p className="mt-4 text-[13px]">{plan.ruleCheck.full.verdict}</p>
+
+          <div className="mt-4 text-[12px] text-muted space-y-1">
+            <p>
+              Figures are money-weighted annual returns. The bold cell in each row is that period&apos;s winner.
+              {plan.ruleCheck.usingSample
+                ? " You have no rungs set, so a sample ladder of 4, 8, 14 and 22 per cent falls was tested. Set your own and this becomes a test of your plan."
+                : ` Your rungs were ${plan.ruleCheck.referenceNote}.`}
+            </p>
+            <p>
+              Cash is assumed to earn {plan.ruleCheck.full.config.cashYieldPct}% a year, which is what makes waiting
+              affordable. The regime column here uses only the two signals a price history can reconstruct, so it is a
+              floor on what the full nine-signal scorecard would do, not a measure of it.
+            </p>
+          </div>
+        </Section>
+      )}
+
       {/* Everything editable lives in one client island so the server page
           stays a pure read of the same view the weekly PDF is built from. */}
       <PlanBoard initial={JSON.parse(JSON.stringify(plan))} />

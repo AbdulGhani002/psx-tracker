@@ -1878,7 +1878,22 @@ export type DeploymentPlan = DeployPlan & {
 // the board but their proceeds are deliberately NOT added to the budget: a sale
 // is not a fact until it goes through the decision gate, and budgeting unsold
 // shares would be spending money you do not have yet.
-async function _getDeploymentPlan(): Promise<DeploymentPlan> {
+// Everything the allocator needs, gathered once. Split out because the Plan
+// page asks the same question with a different budget: the ladder decides HOW
+// MUCH goes out today, this decides WHICH names it buys, and the two must be
+// looking at one set of candidates or they will contradict each other.
+export type DeployContext = {
+  candidates: DeployCandidate[];
+  board: ZoneBoard;
+  summary: Awaited<ReturnType<typeof getPortfolioSummary>>;
+  funds: Awaited<ReturnType<typeof getMutualFundsValued>>;
+  fundsValue: number;
+  settings: any;
+  standIns: { groups: StandInView[]; problems: string[] };
+  cashSummary: Awaited<ReturnType<typeof getCashSummary>> | null;
+};
+
+async function _buildDeployContext(): Promise<DeployContext> {
   const [board, summary, funds, settings, standIns, cashSummary] = await Promise.all([
     getZoneBoard(),
     getPortfolioSummary(),
@@ -1937,6 +1952,15 @@ async function _getDeploymentPlan(): Promise<DeploymentPlan> {
       consider(p.symbol, p.priceKnown ? p.currentPrice : null, p.targetPercent, p.marketValue, false);
     }
   }
+
+  return { candidates, board, summary, funds, fundsValue, settings, standIns, cashSummary };
+}
+
+const buildDeployContext = cache(_buildDeployContext);
+
+async function _getDeploymentPlan(): Promise<DeploymentPlan> {
+  const { candidates, board, summary, funds, fundsValue, settings, standIns, cashSummary } =
+    await buildDeployContext();
 
   const plan = planDeployment({
     candidates,
@@ -2086,3 +2110,30 @@ export const getStandInGroups = cache(_getStandInGroups);
 
 export const getZoneBoard = cache(_getZoneBoard);
 export const getDeploymentPlan = cache(_getDeploymentPlan);
+
+// The ladder says HOW MUCH goes out today. This says which names it buys.
+//
+// Before this existed the two halves of the plan never met: the ladder printed
+// "deploy Rs 52,758" and stopped, leaving the one question that actually costs
+// money — which shares, how many — to be answered from memory at the moment of
+// buying, which is exactly the moment the rules exist to protect you from.
+//
+// The budget is passed as FRESH cash with no reserve of its own, because the
+// ladder has already taken its reserve out of the pool. Charging a second
+// reserve here would quietly shrink every rung. Equity value is still real, so
+// target weights and the concentration cap bind against the actual book.
+export async function getLadderBuys(budget: number): Promise<DeployPlan | null> {
+  if (!(budget > 0)) return null;
+  const { candidates, summary, settings, board } = await buildDeployContext();
+  if (candidates.length === 0) return null;
+  return planDeployment({
+    candidates,
+    equityValue: summary.totalValue,
+    fundsValue: 0,
+    brokerCash: 0,
+    reservePct: 0,
+    concentrationCap: (settings as any).concentrationCap ?? 25,
+    freshCash: budget,
+    unpriced: board.unpriced,
+  });
+}
