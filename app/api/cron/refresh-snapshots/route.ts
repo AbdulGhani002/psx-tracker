@@ -5,6 +5,7 @@ import { runAsUser } from "@/lib/auth/current-user";
 import { buildKse100SectorWeights, SECTOR_WEIGHTS_KEY } from "@/lib/feeds/sector-weights";
 import { computeBenchmark, benchmarkKey, BENCHMARK_RANGES } from "@/lib/feeds/benchmark";
 import { getAutoSignalsCached } from "@/lib/feeds/regime";
+import { warmIndexSeries } from "@/lib/feeds/backtest";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -69,6 +70,14 @@ export async function POST() {
       : { status: "error", note: "no signals" };
   } catch (e) {
     report.regime = { status: "error", note: String(e).slice(0, 200) };
+  }
+
+  // The index history the rule check runs on. Five years of end-of-day is a
+  // slow fetch, and nobody should wait behind it on a page load.
+  try {
+    report.indexHistory = await warmIndexSeries();
+  } catch (e) {
+    report.indexHistory = { status: "error", note: String(e).slice(0, 200) };
   }
 
   // Per-user warming: for every account, warm its page aggregates + its three

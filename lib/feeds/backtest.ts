@@ -50,6 +50,13 @@ export type RuleCheck = {
   at: string;
 };
 
+// Pull the index history on a schedule so no page load ever pays for it. Five
+// years of end-of-day is a slow fetch to do in front of somebody.
+export async function warmIndexSeries(): Promise<{ sessions: number; from: string; to: string }> {
+  const s = await getSeries(true);
+  return { sessions: s.length, from: s[0]?.date ?? "", to: s[s.length - 1]?.date ?? "" };
+}
+
 async function getSeries(force = false): Promise<Bar[]> {
   const cached = await getFeedSnapshot<EodPoint[]>(EOD_CACHE_KEY);
   const fresh =
