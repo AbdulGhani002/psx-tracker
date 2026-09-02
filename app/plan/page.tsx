@@ -124,7 +124,15 @@ export default async function PlanPage() {
                       <span className="text-muted">not set</span>
                     )}
                   </td>
-                  <td className="py-2 pl-4 text-muted">{s.reading}</td>
+                  <td className="py-2 pl-4 text-muted">
+                    {s.reading}
+                    {s.overrides && (
+                      <span className="block mt-0.5 text-[12px]" style={{ color: "var(--negative)" }}>
+                        Your score is covering a live reading: {signed(s.overrides.score)} ·{" "}
+                        {s.overrides.reading}. Clear yours below to let the feed score it.
+                      </span>
+                    )}
+                  </td>
                 </tr>
               ))}
             </tbody>

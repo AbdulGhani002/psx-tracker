@@ -33,6 +33,10 @@ export type RegimeSignal = {
   reading: string; // what was observed, in words
   known: boolean; // false = not set / could not be fetched, contributes nothing
   hint: string; // what would move this signal
+  // Present only when your own score is sitting on top of a reading the app
+  // could have taken itself. Shown so a judgement made before there was a feed
+  // does not quietly outlive the reason for it.
+  overrides?: { score: number; reading: string };
 };
 
 export type RegimeBand = "STRONG_RISK_ON" | "RISK_ON" | "NEUTRAL" | "RISK_OFF" | "CRISIS";

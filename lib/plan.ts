@@ -130,10 +130,22 @@ export async function assemblePlan(): Promise<PlanView> {
   // lists overlap. Your judgement wins: a signal you have set overrides the feed
   // for that key, and an unset manual entry never displaces a real reading.
   // Without this both would be counted twice and quietly double-weighted.
+  //
+  // An override that wins is SAID SO, with the reading it is covering. These
+  // scores were set by hand when there was no feed to read, and a stale
+  // judgement silently sitting on top of live data is exactly the failure this
+  // scorecard exists to prevent.
   const merged = new Map<string, RegimeSignal>();
   for (const s of autoSignals) merged.set(s.key, s);
   for (const s of manualSignals) {
-    if (s.known || !merged.has(s.key)) merged.set(s.key, s);
+    if (!s.known && merged.has(s.key)) continue;
+    const covered = merged.get(s.key);
+    merged.set(
+      s.key,
+      covered?.known
+        ? { ...s, overrides: { score: covered.score, reading: covered.reading } }
+        : s
+    );
   }
   const regime = scoreRegime([...merged.values()]);
 
