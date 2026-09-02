@@ -54,6 +54,13 @@ const nextConfig = {
       // dividend warrants stays exactly where it was: that is money a payer
       // actually withheld, and it is part of what each dividend netted.
       { source: "/zakat", destination: "/wealth", permanent: true },
+      // 2 Sep: heatmap, companies and PMEX screens removed at the owner's
+      // request — three pages he had stopped opening. The PMEX LIBRARIES and
+      // API stay: /wealth still reports realised PMEX profit per financial
+      // year, and that reconciliation is the reason the data exists at all.
+      { source: "/heatmap", destination: "/holdings", permanent: true },
+      { source: "/companies", destination: "/holdings", permanent: true },
+      { source: "/commodities", destination: "/wealth", permanent: true },
     ];
   },
   reactStrictMode: true,
