@@ -8,6 +8,7 @@ import { ThemeToggle } from "./ThemeToggle";
 // Primary items stay visible; the rest live under "More".
 const PRIMARY = [
   { href: "/", label: "Overview" },
+  { href: "/plan", label: "Plan" },
   { href: "/holdings", label: "Holdings" },
   { href: "/companies", label: "Companies" },
   { href: "/commodities", label: "PMEX" },

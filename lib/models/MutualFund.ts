@@ -11,6 +11,12 @@ const MutualFundSchema = new Schema(
     // Daily-dividend / money-market funds keep NAV at par and grow your UNITS via
     // reinvested daily dividends. Model that like savings accrual.
     fundType: { type: String, default: "growth" }, // "growth" | "dailyDividend"
+    // A money-market fund keeps earning on days MUFAP does not publish a NAV.
+    // Flagging it lets the valuation carry the NAV forward over weekends and
+    // holidays instead of showing a balance that appears to stop working every
+    // Friday. Equity and bond funds must NOT be flagged: their NAV moves on
+    // markets, and accruing a trend for them would be an invention.
+    moneyMarket: { type: Boolean, default: false },
     annualYieldPct: { type: Number, default: 0 }, // the fund's annualised payout (for unit accrual)
     anchorDate: { type: String, default: "" }, // ISO date the `units` figure is accurate
     // Cash is a POSITION, not the absence of one: parked money carries a

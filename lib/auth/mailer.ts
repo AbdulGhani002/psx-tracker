@@ -3,20 +3,42 @@
 // returns false, so signup/reset flows still work locally (the link is logged).
 const FROM = process.env.MAIL_FROM || "PSX Portfolio <noreply@psx.app>";
 
-export async function sendEmail(to: string, subject: string, html: string): Promise<boolean> {
+export type MailAttachment = { filename: string; content: Buffer };
+
+export async function sendEmail(
+  to: string,
+  subject: string,
+  html: string,
+  attachments: MailAttachment[] = []
+): Promise<boolean> {
   const key = process.env.RESEND_API_KEY;
   if (!key) {
     console.log(`[mailer] (no RESEND_API_KEY) would send to ${to}: ${subject}`);
     return false;
   }
   try {
+    const body: Record<string, unknown> = { from: FROM, to, subject, html };
+    // Resend takes attachments base64-encoded in the JSON body, so a PDF rides
+    // along with no multipart handling and no extra dependency.
+    if (attachments.length > 0) {
+      body.attachments = attachments.map((a) => ({
+        filename: a.filename,
+        content: a.content.toString("base64"),
+      }));
+    }
     const res = await fetch("https://api.resend.com/emails", {
       method: "POST",
       headers: { authorization: `Bearer ${key}`, "content-type": "application/json" },
-      body: JSON.stringify({ from: FROM, to, subject, html }),
+      body: JSON.stringify(body),
     });
-    return res.ok;
-  } catch {
+    if (!res.ok) {
+      // The reason matters when a weekly report silently stops arriving.
+      console.log(`[mailer] resend rejected ${res.status}: ${(await res.text().catch(() => "")).slice(0, 300)}`);
+      return false;
+    }
+    return true;
+  } catch (e) {
+    console.log(`[mailer] send failed: ${String(e).slice(0, 200)}`);
     return false;
   }
 }

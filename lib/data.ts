@@ -1025,6 +1025,7 @@ export type ValuedFund = {
   amc: string;
   avgCost: number;
   fundType: string;
+  moneyMarket: boolean;
   annualYieldPct: number;
   anchorDate: string;
   notes: string;
@@ -1123,9 +1124,23 @@ async function _getMutualFundsValued(): Promise<ValuedFund[]> {
     // Daily-dividend accrual runs on the LIVE annual yield when MUFAP has one;
     // the stored manual figure is only the fallback.
     const accrualYieldPct = liveAnnualYieldPct ?? ((f as any).annualYieldPct ?? 0);
+    // Money-market status is stored, but a fund added before the flag existed
+    // still has to behave correctly, so fall back to reading the name. Cash and
+    // money-market funds are the only ones carried forward between NAV publishes.
+    const moneyMarket =
+      (f as any).moneyMarket ?? /cash|money\s*market|liquid|savings/i.test(f.mufapName || f.name || "");
     const v = valueFund(
-      { units: f.units, avgCost: f.avgCost, dailyDividend, annualYieldPct: accrualYieldPct, anchorDate: (f as any).anchorDate ?? "" },
-      nav
+      {
+        units: f.units,
+        avgCost: f.avgCost,
+        dailyDividend,
+        moneyMarket,
+        annualYieldPct: accrualYieldPct,
+        anchorDate: (f as any).anchorDate ?? "",
+      },
+      nav,
+      undefined,
+      navAsOf
     );
     out.push({
       ...v, // units, nav, effectiveNav, dailyYieldPct, value, cost, unrealizedPL, unrealizedPct, dailyDividend
@@ -1135,6 +1150,7 @@ async function _getMutualFundsValued(): Promise<ValuedFund[]> {
       amc: f.amc,
       avgCost: f.avgCost,
       fundType: (f as any).fundType ?? "growth",
+      moneyMarket,
       annualYieldPct: (f as any).annualYieldPct ?? 0,
       anchorDate: (f as any).anchorDate ?? "",
       notes: f.notes,

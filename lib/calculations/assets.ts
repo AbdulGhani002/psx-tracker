@@ -63,6 +63,13 @@ export type FundValuation = {
   unrealizedPL: number;
   unrealizedPct: number;
   dailyDividend: boolean;
+  // What the money earned, so a parked balance reads as a working one.
+  // `accruedDays` is how many days of yield were added on top of the published
+  // NAV — zero when the NAV is today's, which is the normal weekday case.
+  earnedPerDay: number; // rupees a day at the current balance and yield
+  earnedToday: number; // the most recent day's worth
+  earnedSinceAnchor: number; // value now less value at the anchor balance
+  accruedDays: number;
 };
 
 // Daily-dividend / money-market funds (e.g. Alhamra Daily Dividend) keep their
@@ -71,6 +78,13 @@ export type FundValuation = {
 // EFFECTIVE NAV that ticks up every day at the fund's annualised yield (par
 // compounded daily) — the value and return then reflect the daily income. The
 // published par NAV is kept for reference. Growth funds are unchanged.
+// `navAsOf` is the date the published NAV belongs to. A money-market fund keeps
+// earning on the days MUFAP does not publish — weekends and holidays — so for
+// those funds the NAV is carried forward at the fund's own yield until it is
+// republished. Without that the balance sits frozen from Friday to Monday and
+// looks like the money stopped working, which is the one thing a cash fund is
+// supposed to never do. Growth funds that are not money-market are left alone:
+// their NAV moves on markets, and inventing a trend for it would be a lie.
 export function valueFund(
   fund: {
     units: number;
@@ -78,28 +92,48 @@ export function valueFund(
     dailyDividend?: boolean;
     annualYieldPct?: number;
     anchorDate?: string;
+    moneyMarket?: boolean; // carry the NAV forward on non-publishing days
   },
   nav: number,
-  asOf: string = new Date().toISOString().slice(0, 10)
+  asOf: string = new Date().toISOString().slice(0, 10),
+  navAsOf?: string
 ): FundValuation {
   const units = fund.units;
   const isDaily = !!fund.dailyDividend;
+  const yieldPct = fund.annualYieldPct ?? 0;
   const par = nav > 0 ? nav : fund.avgCost > 0 ? fund.avgCost : 100;
+  const dailyFactor = yieldPct > 0 ? Math.pow(1 + yieldPct / 100, 1 / 365) : 1;
 
   let effectiveNav = isDaily ? par : nav;
   let dailyYieldPct = 0;
-  if (isDaily && fund.anchorDate && (fund.annualYieldPct ?? 0) > 0) {
-    const days = daysBetween(fund.anchorDate, asOf);
-    // Effective-annual convention (same as savings): 17% means +17% over a year.
-    const dailyFactor = Math.pow(1 + (fund.annualYieldPct as number) / 100, 1 / 365);
-    effectiveNav = par * Math.pow(dailyFactor, days);
+  let accruedDays = 0;
+
+  if (isDaily && fund.anchorDate && yieldPct > 0) {
+    // Par-NAV funds pay income as units. Compound from the anchor.
+    accruedDays = daysBetween(fund.anchorDate, asOf);
+    effectiveNav = par * Math.pow(dailyFactor, accruedDays);
+    dailyYieldPct = (dailyFactor - 1) * 100;
+  } else if (fund.moneyMarket && nav > 0 && yieldPct > 0) {
+    // Growth-class money market: the published NAV already contains the income
+    // up to its own date. Only bridge the gap to today.
+    accruedDays = navAsOf ? daysBetween(navAsOf, asOf) : 0;
+    effectiveNav = nav * Math.pow(dailyFactor, accruedDays);
     dailyYieldPct = (dailyFactor - 1) * 100;
   }
 
-  const usedNav = isDaily ? effectiveNav : nav;
+  const usedNav = isDaily || fund.moneyMarket ? effectiveNav : nav;
   const value = units * usedNav;
   const cost = units * fund.avgCost;
   const unrealizedPL = value - cost;
+
+  // A day's worth at the balance as it stands, and the last day actually added.
+  const earnedPerDay = dailyYieldPct > 0 ? value - value / dailyFactor : 0;
+  const earnedToday = accruedDays > 0 ? earnedPerDay : 0;
+  // Value now against the same units at the anchor NAV — the income the units
+  // have thrown off since the statement, which is what "my cash grew" means.
+  const anchorNav = isDaily ? par : nav;
+  const earnedSinceAnchor = units * (usedNav - anchorNav);
+
   return {
     units,
     nav,
@@ -110,5 +144,9 @@ export function valueFund(
     unrealizedPL,
     unrealizedPct: cost > 0 ? unrealizedPL / cost : 0,
     dailyDividend: isDaily,
+    earnedPerDay,
+    earnedToday,
+    earnedSinceAnchor,
+    accruedDays,
   };
 }
