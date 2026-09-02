@@ -33,6 +33,10 @@ export type HoldingRow = {
   deviation: number;
   staleDays: number | null;
   spark: number[];
+  // KMI index membership, which is the Meezan screen already applied. "unknown"
+  // is a real state and must not be shown as compliant: a symbol missing from
+  // the market-watch board has not been screened, it has just not been seen.
+  shariah: "KMI30" | "KMIALL" | "NON" | null;
 };
 
 type SortKey =
@@ -65,14 +69,23 @@ const COLUMNS: Array<{ key: SortKey; label: string; align: "left" | "right" }> =
   { key: "weight", label: "% / target", align: "right" },
 ];
 
+const SHARIAH_LABEL: Record<string, { text: string; tone: "positive" | "negative" | "amber"; title: string }> = {
+  KMI30: { text: "KMI-30", tone: "positive", title: "In the KMI-30 index, which is Meezan-screened" },
+  KMIALL: { text: "Shariah", tone: "positive", title: "In the KMI All-Share index, which is Meezan-screened" },
+  NON: { text: "Non-KMI", tone: "negative", title: "Not in either KMI index — it did not pass the screen" },
+};
+
 export function HoldingsTable({ rows, staleAfterDays }: { rows: HoldingRow[]; staleAfterDays: number }) {
   const [sort, setSort] = useState<SortKey>("marketValue");
   const [desc, setDesc] = useState(true);
   const [q, setQ] = useState("");
+  const [shariahOnly, setShariahOnly] = useState(false);
+
+  const hasShariah = rows.some((r) => r.shariah != null);
 
   const view = useMemo(() => {
     const needle = q.trim().toLowerCase();
-    const filtered = needle
+    let filtered = needle
       ? rows.filter(
           (r) =>
             r.symbol.toLowerCase().includes(needle) ||
@@ -80,6 +93,10 @@ export function HoldingsTable({ rows, staleAfterDays }: { rows: HoldingRow[]; st
             (r.sector ?? "").toLowerCase().includes(needle)
         )
       : rows;
+    // Unknown is filtered out along with non-compliant. Showing an unscreened
+    // name inside a "Shariah only" list would be the one mistake this filter
+    // exists to prevent.
+    if (shariahOnly) filtered = filtered.filter((r) => r.shariah === "KMI30" || r.shariah === "KMIALL");
     const get = VALUE[sort];
     return [...filtered].sort((a, b) => {
       const va = get(a);
@@ -90,7 +107,7 @@ export function HoldingsTable({ rows, staleAfterDays }: { rows: HoldingRow[]; st
       const cmp = typeof va === "string" ? va.localeCompare(String(vb)) : Number(va) - Number(vb);
       return desc ? -cmp : cmp;
     });
-  }, [rows, sort, desc, q]);
+  }, [rows, sort, desc, q, shariahOnly]);
 
   const shown = view.reduce((s, r) => s + (r.priceKnown ? r.marketValue : 0), 0);
 
@@ -117,8 +134,24 @@ export function HoldingsTable({ rows, staleAfterDays }: { rows: HoldingRow[]; st
         <span className="label-cap">
           {view.length} of {rows.length} · <span className="mono-num">{fmtRs(shown)}</span>
         </span>
-        {q && (
-          <button onClick={() => setQ("")} className="label-cap link-underline">
+        {hasShariah && (
+          <button
+            onClick={() => setShariahOnly(!shariahOnly)}
+            className="label-cap link-underline"
+            style={{ color: shariahOnly ? "var(--accent-deep)" : "var(--muted)" }}
+            aria-pressed={shariahOnly}
+          >
+            {shariahOnly ? "showing Shariah only" : "Shariah only"}
+          </button>
+        )}
+        {(q || shariahOnly) && (
+          <button
+            onClick={() => {
+              setQ("");
+              setShariahOnly(false);
+            }}
+            className="label-cap link-underline"
+          >
             clear
           </button>
         )}
@@ -157,7 +190,7 @@ export function HoldingsTable({ rows, staleAfterDays }: { rows: HoldingRow[]; st
             {view.length === 0 && (
               <tr>
                 <td colSpan={COLUMNS.length + 2} className="px-3 py-8 text-center text-muted text-sm">
-                  Nothing matches “{q}”.
+                  {shariahOnly && !q ? "No holding is in either KMI index." : `Nothing matches “${q}”.`}
                 </td>
               </tr>
             )}
@@ -171,9 +204,16 @@ export function HoldingsTable({ rows, staleAfterDays }: { rows: HoldingRow[]; st
                     <CompanyMark symbol={r.symbol} sector={r.sector} size="sm" />
                   </td>
                   <td className="px-3 py-2">
-                    <Link href={`/holdings/${r.symbol}`} className="font-mono text-[13px] font-medium link-underline">
-                      {r.symbol}
-                    </Link>
+                    <span className="inline-flex items-center gap-1.5">
+                      <Link href={`/holdings/${r.symbol}`} className="font-mono text-[13px] font-medium link-underline">
+                        {r.symbol}
+                      </Link>
+                      {r.shariah && SHARIAH_LABEL[r.shariah] && (
+                        <span title={SHARIAH_LABEL[r.shariah].title}>
+                          <Badge tone={SHARIAH_LABEL[r.shariah].tone}>{SHARIAH_LABEL[r.shariah].text}</Badge>
+                        </span>
+                      )}
+                    </span>
                   </td>
                   <td className="px-3 py-2 text-[12px] text-muted">{r.sector}</td>
                   <td className="px-3 py-2 text-right mono-num">{fmtNum(r.shares)}</td>

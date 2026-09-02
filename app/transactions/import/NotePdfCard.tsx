@@ -15,7 +15,25 @@ type Confirmation = {
   grandTotal: number | null;
   problems: string[];
 };
-type ParseResult = { filename: string; confirmations?: Confirmation[]; importRows?: ImportRow[]; rawLines?: string[][]; error?: string };
+type GenericNote = {
+  broker: string;
+  side: "BUY" | "SELL" | null;
+  tradeDate: string;
+  rows: Array<{ symbol: string; qty: number; rate: number; amount: number }>;
+  rowSum: number;
+  statedTotal: number | null;
+  fees: number;
+  problems: string[];
+};
+type ParseResult = {
+  filename: string;
+  parser?: "bma" | "generic";
+  confirmations?: Confirmation[];
+  generic?: GenericNote;
+  importRows?: ImportRow[];
+  rawLines?: string[][];
+  error?: string;
+};
 
 function toCsv(rows: ImportRow[]): string {
   const esc = (s: string) => (/[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s);
@@ -36,7 +54,10 @@ export function NotePdfCard() {
   const [error, setError] = useState<string | null>(null);
 
   const allRows = (results ?? []).flatMap((r) => r.importRows ?? []);
-  const anyProblems = (results ?? []).some((r) => r.error || (r.confirmations ?? []).some((c) => c.problems.length > 0));
+  const anyProblems = (results ?? []).some(
+    (r) => r.error || (r.confirmations ?? []).some((c) => c.problems.length > 0) || (r.generic?.problems.length ?? 0) > 0
+  );
+  const anyGeneric = (results ?? []).some((r) => r.parser === "generic" && (r.importRows?.length ?? 0) > 0);
 
   async function onFiles(list: FileList | null) {
     if (!list || list.length === 0) return;
@@ -79,16 +100,20 @@ export function NotePdfCard() {
   return (
     <Card>
       <div className="flex items-center justify-between mb-3">
-        <div className="label-cap">Upload BMA contract notes (.pdf)</div>
+        <div className="label-cap">Upload contract notes (.pdf)</div>
         <button onClick={() => fileRef.current?.click()} className="font-mono text-[10px] uppercase tracking-button hover:underline" style={{ color: "var(--accent-deep)" }} disabled={busy}>
           Choose PDFs
         </button>
         <input ref={fileRef} type="file" accept=".pdf,application/pdf" multiple className="hidden" onChange={(e) => onFiles(e.target.files)} />
       </div>
       <p className="text-[13px] text-muted max-w-[64ch]">
-        Every note is re-checked against its own arithmetic — each row&apos;s quantity × net rate, the note total, and total ± S.S.T against the grand
-        total. If anything is off by more than 3 paisa the note is refused and shown raw, so a layout change can never import wrong numbers. Fees carry
-        commission plus the S.S.T share; price is the market rate.
+        BMA notes are read exactly: each row&apos;s quantity × net rate, the note total, and total ± S.S.T against the grand total. If anything is off by
+        more than 3 paisa the note is refused and shown raw, so a layout change can never import wrong numbers.
+      </p>
+      <p className="text-[13px] text-muted max-w-[64ch] mt-2">
+        Any other broker falls through to a general reader, which does not know your broker&apos;s layout and does not pretend to. It looks for the
+        arithmetic every contract note must contain — rows where quantity × rate equals the amount, adding up to the total printed on the note — and
+        refuses to import anything that does not reconcile. Check those figures against the paper before you save them.
       </p>
 
       {busy && <div className="mt-3 text-[13px] text-muted">Parsing…</div>}
@@ -119,8 +144,29 @@ export function NotePdfCard() {
               )}
             </div>
           ))}
-          {(r.confirmations?.length ?? 0) === 0 && !r.error && (
-            <div className="mt-1 text-[13px]" style={{ color: "var(--negative)" }}>No BMA confirmation found in this PDF.</div>
+          {r.generic && (
+            <div className="mt-2">
+              <div className="text-[13px]">
+                <span className="font-medium">{r.generic.side ?? "side unclear"}</span>
+                {r.generic.broker ? ` · ${r.generic.broker}` : ""} · trade date {r.generic.tradeDate || "—"} · rows{" "}
+                {fmt(r.generic.rowSum)} · note total {fmt(r.generic.statedTotal)} · charges {fmt(r.generic.fees)}{" "}
+                {r.generic.problems.length === 0 ? (
+                  <span style={{ color: "var(--positive)" }}>reconciles ✓</span>
+                ) : (
+                  <span style={{ color: "var(--negative)" }}>refused</span>
+                )}
+              </div>
+              <div className="mt-1 text-[12px] text-muted">
+                Read generically — your broker&apos;s layout is not known to the app, so these came from the numbers alone.
+              </div>
+              {r.generic.problems.length > 0 && (
+                <ul className="mt-1 text-[12px] list-disc pl-5" style={{ color: "var(--negative)" }}>
+                  {r.generic.problems.map((p, j) => (
+                    <li key={j}>{p}</li>
+                  ))}
+                </ul>
+              )}
+            </div>
           )}
           {r.rawLines && (
             <details className="mt-2">
@@ -136,6 +182,12 @@ export function NotePdfCard() {
       {allRows.length > 0 && (
         <div className="mt-4 border-t border-rule pt-3">
           <div className="label-cap mb-2">{allRows.length} transactions ready</div>
+          {anyGeneric && (
+            <p className="mb-2 text-[12px]" style={{ color: "var(--amber, var(--negative))" }}>
+              Some of these were read generically. The quantities and amounts reconcile against the note&apos;s own total,
+              but the split between price and charges was inferred. Check them before saving.
+            </p>
+          )}
           <div className="overflow-x-auto">
             <table className="w-full text-[12px] font-mono mono-num">
               <thead>
