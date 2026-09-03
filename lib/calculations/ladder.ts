@@ -514,11 +514,29 @@ export function reweightLadder(
 
   const raw = scored.map((x) => floor + (spare * Math.max(x.share, 0.01)) / totalShare);
   const pcts = raw.map((v) => Math.round(v));
-  // Rounding must land on 100 exactly; the remainder goes to the rung that
-  // fires most often, where a point does the most work.
-  const drift = 100 - pcts.reduce((a, b) => a + b, 0);
+
+  // The rung that fires most often, which is where a spare point does the most
+  // work and where any trimmed weight goes.
   let best = 0;
   for (let i = 1; i < scored.length; i++) if (scored[i].share > scored[best].share) best = i;
+
+  // A fix that leaves the problem it diagnoses still flagged is not a fix. The
+  // weighting above is proportional, so a level sitting just under the rarity
+  // threshold can still come out just over the "holds real money" one and keep
+  // its warning. Trim any such rung under the line and hand the difference to
+  // the rung that actually fires.
+  for (let i = 0; i < scored.length; i++) {
+    if (i === best) continue;
+    if (scored[i].share >= DEAD_SHARE) continue;
+    const cap = MATERIAL_PCT - 1;
+    if (pcts[i] > cap) {
+      pcts[best] += pcts[i] - cap;
+      pcts[i] = cap;
+    }
+  }
+
+  // Rounding must land on 100 exactly.
+  const drift = 100 - pcts.reduce((a, b) => a + b, 0);
   pcts[best] += drift;
 
   return scored.map((x, i) => ({

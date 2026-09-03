@@ -404,6 +404,33 @@ check("growth fund value stays units x NAV", equityFund.value === 11225, equityF
   });
   check("reweighting clears the dead-weight flag", after.deadPct === 0, after.deadPct);
 
+  // The case that bit on real data: a level just under the rarity line coming
+  // out just over the "holds real money" line, so the fix left its own warning
+  // standing. The reweight must trim it below that line by construction.
+  {
+    const borderline = [
+      { level: 96500, pct: 15, label: "shallow" },
+      { level: 84000, pct: 25, label: "just too rare" },
+      { level: 70000, pct: 30, label: "never" },
+    ];
+    const out2 = reweightLadder(borderline, dist, 100000);
+    const check2 = planLadder({
+      indexLevel: 95000,
+      rungs: out2.map((r) => rung(r.level, r.pct, r.label)),
+      poolAtArming: 1000000,
+      poolNow: 1000000,
+      reservePct: 10,
+      referenceHigh: 100000,
+      fallDistribution: dist,
+    });
+    check("a borderline rung is trimmed under the flag", check2.deadPct === 0, {
+      pcts: out2.map((r) => r.pct),
+      dead: check2.deadPct,
+    });
+    check("and the weights still add to 100", out2.reduce((a, r) => a + r.pct, 0) === 100, out2.map((r) => r.pct));
+    check("the trimmed weight goes to the rung that fires", out2[0].pct > out2[1].pct, out2.map((r) => r.pct));
+  }
+
   check("no levels means no reweight", reweightLadder([], dist, 100000).length === 0);
   check("no history means no reweight", reweightLadder(mine, [], 100000).length === 0);
   check("no reference high means no reweight", reweightLadder(mine, dist, 0).length === 0);
