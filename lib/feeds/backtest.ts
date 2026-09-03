@@ -25,6 +25,7 @@ import {
   type BacktestRung,
   type StrategyKey,
 } from "@/lib/calculations/backtest";
+import { fallDistributionOf, type FallStat } from "@/lib/calculations/ladder";
 
 export const EOD_CACHE_KEY = "backtest:kse100";
 const FRESH_MS = 12 * 60 * 60 * 1000;
@@ -55,6 +56,27 @@ export type RuleCheck = {
 export async function warmIndexSeries(): Promise<{ sessions: number; from: string; to: string }> {
   const s = await getSeries(true);
   return { sessions: s.length, from: s[0]?.date ?? "", to: s[s.length - 1]?.date ?? "" };
+}
+
+export async function getFallDistribution(): Promise<{
+  dist: FallStat[];
+  peak: number;
+  sessions: number;
+  from: string;
+  to: string;
+}> {
+  const s = await getSeries();
+  return {
+    dist: fallDistributionOf(s),
+    // The highest close on record. Rung depth has to be measured from the same
+    // peak the distribution counts falls from, or the two do not describe the
+    // same thing: measuring against TODAY's index understates every fall by
+    // however far the market has already pulled back.
+    peak: s.reduce((m, b) => (b.close > m ? b.close : m), 0),
+    sessions: s.length,
+    from: s[0]?.date ?? "",
+    to: s[s.length - 1]?.date ?? "",
+  };
 }
 
 async function getSeries(force = false): Promise<Bar[]> {

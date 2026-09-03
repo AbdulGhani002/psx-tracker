@@ -50,6 +50,15 @@ export type BacktestConfig = {
   reservePct: number; // never spent by the ladder
   rearmWithinPct: number; // recovery to within this much of the high re-arms
   costPct: number; // friction on a buy, in per cent
+
+  // --- the two valves that stop the ladder sitting in cash forever ----------
+
+  // Share of every rupee that goes to work the day it arrives, whatever the
+  // index is doing. The rest waits for a rung. At 0 the ladder is a gate: no
+  // dip, no buying, and in a market with upward drift that is a standing bet
+  // against the drift. At 100 there is no ladder left. Between the two it is a
+  // TILT: you are always invested, and a fall decides how much extra goes in.
+  corePct: number;
 };
 
 export type StrategyKey = "alwaysIn" | "ladder" | "ladderRegime" | "cashOnly";
@@ -110,6 +119,7 @@ export const DEFAULT_CONFIG: BacktestConfig = {
   reservePct: 10,
   rearmWithinPct: 2,
   costPct: 0.3,
+  corePct: 0,
 };
 
 const num = (v: unknown): number => (typeof v === "number" && Number.isFinite(v) ? v : 0);
@@ -248,6 +258,17 @@ export function runBacktest(series: Bar[], cfgIn: Partial<BacktestConfig> = {}):
   const keys = Object.keys(books) as StrategyKey[];
   const flows: CashFlow[] = [{ date: new Date(day(bars[0].date)), amount: -config.startCash }];
 
+  // The core share of the OPENING balance goes to work on day one. Holding it
+  // back would make the first months an accident of where the index happened to
+  // be standing when you opened the account.
+  if (config.corePct > 0) {
+    for (const key of ["ladder", "ladderRegime"] as const) {
+      const b = books[key];
+      buy(b, (b.cash * config.corePct) / 100, closes[0], bars[0].date, "core, invested on arrival", config.costPct);
+      b.poolAtArming = b.cash;
+    }
+  }
+
   let armedPeak = closes[0]; // the high the current ladder cycle is measured from
   let prevMonth = bars[0].date.slice(0, 7);
   let contributed = config.startCash;
@@ -278,6 +299,14 @@ export function runBacktest(series: Bar[], cfgIn: Partial<BacktestConfig> = {}):
       for (const k of keys) contribute(books[k], config.monthlyContribution, close);
       contributed += config.monthlyContribution;
       flows.push({ date: new Date(t), amount: -config.monthlyContribution });
+      // The core share of new money goes in the day it lands. Only the rest
+      // waits for a rung, which is what turns the ladder from a gate into a tilt.
+      if (config.corePct > 0) {
+        const core = (config.monthlyContribution * config.corePct) / 100;
+        for (const key of ["ladder", "ladderRegime"] as const) {
+          buy(books[key], core, close, bar.date, "core, invested on arrival", config.costPct);
+        }
+      }
     }
     prevMonth = month;
 
@@ -337,6 +366,7 @@ export function runBacktest(series: Bar[], cfgIn: Partial<BacktestConfig> = {}):
           b.fired[r] = true;
         }
       }
+
     }
 
     // A new high re-bases the reference every ladder measures its fall from.

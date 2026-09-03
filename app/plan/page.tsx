@@ -148,7 +148,7 @@ export default async function PlanPage() {
       <Section
         number="03"
         title="The buying ladder"
-        description="Each rung names an index level and a slice of the pool. The level arms it, nothing else. A rung fires once, and slices are cut from the pool as it stood when you armed the ladder, so spending never shrinks the rungs below."
+        description="Each rung names an index level and a slice of the pool. The level arms it, nothing else. A rung fires once, and slices are cut from the pool as it stood when you armed the ladder, so spending never shrinks the rungs below. Every level is also checked against how often the index has actually been that low, because a rung holding real money behind a price that never arrives is not patience, it is idle cash."
       >
         <StatRow>
           <Stat
@@ -157,7 +157,15 @@ export default async function PlanPage() {
             hint={plan.ladder.indexAsOf ? `close ${plan.ladder.indexAsOf}` : "no index data"}
           />
           <Stat label="Ladder pool" value={fmtRs(plan.ladder.ladderPool)} hint={`Armed ${plan.playbook.armedAt || "not yet"}`} />
-          <Stat label="Reserve held back" value={fmtRs(plan.ladder.reserveAmount)} hint={`${plan.ladder.reservePct}% never spent`} />
+          <Stat
+            label={plan.ladder.corePct > 0 ? "Core" : "Reserve held back"}
+            value={fmtRs(plan.ladder.corePct > 0 ? plan.ladder.coreAmount : plan.ladder.reserveAmount)}
+            hint={
+              plan.ladder.corePct > 0
+                ? `${plan.ladder.corePct}% invested whatever the index does`
+                : `${plan.ladder.reservePct}% never spent`
+            }
+          />
           <Stat
             label="Ready to deploy"
             value={fmtRs(plan.ladder.readyAmount)}

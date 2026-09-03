@@ -43,6 +43,12 @@ export function PlanBoard({ initial }: { initial: any }) {
     }))
   );
   const [reservePct, setReservePct] = useState(String(pb.ladderReservePct ?? 10));
+  const [corePct, setCorePct] = useState(String(pb.ladderCorePct ?? 0));
+  // Offered by the server only when the written ladder has money parked where
+  // the market rarely goes. Empty the rest of the time, and the block below is
+  // hidden with it.
+  const suggestion: Array<{ level: number; pct: number; label: string; fallPct: number; reachedSharePct: number }> =
+    plan.ladderSuggestion ?? [];
   const [weeklyOn, setWeeklyOn] = useState(!!pb.weeklyReportEnabled);
   const [email, setEmail] = useState(pb.weeklyReportEmail ?? "");
 
@@ -93,7 +99,7 @@ export function PlanBoard({ initial }: { initial: any }) {
           <Button
             onClick={async () => {
               const clean = rungs.filter((r) => r.level > 0);
-              await save({ rungs: clean, ladderReservePct: num(reservePct) });
+              await save({ rungs: clean, ladderReservePct: num(reservePct), ladderCorePct: num(corePct) });
             }}
             disabled={busy}
           >
@@ -109,6 +115,7 @@ export function PlanBoard({ initial }: { initial: any }) {
                 <th className="text-left py-2">Share of pool</th>
                 <th className="text-left py-2">Note</th>
                 <th className="text-right py-2">Amount</th>
+                <th className="text-right py-2">Turns up</th>
                 <th className="text-right py-2">Status</th>
                 <th />
               </tr>
@@ -156,6 +163,34 @@ export function PlanBoard({ initial }: { initial: any }) {
                       />
                     </td>
                     <td className="py-2 text-right">{row ? fmtRs(row.amount) : "—"}</td>
+                    <td className="py-2 text-right whitespace-nowrap">
+                      {row?.reachedSharePct == null ? (
+                        <span className="text-muted">—</span>
+                      ) : (
+                        <span
+                          title={
+                            row.fallFromHighPct.toFixed(1) +
+                            "% below the index high; reached in " +
+                            row.reachedSharePct.toFixed(1) +
+                            "% of sessions on record"
+                          }
+                          style={{
+                            color:
+                              row.reach === "dead"
+                                ? "var(--negative)"
+                                : row.reach === "thin"
+                                ? "var(--amber, var(--ink))"
+                                : "var(--muted)",
+                          }}
+                        >
+                          {row.reachedSharePct < 0.5
+                            ? row.reachedSharePct.toFixed(1)
+                            : row.reachedSharePct.toFixed(0)}
+                          % of days
+                          {row.reach === "dead" ? " · dead" : row.reach === "thin" ? " · thin" : ""}
+                        </span>
+                      )}
+                    </td>
                     <td className="py-2 text-right">
                       {r.firedAt ? (
                         <span className="text-muted">fired {r.firedAt}</span>
@@ -215,11 +250,77 @@ export function PlanBoard({ initial }: { initial: any }) {
               hint="never spent"
             />
           </div>
+          <div className="w-32">
+            <TextInput
+              label="Core %"
+              value={corePct}
+              onChange={(e) => setCorePct(e.target.value)}
+              hint="invested regardless"
+            />
+          </div>
           <div className="text-[12px] text-muted">
             Allocated {totalPct.toFixed(0)}% of the ladder pool
             {totalPct > 100 && <span style={{ color: "var(--negative)" }}> — over 100%, trim a rung</span>}
           </div>
         </div>
+
+        {plan.ladder.diagnostics?.length > 0 && (
+          <div className="mt-5">
+            <Card>
+              <div className="label-cap mb-2" style={{ color: "var(--negative)" }}>
+                What the record says about these levels
+              </div>
+              <ul className="text-[13px] space-y-2">
+                {plan.ladder.diagnostics.map((d: string, i: number) => (
+                  <li key={i}>{d}</li>
+                ))}
+              </ul>
+              {suggestion.length > 0 && (
+                <div className="mt-4 pt-4 border-t border-rule">
+                  <div className="label-cap mb-2">A shape drawn from the record instead</div>
+                  <table className="w-full text-[13px] tabular-nums max-w-lg">
+                    <tbody>
+                      {suggestion.map((r) => (
+                        <tr key={r.level} className="border-b border-rule/60">
+                          <td className="py-1.5 font-mono">{r.level.toLocaleString("en-PK")}</td>
+                          <td className="py-1.5 text-right">{r.pct}%</td>
+                          <td className="py-1.5 text-right text-muted">{r.fallPct.toFixed(1)}% down</td>
+                          <td className="py-1.5 text-right text-muted">
+                            {r.reachedSharePct.toFixed(0)}% of days
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                  <p className="text-[12px] text-muted mt-2 max-w-[70ch]">
+                    Each level carries money in proportion to how often the index has actually been there. It is a
+                    starting point drawn from {plan.ladder.referenceHigh > 0 ? "the index high of " + Math.round(plan.ladder.referenceHigh).toLocaleString("en-PK") : "the record"},
+                    not a recommendation — your levels should still be yours. Loading it replaces the rows above; nothing
+                    saves until you press Save ladder.
+                  </p>
+                  <div className="mt-3">
+                    <Button
+                      variant="outline"
+                      onClick={() =>
+                        setRungs(
+                          suggestion.map((r) => ({
+                            level: r.level,
+                            pct: r.pct,
+                            label: r.label,
+                            firedAt: "",
+                            firedAmount: 0,
+                          }))
+                        )
+                      }
+                    >
+                      Load this shape into the rows above
+                    </Button>
+                  </div>
+                </div>
+              )}
+            </Card>
+          </div>
+        )}
 
         <div className="mt-5">
           <Card>

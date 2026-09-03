@@ -64,6 +64,9 @@ const PlaybookSchema = new Schema(
     armedAt: { type: String, default: "" },
     // Never spent by the ladder, whatever the levels say.
     ladderReservePct: { type: Number, default: 10 },
+    // Share of the pool invested regardless of level. 0 keeps the old
+    // behaviour, where the ladder buys only on a fall.
+    ladderCorePct: { type: Number, default: 0 },
 
     // --- cash not yet in the market ------------------------------------------
     cashSources: { type: [CashSourceSchema], default: [] },

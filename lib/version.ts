@@ -1,7 +1,7 @@
 // Single source of truth for the app version + changelog.
 // Bump APP_VERSION and prepend a CHANGELOG entry on every release.
 
-export const APP_VERSION = "9.3.0";
+export const APP_VERSION = "9.4.0";
 
 export const BUILD_DATE =
   process.env.NEXT_PUBLIC_BUILD_DATE ?? "";
@@ -17,6 +17,22 @@ export type ChangelogEntry = {
 
 // Reverse-chronological. Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: "9.4.0",
+    date: "2026-09-02",
+    title: "The ladder had 55% of its money parked where the market never goes",
+    changes: [
+      "The rule check said the ladder was losing to simply buying on arrival by about ten points a year. This is why. Your rungs sat at 12%, 19% and 23% below the index high. Over the whole record the index has been 19% down in 1.3% of sessions and 23% down in 0.1% of them. Fifty-five per cent of the pool was committed to prices that essentially never arrive.",
+      "That is not patience, it is idle cash. It earns the fund rate while the market compounds without it. And it is the natural mistake to make writing a ladder from a blank page, because the dramatic level feels like the important one, when it is precisely the level that almost never turns up.",
+      "Every rung now carries the number that settles the argument: how much of the record the index has actually spent at or below that level. A rung holding a serious share of the pool behind something reached in under 2% of sessions is marked dead, and the page says so in plain words with the rupees attached.",
+      "The app will also draw a ladder from the record if you want one: each rung placed at the fall that describes a given share of history, and weighted in proportion to that share, so the level you see half the time carries most of the money and the once-a-decade level carries a little. It only appears when your written ladder actually has dead weight, and loading it fills the rows for you to edit rather than saving anything.",
+      "New: a core. Set it and that share of the pool is invested regardless of level, leaving the rungs to add on weakness. Without one the ladder is a gate — no fall, no buying — which in a market that drifts upward is a standing bet against the drift.",
+      "All of it measured rather than argued. Against the record, replacing the deep rungs with reachable ones closes about eight of the ten points, and it holds under every assumption tested: cash yields from 6 to 15 per cent, contributions from ten thousand to sixty, dealing costs from 0.15 to 0.6 per cent, and four different starting balances.",
+      "The crash protection barely moves. In the 2021-23 fall the old shape beat buying-on-arrival by 14.5 points and the new one by 13.9. The deep rungs were not what protected you there, the regime cash floor was — they cost eight points a year and bought back half of one.",
+      "A release valve was built and thrown away. The idea was to deploy anyway after months with no rung hit; measured, it recovered 0.7 points of the ten, which is not worth a lever on a page. The rung weights were the whole problem.",
+      "One honest limit: the shape of the fix is sound and survives every assumption, but five years of one index is a single sample, and the exact percentages are fitted to it. Treat the suggested ladder as a starting point with its reasoning shown, not as an answer.",
+    ],
+  },
   {
     version: "9.3.0",
     date: "2026-09-02",

@@ -40,6 +40,7 @@ const patchSchema = z
     poolAtArming: z.number().min(0).optional(),
     armedAt: z.string().optional(),
     ladderReservePct: z.number().min(0).max(100).optional(),
+    ladderCorePct: z.number().min(0).max(100).optional(),
     cashSources: z.array(cashSource).optional(),
     regimeManual: z.array(manual).optional(),
     weeklyReportEnabled: z.boolean().optional(),

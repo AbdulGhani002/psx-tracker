@@ -16,11 +16,11 @@ import {
   getAppSettings,
   getLadderBuys,
 } from "@/lib/data";
-import { runRuleCheck, type RuleCheck } from "@/lib/feeds/backtest";
+import { runRuleCheck, getFallDistribution, type RuleCheck } from "@/lib/feeds/backtest";
 import type { DeployPlan } from "@/lib/calculations/deploy-plan";
 import { getAutoSignalsCached } from "@/lib/feeds/regime";
 import { scoreRegime, cashCheck, SIGNAL_HINTS, MANUAL_SIGNALS, type RegimeSignal, type RegimeVerdict } from "@/lib/calculations/regime";
-import { planLadder, ladderVerdict, type LadderPlan } from "@/lib/calculations/ladder";
+import { planLadder, ladderVerdict, suggestLadder, type LadderPlan } from "@/lib/calculations/ladder";
 import { fetchUsdPkrSpot } from "@/lib/timeseries/yahoo";
 
 export type CashBreakdown = {
@@ -53,6 +53,10 @@ export type PlanView = {
   cashCheck: ReturnType<typeof cashCheck>;
   ladder: LadderPlan;
   ladderVerdict: ReturnType<typeof ladderVerdict>;
+  // A ladder shape drawn from how often the index has actually visited each
+  // level, offered when the written one has money parked where the market
+  // rarely goes. Empty when there is nothing to say.
+  ladderSuggestion: ReturnType<typeof suggestLadder>;
   // What the ready rupees actually buy. Null when nothing is armed, so the page
   // shows an order list only when there is an order to place.
   ladderBuys: DeployPlan | null;
@@ -67,6 +71,7 @@ export type PlanView = {
     poolAtArming: number;
     armedAt: string;
     ladderReservePct: number;
+    ladderCorePct: number;
     weeklyReportEnabled: boolean;
     weeklyReportEmail: string;
     rungs: Array<{ level: number; pct: number; label: string; firedAt: string; firedAmount: number }>;
@@ -197,6 +202,16 @@ export async function assemblePlan(): Promise<PlanView> {
   // The pool is frozen at arming. If it was never armed, fall back to the money
   // free right now so a fresh ladder still sizes itself sensibly.
   const poolAtArming = pb.poolAtArming > 0 ? pb.poolAtArming : available + receivable + expected;
+
+  // The record of how far the index has fallen below its own high, so each rung
+  // can be judged on how often its level actually turns up rather than on how
+  // decisive it felt to write down.
+  const falls = await getFallDistribution().catch(() => null);
+  // Measured from the index's own peak, which is the same peak the distribution
+  // counts falls from. Today's level is the wrong reference: it would call a
+  // rung shallow simply because the market has already fallen toward it.
+  const refHigh = Math.max(falls?.peak ?? 0, auto.data?.indexLevel ?? 0);
+
   const ladder = planLadder({
     indexName: pb.indexName || "KSE-100",
     indexLevel: auto.data?.indexLevel ?? 0,
@@ -205,6 +220,9 @@ export async function assemblePlan(): Promise<PlanView> {
     poolAtArming,
     poolNow: available,
     reservePct: pb.ladderReservePct ?? 10,
+    corePct: pb.ladderCorePct ?? 0,
+    referenceHigh: refHigh,
+    fallDistribution: falls?.dist,
   });
 
   // The names the ready money buys, and how the rules have actually performed.
@@ -224,11 +242,18 @@ export async function assemblePlan(): Promise<PlanView> {
     }).catch(() => null),
   ]);
 
+  // Only offered when the written ladder actually has a problem. A suggestion
+  // shown next to a sound ladder is noise, and noise is how a warning stops
+  // being read.
+  const ladderSuggestion =
+    ladder.deadPct > 0 && falls?.dist?.length ? suggestLadder(falls.dist, refHigh, Math.max(2, ladder.rows.length)) : [];
+
   return {
     regime,
     regimeStale: auto.stale,
     ladderBuys,
     ruleCheck,
+    ladderSuggestion,
     cash,
     cashPct,
     cashCheck: cashCheck(regime, cashPct),
@@ -242,6 +267,7 @@ export async function assemblePlan(): Promise<PlanView> {
       poolAtArming,
       armedAt: pb.armedAt ?? "",
       ladderReservePct: pb.ladderReservePct ?? 10,
+      ladderCorePct: pb.ladderCorePct ?? 0,
       weeklyReportEnabled: !!pb.weeklyReportEnabled,
       weeklyReportEmail: pb.weeklyReportEmail ?? "",
       rungs: (pb.rungs ?? []) as any,
