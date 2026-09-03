@@ -5,6 +5,7 @@ import {
   fallAtShare,
   fallDistributionOf,
   suggestLadder,
+  reweightLadder,
   type LadderRung,
 } from "../lib/calculations/ladder";
 import { valueFund } from "../lib/calculations/assets";
@@ -270,6 +271,142 @@ check("growth fund value stays units x NAV", equityFund.value === 11225, equityF
   check("two rungs can be asked for", suggestLadder(dist, 100000, 2).length === 2);
   check("no history means no suggestion", suggestLadder([], 100000, 4).length === 0);
   check("no reference high means no suggestion", suggestLadder(dist, 0, 4).length === 0);
+}
+
+
+// ------------------------------------------ can these rungs actually be paid for
+{
+  const dist = fallDistributionOf(Array.from({ length: 400 }, (_, i) => ({ close: 100000 - (i % 30) * 400 })));
+  // No reserve here, so a rung's slice is a round share of the pool and the
+  // funding arithmetic is readable by eye.
+  const base = {
+    indexLevel: 99000,
+    poolAtArming: 1000000,
+    reservePct: 0,
+    referenceHigh: 100000,
+    fallDistribution: dist,
+  };
+  // Three rungs of 300,000 each against 350,000 in hand plus a dated invoice.
+  // The first is paid by cash, the second finishes on the invoice, the third has
+  // nothing behind it.
+  const plan = planLadder({
+    ...base,
+    rungs: [rung(98000, 30, "a"), rung(96000, 30, "b"), rung(94000, 30, "c")],
+    poolNow: 350000,
+    fundingSources: [
+      { label: "Client invoice", pkr: 250000, expectedDate: "2026-09-14" },
+      { label: "Loan back", pkr: 24000, expectedDate: "2026-10-01" },
+    ],
+  });
+  const [a, b, c] = plan.rows;
+
+  check("cash in hand covers the first rung", a.funding === "now", { funding: a.funding, by: a.fundedBy });
+  check("the second rung waits on the invoice", b.funding === "dated", { funding: b.funding, on: b.fundedOn });
+  check("and it names which one, and when", b.fundedBy === "Client invoice" && b.fundedOn === "2026-09-14", {
+    by: b.fundedBy,
+    on: b.fundedOn,
+  });
+  check("the third rung has nothing behind it", c.funding === "short", { funding: c.funding, short: Math.round(c.shortfall) });
+  // 900,000 promised, 350,000 cash, 274,000 dated: 276,000 of the last rung
+  // has nothing behind it.
+  check("the shortfall is the real gap", Math.abs(c.shortfall - 276000) < 2, Math.round(c.shortfall));
+  check(
+    "the three buckets add up to what was promised",
+    Math.abs(plan.fundedNow + plan.fundedLater + plan.unfunded - plan.committed) < 1,
+    { now: Math.round(plan.fundedNow), later: Math.round(plan.fundedLater), un: Math.round(plan.unfunded) }
+  );
+  check("every rupee of cash is put to work before a date is quoted", Math.abs(plan.fundedNow - 350000) < 1, Math.round(plan.fundedNow));
+  check("the summary says money is missing", plan.fundingLine.includes("nothing behind it"), plan.fundingLine.slice(0, 60));
+
+  // The reserve is not spendable, so it never funds a rung.
+  const withReserve = planLadder({
+    ...base,
+    reservePct: 10,
+    rungs: [rung(98000, 100, "all")],
+    poolNow: 350000,
+    fundingSources: [],
+  });
+  check(
+    "the reserve is held back from funding too",
+    Math.abs(withReserve.fundedNow - 250000) < 1,
+    Math.round(withReserve.fundedNow)
+  );
+
+  // Everything in hand: no dates, no warnings.
+  const rich = planLadder({
+    ...base,
+    rungs: [rung(98000, 30), rung(96000, 30)],
+    poolNow: 1000000,
+    fundingSources: [],
+  });
+  check("a fully funded ladder says so", rich.rows.every((r) => r.funding === "now"), rich.rows.map((r) => r.funding));
+  check("and nothing is unfunded", rich.unfunded === 0, rich.unfunded);
+  check("its summary is the calm one", rich.fundingLine.includes("Every rung is covered"), rich.fundingLine.slice(0, 40));
+
+  // Earlier rungs eat the cash first: a rung is funded in the order it fires.
+  const order = planLadder({
+    ...base,
+    rungs: [rung(98000, 50), rung(96000, 50)],
+    poolNow: 500000, // exactly one rung's worth
+    fundingSources: [],
+  });
+  check("the first rung is funded before the second", order.rows[0].funding === "now", order.rows[0].funding);
+  check("the second is left short", order.rows[1].funding === "short", order.rows[1].funding);
+
+  // A fired rung was paid for at the time and makes no claim on today's money.
+  const fired = planLadder({
+    ...base,
+    rungs: [rung(98000, 50, "done", "2026-08-01", 400000), rung(96000, 50)],
+    poolNow: 500000,
+    fundingSources: [],
+  });
+  check("a fired rung does not compete for cash", fired.rows[0].fundedBy === "already fired", fired.rows[0].fundedBy);
+  check("so the next rung is funded", fired.rows[1].funding === "now", fired.rows[1].funding);
+  check("and only unfired rungs are committed", Math.abs(fired.committed - 500000) < 1, Math.round(fired.committed));
+
+  // No funding information at all: say nothing rather than guess.
+  const blind = planLadder({ ...base, rungs: [rung(98000, 50)], poolNow: 0 });
+  check("no cash and no sources means short, not silent", blind.rows[0].funding === "short", blind.rows[0].funding);
+}
+
+// ------------------------------------------ keep the levels, fix the weights
+{
+  const closes: number[] = [];
+  for (let i = 0; i < 900; i++) closes.push(100000 - (i % 30) * 300);
+  for (let i = 0; i < 100; i++) closes.push(100000 * (1 - 0.3 * (i / 99)));
+  const dist = fallDistributionOf(closes.map((close) => ({ close })));
+
+  const mine = [
+    { level: 96000, pct: 15, label: "Immediate support" },
+    { level: 82000, pct: 25, label: "Important Level" },
+    { level: 75000, pct: 30, label: "Floor" },
+  ];
+  const out = reweightLadder(mine, dist, 100000);
+
+  check("every level is kept", out.map((r) => r.level).join(",") === "96000,82000,75000", out.map((r) => r.level));
+  check("the weights add to exactly 100", out.reduce((a, r) => a + r.pct, 0) === 100, out.map((r) => r.pct));
+  check("the old weight is reported alongside", out.every((r) => r.wasPct > 0), out.map((r) => r.wasPct));
+  check("labels survive", out[1].label === "Important Level", out[1].label);
+  check("the reachable level gains", out[0].pct > out[0].wasPct, { was: out[0].wasPct, now: out[0].pct });
+  check("the rare level loses", out[2].pct < out[2].wasPct, { was: out[2].wasPct, now: out[2].pct });
+  check("but a level you believe in keeps a stake", out[2].pct >= 5, out[2].pct);
+  check("nothing is left at zero", out.every((r) => r.pct > 0), out.map((r) => r.pct));
+
+  // A reweighted ladder must not itself be dead weight.
+  const after = planLadder({
+    indexLevel: 95000,
+    rungs: out.map((r) => rung(r.level, r.pct, r.label)),
+    poolAtArming: 1000000,
+    poolNow: 1000000,
+    reservePct: 10,
+    referenceHigh: 100000,
+    fallDistribution: dist,
+  });
+  check("reweighting clears the dead-weight flag", after.deadPct === 0, after.deadPct);
+
+  check("no levels means no reweight", reweightLadder([], dist, 100000).length === 0);
+  check("no history means no reweight", reweightLadder(mine, [], 100000).length === 0);
+  check("no reference high means no reweight", reweightLadder(mine, dist, 0).length === 0);
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

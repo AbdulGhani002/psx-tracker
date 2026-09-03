@@ -20,7 +20,7 @@ import { runRuleCheck, getFallDistribution, type RuleCheck } from "@/lib/feeds/b
 import type { DeployPlan } from "@/lib/calculations/deploy-plan";
 import { getAutoSignalsCached } from "@/lib/feeds/regime";
 import { scoreRegime, cashCheck, SIGNAL_HINTS, MANUAL_SIGNALS, type RegimeSignal, type RegimeVerdict } from "@/lib/calculations/regime";
-import { planLadder, ladderVerdict, suggestLadder, type LadderPlan } from "@/lib/calculations/ladder";
+import { planLadder, ladderVerdict, suggestLadder, reweightLadder, type LadderPlan } from "@/lib/calculations/ladder";
 import { fetchUsdPkrSpot } from "@/lib/timeseries/yahoo";
 
 export type CashBreakdown = {
@@ -57,6 +57,10 @@ export type PlanView = {
   // level, offered when the written one has money parked where the market
   // rarely goes. Empty when there is nothing to say.
   ladderSuggestion: ReturnType<typeof suggestLadder>;
+  // The gentler correction: your own levels, reweighted by how often each one
+  // actually turns up. Offered first, because the levels are usually the part
+  // that was thought about.
+  ladderReweight: ReturnType<typeof reweightLadder>;
   // What the ready rupees actually buy. Null when nothing is armed, so the page
   // shows an order list only when there is an order to place.
   ladderBuys: DeployPlan | null;
@@ -223,6 +227,12 @@ export async function assemblePlan(): Promise<PlanView> {
     corePct: pb.ladderCorePct ?? 0,
     referenceHigh: refHigh,
     fallDistribution: falls?.dist,
+    // Only money with a claim on it can fund a rung. "Expected" is included
+    // because it is dated and the plan should say WHEN a rung becomes payable,
+    // but it is never counted as cash in hand.
+    fundingSources: manualRows
+      .filter((r) => r.kind === "receivable" || r.kind === "expected")
+      .map((r) => ({ label: r.label, pkr: r.pkr, expectedDate: r.expectedDate })),
   });
 
   // The names the ready money buys, and how the rules have actually performed.
@@ -245,8 +255,9 @@ export async function assemblePlan(): Promise<PlanView> {
   // Only offered when the written ladder actually has a problem. A suggestion
   // shown next to a sound ladder is noise, and noise is how a warning stops
   // being read.
-  const ladderSuggestion =
-    ladder.deadPct > 0 && falls?.dist?.length ? suggestLadder(falls.dist, refHigh, Math.max(2, ladder.rows.length)) : [];
+  const offerFix = ladder.deadPct > 0 && !!falls?.dist?.length;
+  const ladderSuggestion = offerFix ? suggestLadder(falls!.dist, refHigh, Math.max(2, ladder.rows.length)) : [];
+  const ladderReweight = offerFix ? reweightLadder(ladder.rows, falls!.dist, refHigh) : [];
 
   return {
     regime,
@@ -254,6 +265,7 @@ export async function assemblePlan(): Promise<PlanView> {
     ladderBuys,
     ruleCheck,
     ladderSuggestion,
+    ladderReweight,
     cash,
     cashPct,
     cashCheck: cashCheck(regime, cashPct),

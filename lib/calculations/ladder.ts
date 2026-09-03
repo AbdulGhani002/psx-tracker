@@ -64,6 +64,20 @@ export function fallDistributionOf(series: Array<{ close: number }>): FallStat[]
 //   "thin" - reachable, but rarely enough to question the weight on it
 export type RungReach = "" | "dead" | "thin";
 
+// Money that could fund a rung, and when it actually turns up. Cash in hand has
+// no date; an invoice does.
+export type FundingSource = {
+  label: string;
+  pkr: number;
+  expectedDate: string; // ISO, "" for money already in hand
+};
+
+// Whether a rung could actually be paid for.
+//   "now"     - today's cash covers it
+//   "dated"   - covered once money already expected has landed, see fundedOn
+//   "short"   - nothing on the books covers it
+export type RungFunding = "now" | "dated" | "short";
+
 export type LadderRungRow = LadderRung & {
   amount: number; // pct of the pool, in rupees
   cumulativePct: number; // this rung and every rung above it
@@ -81,6 +95,13 @@ export type LadderRungRow = LadderRung & {
   fallFromHighPct: number | null;
   reachedSharePct: number | null;
   reach: RungReach;
+  // A rung is a promise to spend. These say whether the money to keep it
+  // exists. Rungs are funded in the order they fire, so an earlier rung
+  // consumes the cash before a later one can claim it.
+  funding: RungFunding;
+  fundedOn: string; // ISO date the money lands, "" when it is already here
+  fundedBy: string; // which source, for the row that explains itself
+  shortfall: number; // rupees of this rung nothing on the books pays for
 };
 
 export type LadderPlan = {
@@ -110,6 +131,12 @@ export type LadderPlan = {
   // Share of the pool sitting behind levels the index has rarely reached.
   deadPct: number;
   diagnostics: string[];
+  // What the rungs promise against what can actually pay for them.
+  committed: number; // every rung's slice added up
+  fundedNow: number; // of that, what today's cash covers
+  fundedLater: number; // what money already expected covers
+  unfunded: number; // what nothing covers
+  fundingLine: string;
 };
 
 export type LadderInput = {
@@ -121,6 +148,9 @@ export type LadderInput = {
   poolNow: number;
   reservePct?: number;
   corePct?: number;
+  // Money not yet in hand, with the date it is expected. Optional: without it
+  // the funding columns simply say nothing rather than guessing.
+  fundingSources?: FundingSource[];
   // The high the levels were written against, and the record of falls from a
   // running high. Both optional: without them the ladder works exactly as
   // before and simply says nothing about reachability.
@@ -188,6 +218,7 @@ export function planLadder({
   corePct = 0,
   referenceHigh = 0,
   fallDistribution,
+  fundingSources,
 }: LadderInput): LadderPlan {
   const level = num(indexLevel);
   const base = Math.max(0, num(poolAtArming));
@@ -259,8 +290,84 @@ export function planLadder({
       fallFromHighPct,
       reachedSharePct,
       reach,
+      funding: "short" as RungFunding,
+      fundedOn: "",
+      fundedBy: "",
+      shortfall: 0,
     };
   });
+
+  // --- can these rungs actually be paid for? ---------------------------------
+  //
+  // A ladder is a set of promises to spend. The pool it is sliced from can
+  // include money that has not arrived — an unpaid invoice is real, but it
+  // cannot buy shares this morning. So each rung is walked in the order it
+  // fires and matched against cash in hand first, then against money already
+  // expected, in date order. A rung nothing pays for is marked short rather
+  // than quietly presented as a plan.
+  const spendableNow = Math.max(0, now - reserveAmount);
+  let cashLeft = spendableNow;
+  const dated = [...(fundingSources ?? [])]
+    .filter((f) => num(f.pkr) > 0)
+    .map((f) => ({ label: String(f.label ?? ""), pkr: num(f.pkr), date: String(f.expectedDate ?? "") }))
+    .sort((a, b) => (a.date || "9999").localeCompare(b.date || "9999"));
+  let datedIdx = 0;
+  let datedLeft = dated.length > 0 ? dated[0].pkr : 0;
+
+  let fundedNow = 0;
+  let fundedLater = 0;
+  let unfunded = 0;
+
+  for (const row of rows) {
+    // A rung that has already fired was paid for at the time; it makes no
+    // claim on today's money.
+    if (row.status === "FIRED") {
+      row.funding = "now";
+      row.fundedBy = "already fired";
+      continue;
+    }
+    let need = row.amount;
+    const fromCash = Math.min(need, cashLeft);
+    cashLeft -= fromCash;
+    need -= fromCash;
+    fundedNow += fromCash;
+
+    if (need <= 1) {
+      row.funding = "now";
+      row.fundedBy = "cash on hand";
+      continue;
+    }
+
+    // Walk the dated money until this rung is covered.
+    let lastDate = "";
+    let lastLabel = "";
+    while (need > 1 && datedIdx < dated.length) {
+      const take = Math.min(need, datedLeft);
+      if (take > 0) {
+        need -= take;
+        datedLeft -= take;
+        fundedLater += take;
+        lastDate = dated[datedIdx].date;
+        lastLabel = dated[datedIdx].label;
+      }
+      if (datedLeft <= 1) {
+        datedIdx++;
+        datedLeft = datedIdx < dated.length ? dated[datedIdx].pkr : 0;
+      }
+    }
+
+    if (need > 1) {
+      row.funding = "short";
+      row.shortfall = need;
+      unfunded += need;
+      row.fundedBy = lastLabel || "nothing on the books";
+      row.fundedOn = lastDate;
+    } else {
+      row.funding = "dated";
+      row.fundedOn = lastDate;
+      row.fundedBy = lastLabel;
+    }
+  }
 
   const ready = rows.filter((r) => r.status === "READY");
   const waiting = rows.filter((r) => r.status === "WAITING");
@@ -317,6 +424,29 @@ export function planLadder({
     }
   }
 
+  const committed = rows.reduce((s, r) => s + (r.status === "FIRED" ? 0 : r.amount), 0);
+  const nice = (d: string) => {
+    if (!/^\d{4}-\d{2}-\d{2}/.test(d)) return d;
+    const dt = new Date(d + "T00:00:00Z");
+    return dt.toLocaleDateString("en-GB", { day: "numeric", month: "long", timeZone: "UTC" });
+  };
+
+  let fundingLine = "";
+  if (committed > 0) {
+    if (unfunded > 1) {
+      fundingLine =
+        `Your rungs promise Rs ${rs(committed)}. Rs ${rs(fundedNow)} of that is cash you have, Rs ${rs(fundedLater)} depends on money you are still owed, and Rs ${rs(unfunded)} has nothing behind it at all. A rung you cannot pay for is not a plan.`;
+    } else if (fundedLater > 1) {
+      const firstDated = rows.find((r) => r.funding === "dated" && r.fundedOn);
+      fundingLine =
+        `Your rungs promise Rs ${rs(committed)}, of which Rs ${rs(fundedNow)} is cash you have today. The rest waits on money you are owed` +
+        (firstDated ? `, starting with ${firstDated.fundedBy || "the next receipt"} on ${nice(firstDated.fundedOn)}` : "") +
+        `. If the market reaches those levels first, you will be short.`;
+    } else {
+      fundingLine = `Every rung is covered by cash you already have. Rs ${rs(committed)} committed, Rs ${rs(spendableNow)} spendable.`;
+    }
+  }
+
   return {
     indexName,
     indexLevel: level,
@@ -339,7 +469,65 @@ export function planLadder({
     referenceHigh: refHigh,
     deadPct,
     diagnostics,
+    committed,
+    fundedNow,
+    fundedLater,
+    unfunded,
+    fundingLine,
   };
+}
+
+// Keep the levels, fix the weights.
+//
+// This is the gentler of the two corrections and usually the right one. The
+// levels on a ladder are chart work: support, a prior low, a line that has held
+// twice. That analysis is not wrong because the index rarely trades there — a
+// floor is SUPPOSED to be rare. What is wrong is putting a quarter of the pool
+// behind it, because money waiting on a rare price earns the fund rate for
+// years.
+//
+// So the levels are untouched and only the weights move, in proportion to how
+// often each level actually turns up, with a floor so a deep rung keeps a real
+// but modest allocation rather than being argued away entirely.
+export function reweightLadder(
+  rungs: Array<{ level: number; pct: number; label?: string }>,
+  dist: FallStat[],
+  referenceHigh: number,
+  minPct = 5
+): Array<{ level: number; pct: number; wasPct: number; label: string; reachedSharePct: number }> {
+  const list = (rungs ?? []).filter((r) => Number(r.level) > 0 && Number(r.pct) > 0);
+  if (list.length === 0 || !(referenceHigh > 0) || (dist ?? []).length === 0) return [];
+
+  const scored = list.map((r) => {
+    const fall = ((referenceHigh - Number(r.level)) / referenceHigh) * 100;
+    // A rung above the high is already through; treat it as the most reachable
+    // thing there is rather than dividing by a negative.
+    const share = fall <= 0 ? 100 : reachShare(dist, fall) ?? 0;
+    return { level: Number(r.level), wasPct: Number(r.pct), label: String(r.label ?? ""), share };
+  });
+
+  // Weight by reachability, but never below the floor: a level you believe in
+  // deserves a stake even when the record says it is rare.
+  const floor = Math.max(0, Math.min(100 / scored.length, minPct));
+  const totalShare = scored.reduce((s, x) => s + Math.max(x.share, 0.01), 0);
+  const spare = 100 - floor * scored.length;
+
+  const raw = scored.map((x) => floor + (spare * Math.max(x.share, 0.01)) / totalShare);
+  const pcts = raw.map((v) => Math.round(v));
+  // Rounding must land on 100 exactly; the remainder goes to the rung that
+  // fires most often, where a point does the most work.
+  const drift = 100 - pcts.reduce((a, b) => a + b, 0);
+  let best = 0;
+  for (let i = 1; i < scored.length; i++) if (scored[i].share > scored[best].share) best = i;
+  pcts[best] += drift;
+
+  return scored.map((x, i) => ({
+    level: x.level,
+    pct: pcts[i],
+    wasPct: x.wasPct,
+    label: x.label,
+    reachedSharePct: x.share,
+  }));
 }
 
 // Propose a ladder from the record instead of from a blank page.

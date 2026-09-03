@@ -1,7 +1,7 @@
 // Single source of truth for the app version + changelog.
 // Bump APP_VERSION and prepend a CHANGELOG entry on every release.
 
-export const APP_VERSION = "9.4.0";
+export const APP_VERSION = "9.5.0";
 
 export const BUILD_DATE =
   process.env.NEXT_PUBLIC_BUILD_DATE ?? "";
@@ -17,6 +17,18 @@ export type ChangelogEntry = {
 
 // Reverse-chronological. Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: "9.5.0",
+    date: "2026-09-03",
+    title: "A rung you cannot pay for is not a plan",
+    changes: [
+      "The ladder was quietly planning with money that does not exist. Rungs are slices of the pool, the pool was armed at a figure that included unpaid client invoices, and nothing anywhere said which rungs today's cash could actually cover. A ladder promising Rs 304,546 against Rs 64,619 of spendable cash is not a plan, it is a wish with arithmetic on it.",
+      "Every rung now says what pays for it. Cash on hand, or the date the money lands and which receipt it is, or short by a named amount when nothing on the books covers it. Rungs are funded in the order they fire, so an earlier rung takes the cash before a later one can claim it, which is what actually happens.",
+      "Under the editor, one sentence: what the rungs promise, how much of it is cash you have, how much waits on money you are owed, and how much has nothing behind it at all.",
+      "New and gentler: keep your levels, fix the weights. The first correction offered replaced your levels outright, which was the wrong advice — the levels are chart work, and a floor is SUPPOSED to be rare. What is wrong is putting a quarter of the pool behind it. So this leaves every level where it is and moves only the money, in proportion to how often the index actually trades there, with a floor of 5% so a level you believe in keeps a real stake. Replacing the levels is still there, below it, for when you want it.",
+      "The section numbers ran 01, 02, 03, 05, 04, 05, 06, 07 — two fives and out of order, because the rule check and the order list were added above a block that already numbered itself. They run 01 to 09 now.",
+    ],
+  },
   {
     version: "9.4.0",
     date: "2026-09-02",

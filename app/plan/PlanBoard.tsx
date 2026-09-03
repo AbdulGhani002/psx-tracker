@@ -49,6 +49,10 @@ export function PlanBoard({ initial }: { initial: any }) {
   // hidden with it.
   const suggestion: Array<{ level: number; pct: number; label: string; fallPct: number; reachedSharePct: number }> =
     plan.ladderSuggestion ?? [];
+  // Your own levels with the weights corrected. Offered before the replacement
+  // shape, because the levels are the part you actually thought about.
+  const reweight: Array<{ level: number; pct: number; wasPct: number; label: string; reachedSharePct: number }> =
+    plan.ladderReweight ?? [];
   const [weeklyOn, setWeeklyOn] = useState(!!pb.weeklyReportEnabled);
   const [email, setEmail] = useState(pb.weeklyReportEmail ?? "");
 
@@ -92,7 +96,7 @@ export function PlanBoard({ initial }: { initial: any }) {
 
       {/* ---------------------------------------------------------- ladder */}
       <Section
-        number="04"
+        number="06"
         title="Set your rungs"
         description="Write the levels down before the market gets there. A level you decide in advance is a rule; the same level decided on the day is a reaction."
         action={
@@ -116,6 +120,7 @@ export function PlanBoard({ initial }: { initial: any }) {
                 <th className="text-left py-2">Note</th>
                 <th className="text-right py-2">Amount</th>
                 <th className="text-right py-2">Turns up</th>
+                <th className="text-right py-2">Paid for by</th>
                 <th className="text-right py-2">Status</th>
                 <th />
               </tr>
@@ -188,6 +193,24 @@ export function PlanBoard({ initial }: { initial: any }) {
                             : row.reachedSharePct.toFixed(0)}
                           % of days
                           {row.reach === "dead" ? " · dead" : row.reach === "thin" ? " · thin" : ""}
+                        </span>
+                      )}
+                    </td>
+                    <td className="py-2 text-right whitespace-nowrap text-[12px]">
+                      {!row ? (
+                        <span className="text-muted">—</span>
+                      ) : row.funding === "now" ? (
+                        <span className="text-muted">cash on hand</span>
+                      ) : row.funding === "dated" ? (
+                        <span title={"Covered once " + (row.fundedBy || "money you are owed") + " lands"}>
+                          {row.fundedOn || "money owed"}
+                        </span>
+                      ) : (
+                        <span
+                          style={{ color: "var(--negative)" }}
+                          title={"Nothing on your books covers Rs " + Math.round(row.shortfall).toLocaleString("en-PK") + " of this rung"}
+                        >
+                          short {fmtRs(row.shortfall)}
                         </span>
                       )}
                     </td>
@@ -264,6 +287,15 @@ export function PlanBoard({ initial }: { initial: any }) {
           </div>
         </div>
 
+        {plan.ladder.fundingLine && (
+          <p
+            className="mt-3 text-[13px]"
+            style={{ color: plan.ladder.unfunded > 1 ? "var(--negative)" : "var(--muted)" }}
+          >
+            {plan.ladder.fundingLine}
+          </p>
+        )}
+
         {plan.ladder.diagnostics?.length > 0 && (
           <div className="mt-5">
             <Card>
@@ -275,9 +307,75 @@ export function PlanBoard({ initial }: { initial: any }) {
                   <li key={i}>{d}</li>
                 ))}
               </ul>
+              {reweight.length > 0 && (
+                <div className="mt-4 pt-4 border-t border-rule">
+                  <div className="label-cap mb-2">Keep your levels, fix the weights</div>
+                  <p className="text-[12px] text-muted mb-3 max-w-[70ch]">
+                    Your levels are chart work and a floor is supposed to be rare, so this leaves every one of them
+                    exactly where it is and only moves the money. Each keeps at least 5% so a level you believe in still
+                    has a stake, and the rest is shared out by how often the index actually trades there.
+                  </p>
+                  <table className="w-full text-[13px] tabular-nums max-w-xl">
+                    <thead>
+                      <tr className="border-b border-rule text-muted label-cap">
+                        <th className="text-left py-1.5">Level</th>
+                        <th className="text-right py-1.5">Now</th>
+                        <th className="text-right py-1.5">Instead</th>
+                        <th className="text-right py-1.5">Turns up</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {reweight.map((r) => (
+                        <tr key={r.level} className="border-b border-rule/60">
+                          <td className="py-1.5 font-mono">
+                            {r.level.toLocaleString("en-PK")}
+                            {r.label ? <span className="text-muted"> · {r.label}</span> : null}
+                          </td>
+                          <td className="py-1.5 text-right text-muted">{r.wasPct}%</td>
+                          <td
+                            className="py-1.5 text-right"
+                            style={{
+                              color:
+                                r.pct > r.wasPct ? "var(--positive)" : r.pct < r.wasPct ? "var(--negative)" : "inherit",
+                            }}
+                          >
+                            {r.pct}%
+                          </td>
+                          <td className="py-1.5 text-right text-muted">
+                            {r.reachedSharePct < 0.5 ? r.reachedSharePct.toFixed(1) : r.reachedSharePct.toFixed(0)}% of
+                            days
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                  <div className="mt-3">
+                    <Button
+                      variant="outline"
+                      onClick={() =>
+                        setRungs(
+                          reweight.map((r) => {
+                            const existing = rungs.find((x) => x.level === r.level);
+                            return {
+                              level: r.level,
+                              pct: r.pct,
+                              label: existing?.label ?? r.label,
+                              firedAt: existing?.firedAt ?? "",
+                              firedAmount: existing?.firedAmount ?? 0,
+                            };
+                          })
+                        )
+                      }
+                    >
+                      Reweight my levels
+                    </Button>
+                  </div>
+                </div>
+              )}
+
               {suggestion.length > 0 && (
                 <div className="mt-4 pt-4 border-t border-rule">
-                  <div className="label-cap mb-2">A shape drawn from the record instead</div>
+                  <div className="label-cap mb-2">Or replace the levels entirely</div>
                   <table className="w-full text-[13px] tabular-nums max-w-lg">
                     <tbody>
                       {suggestion.map((r) => (
@@ -352,7 +450,7 @@ export function PlanBoard({ initial }: { initial: any }) {
 
       {/* ------------------------------------------------------ cash sources */}
       <Section
-        number="05"
+        number="07"
         title="Cash you have not put in yet"
         description="Three kinds, because they are not interchangeable: money you could spend this morning, money owed to you, and money you merely expect. Only the first funds a rung."
         action={
@@ -475,7 +573,7 @@ export function PlanBoard({ initial }: { initial: any }) {
 
       {/* ---------------------------------------------------- manual signals */}
       <Section
-        number="06"
+        number="08"
         title="Your three judgements"
         description="Foreign flows, politics and breadth have no free feed worth trusting, so they stay yours. Score each from -2 to +2. Leaving one unset is honest; guessing it is not."
       >
@@ -513,7 +611,7 @@ export function PlanBoard({ initial }: { initial: any }) {
 
       {/* ------------------------------------------------------ weekly report */}
       <Section
-        number="07"
+        number="09"
         title="Weekly report"
         description="One page every Sunday: the regime, the money, the ladder, and the single instruction for the week. Sent to Telegram and email so it arrives whether or not you open the app."
       >
