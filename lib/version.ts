@@ -1,7 +1,7 @@
 // Single source of truth for the app version + changelog.
 // Bump APP_VERSION and prepend a CHANGELOG entry on every release.
 
-export const APP_VERSION = "9.6.0";
+export const APP_VERSION = "9.7.0";
 
 export const BUILD_DATE =
   process.env.NEXT_PUBLIC_BUILD_DATE ?? "";
@@ -17,6 +17,18 @@ export type ChangelogEntry = {
 
 // Reverse-chronological. Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: "9.7.0",
+    date: "2026-09-04",
+    title: "A zero target means winding down, not sell the lot",
+    changes: [
+      "A zero target on something you hold has a specific meaning: no new buying, and the position leaves on the sell price you set for it, not because a weight rule fired today. The app had no word for that. With selling switched on it computed a target value of zero, read the whole position as overweight, and told you to liquidate at market — a completely different instruction from the one you gave.",
+      "Winding down is now its own state. A position held at a zero target is never force-sold, never bought into, and is shown as WIND DOWN rather than SELL. An overweight name that IS in the plan is still sold as before, so the rebalance has not gone soft; it just stopped confusing two different decisions.",
+      "The target total stopped demanding 100%. Weight that is winding down is deliberately outside the allocation, so the targets are now measured against what is actually left to allocate. On this account ABL and INDU are 8.1% of the book on their way out, so the targets should add to 91.9%, and the page says so instead of reporting a phantom 8-point shortfall.",
+      "Scale and distribute follow the same rule. Scale now targets the allocatable share rather than a flat 100, and distribute evenly no longer hands a slice to a position you are winding down, which would have quietly started re-buying it.",
+      "The deployment plan separated the two cases too. It used to lump everything with no target into one nag telling you to go and set a weight. A name you hold none of is unsized and waiting on a decision; a name you hold at zero has already had its decision made, and the plan now says so rather than asking again.",
+    ],
+  },
   {
     version: "9.6.0",
     date: "2026-09-04",

@@ -80,8 +80,12 @@ export function TargetsEditor({ initial }: Props) {
   }
 
   function distributeEvenly() {
-    const even = rows.length > 0 ? Math.floor((100 / rows.length) * 10) / 10 : 0;
-    setRows((rs) => rs.map((r) => ({ ...r, target: even })));
+    // Only the names actually in the plan share the allocatable book. Handing a
+    // slice to something you are winding down would silently re-buy it.
+    const inPlan = rows.filter((r) => !(r.currentPercent > 0.05 && r.target <= 0));
+    const goal = 100 - rows.filter((r) => r.currentPercent > 0.05 && r.target <= 0).reduce((s, r) => s + r.currentPercent, 0);
+    const even = inPlan.length > 0 ? Math.floor((goal / inPlan.length) * 10) / 10 : 0;
+    setRows((rs) => rs.map((r) => (inPlan.some((x) => x.symbol === r.symbol) ? { ...r, target: even } : r)));
   }
 
   // Keep the shape of what you decided and just make it add up. Scaling
@@ -90,11 +94,14 @@ export function TargetsEditor({ initial }: Props) {
   function scaleTo100() {
     const sum = rows.reduce((s, r) => s + r.target, 0);
     if (sum <= 0) return;
-    const scaled = rows.map((r) => ({ ...r, target: Math.round((r.target / sum) * 1000) / 10 }));
+    // Scale to what is actually allocatable: a book with part of it winding
+    // down has less than 100% to share out.
+    const goal = expectedSum;
+    const scaled = rows.map((r) => ({ ...r, target: Math.round((r.target / sum) * goal * 10) / 10 }));
     // Rounding rarely lands on 100 exactly; the remainder goes to the largest
     // target, where a tenth of a point is least meaningful.
     const after = scaled.reduce((s, r) => s + r.target, 0);
-    const drift = Math.round((100 - after) * 10) / 10;
+    const drift = Math.round((goal - after) * 10) / 10;
     if (drift !== 0) {
       let big = 0;
       for (let i = 1; i < scaled.length; i++) if (scaled[i].target > scaled[big].target) big = i;
@@ -105,7 +112,15 @@ export function TargetsEditor({ initial }: Props) {
 
   // Owning something you target at nothing is a standing instruction to sell it
   // all. Sometimes that is exactly right; more often the target was never set.
-  const ownedButUntargeted = rows.filter((r) => r.currentPercent > 0.05 && r.target <= 0);
+  // Held at a zero target. That is a decision, not an omission: no new money
+  // in, and the exit is governed by your own sell price. It does mean this
+  // weight is outside the target plan, which is what the total has to allow for.
+  const windingDown = rows.filter((r) => r.currentPercent > 0.05 && r.target <= 0);
+  const windingDownPct = windingDown.reduce((s, r) => s + r.currentPercent, 0);
+  // What the targets ought to add up to today, given part of the book is on its
+  // way out and deliberately unallocated.
+  const expectedSum = 100 - windingDownPct;
+  const offPlan = targetSum - expectedSum;
 
   if (rows.length === 0) return null;
 
@@ -134,9 +149,10 @@ export function TargetsEditor({ initial }: Props) {
           >
             {targetSum.toFixed(1)}%
           </div>
-          {Math.abs(offBy) >= 0.05 && (
+          {Math.abs(offPlan) >= 0.05 && (
             <div className="text-[10px] font-mono text-muted">
-              {offBy > 0 ? "+" : ""}{offBy.toFixed(1)}% from 100
+              {offPlan > 0 ? "+" : ""}
+              {offPlan.toFixed(1)}% from {expectedSum.toFixed(1)}
             </div>
           )}
         </div>
@@ -162,11 +178,10 @@ export function TargetsEditor({ initial }: Props) {
                   {fmtPct(r.currentPercent / 100, 1)}
                   {r.currentPercent > 0.05 && r.target <= 0 && (
                     <span
-                      className="ml-2 text-[10px] font-mono uppercase tracking-stat"
-                      style={{ color: "var(--negative)" }}
-                      title="You hold this and target nothing, so the plan reads it as sell the lot."
+                      className="ml-2 text-[10px] font-mono uppercase tracking-stat text-muted"
+                      title="Held at a zero target: no new buying, and it leaves on its own sell price rather than on a weight rule."
                     >
-                      sell all
+                      wind down
                     </span>
                   )}
                 </td>
@@ -206,32 +221,31 @@ export function TargetsEditor({ initial }: Props) {
         </div>
       )}
 
-      {Math.abs(offBy) >= 0.05 && (
-        <p className="text-[12px] mt-4 max-w-[80ch]" style={{ color: offBy < 0 ? "var(--negative)" : "var(--accent-deep)" }}>
-          {offBy < 0 ? (
-            <>
-              These targets describe {targetSum.toFixed(1)}% of the equity book, so{" "}
-              <strong>{Math.abs(offBy).toFixed(1)}% of it is spoken for by nothing.</strong> The deployment plan sizes
-              every buy against these weights, so that share simply never gets bought — cash sits in the fund waiting
-              for an instruction that does not exist. That is fine if you meant to hold it back, and a silent leak if
-              you did not.
-            </>
-          ) : (
-            <>
-              These targets add to {targetSum.toFixed(1)}%, which is {offBy.toFixed(1)}% more book than you have. Every
-              name will read as underweight forever and the plan will keep asking for money you do not have.
-            </>
-          )}
+      {windingDown.length > 0 && (
+        <p className="text-[12px] mt-4 max-w-[80ch] text-muted">
+          {windingDown.map((r) => r.symbol).join(", ")} {windingDown.length === 1 ? "is" : "are"} held at a zero
+          target, which is read as winding down: no new money in, and{" "}
+          {windingDown.length === 1 ? "it leaves" : "they leave"} on the sell price you set rather than on a weight
+          rule. That is {windingDownPct.toFixed(1)}% of the book deliberately outside the target plan, so the targets
+          below should add to <strong>{expectedSum.toFixed(1)}%</strong> rather than 100%.
         </p>
       )}
 
-      {ownedButUntargeted.length > 0 && (
-        <p className="text-[12px] mt-3 max-w-[80ch]" style={{ color: "var(--negative)" }}>
-          You hold {ownedButUntargeted.map((r) => r.symbol).join(", ")} but target{" "}
-          {ownedButUntargeted.length === 1 ? "it" : "them"} at zero. The plan reads that as an instruction to sell the
-          lot. If you meant to keep {ownedButUntargeted.length === 1 ? "it" : "them"}, give{" "}
-          {ownedButUntargeted.length === 1 ? "it a weight" : "them weights"} — a blank target is not the same as no
-          opinion.
+      {Math.abs(offPlan) >= 0.05 && (
+        <p className="text-[12px] mt-3 max-w-[80ch]" style={{ color: offPlan < 0 ? "var(--negative)" : "var(--accent-deep)" }}>
+          {offPlan < 0 ? (
+            <>
+              They add to {targetSum.toFixed(1)}%, so{" "}
+              <strong>{Math.abs(offPlan).toFixed(1)}% of the book is spoken for by nothing.</strong> Every buy is sized
+              against these weights, so that share never gets bought — cash waits in the fund for an instruction that
+              does not exist. Deliberate cash is fine; this is cash by accident.
+            </>
+          ) : (
+            <>
+              They add to {targetSum.toFixed(1)}%, which is {offPlan.toFixed(1)}% more book than there is to allocate.
+              Every name will read as underweight forever and the plan will keep asking for money you do not have.
+            </>
+          )}
         </p>
       )}
 
@@ -239,9 +253,9 @@ export function TargetsEditor({ initial }: Props) {
         <Button variant="solid" onClick={saveAll} disabled={saving}>
           {saving ? "Saving…" : "Save Targets"}
         </Button>
-        {Math.abs(offBy) >= 0.05 && targetSum > 0 && (
+        {Math.abs(offPlan) >= 0.05 && targetSum > 0 && (
           <Button variant="outline" onClick={scaleTo100}>
-            Scale to 100%
+            Scale to {expectedSum.toFixed(1)}%
           </Button>
         )}
         <Button variant="outline" onClick={distributeEvenly}>

@@ -114,5 +114,77 @@ console.log("\n=== Test 5: no redistribute leaves rounding leftover ===");
   check("redistribute on leaves <= off leftover", on.cashAfter <= off.cashAfter + 1e-6, `off=${off.cashAfter} on=${on.cashAfter}`);
 }
 
+// ------------------------------------------------- winding a position down
+// A zero target on something you HOLD means: no new buying, and it leaves on
+// the sell price you set, not because a weight rule said so today. Before this
+// existed, turning on "allow selling" read a zero weight as "dump the lot at
+// market", which is a completely different instruction.
+{
+  //   pos(symbol, price, shares, targetPct)
+  const positions = withPercents([
+    pos("ABL", 100, 360, 0),   // held, targeted at zero: winding down
+    pos("MEBL", 200, 115, 15), // in the plan, underweight
+    pos("LUCK", 500, 278, 10), // in the plan, overweight
+  ]);
+  const totalValue = positions.reduce((s, p) => s + p.marketValue, 0);
+
+  const selling = computeRebalance({
+    positions,
+    freshCash: 0,
+    cashFromBalance: 0,
+    totalValue,
+    allowSelling: true,
+    orderPrices: {},
+    redistribute: false,
+  });
+  const abl = selling.rows.find((r) => r.symbol === "ABL")!;
+
+  check("a wind-down position is never force-sold", abl.action === "WIND_DOWN", abl.action);
+  check("and no rupees move on it", abl.actionRupees === 0, String(abl.actionRupees));
+  check("and no shares move on it", abl.deltaShares === 0, String(abl.deltaShares));
+  check("it is marked as winding down", abl.windingDown === true, String(abl.windingDown));
+  check(
+    "an overweight name that IS in the plan is still sold",
+    selling.rows.find((r) => r.symbol === "LUCK")!.action === "SELL",
+    selling.rows.find((r) => r.symbol === "LUCK")!.action
+  );
+
+  // With selling off, nothing changes for it either.
+  const buying = computeRebalance({
+    positions,
+    freshCash: 50000,
+    cashFromBalance: 0,
+    totalValue,
+    allowSelling: false,
+    orderPrices: {},
+    redistribute: false,
+  });
+  const ablBuy = buying.rows.find((r) => r.symbol === "ABL")!;
+  check("wind-down gets no new money either", ablBuy.actionRupees === 0, String(ablBuy.actionRupees));
+  check("wind-down stays out of the buying", ablBuy.action === "WIND_DOWN", ablBuy.action);
+  check(
+    "the cash goes to a name that is in the plan",
+    buying.rows.some((r) => r.action === "BUY"),
+    buying.rows.filter((r) => r.action === "BUY").map((r) => r.symbol).join(", ")
+  );
+
+  // A zero target on something you hold NONE of is a different thing entirely:
+  // unsized and waiting on a decision, not on its way out.
+  const none = computeRebalance({
+    positions: withPercents([pos("PPL", 200, 0, 0), pos("MEBL", 200, 500, 100)]),
+    freshCash: 0,
+    cashFromBalance: 0,
+    totalValue: 100000,
+    allowSelling: true,
+    orderPrices: {},
+    redistribute: false,
+  });
+  check(
+    "holding none of it is not winding down",
+    none.rows.find((r) => r.symbol === "PPL")!.windingDown === false,
+    none.rows.find((r) => r.symbol === "PPL")!.action
+  );
+}
+
 console.log(`\n=== ${pass} passed, ${fail} failed ===`);
 if (fail > 0) process.exit(1);

@@ -61,7 +61,9 @@ export type DeployPlan = {
   pullFromFunds: number; // redeem this much from the fund
   keptInFunds: number; // what remains in the fund afterwards
   undeployed: number; // deployable that no whole share could absorb
-  unsized: string[]; // no target weight — you must decide the size
+  unsized: string[]; // no target weight and none held — you must decide the size
+  // Held at a zero target on purpose: no new buying, exit on your own terms.
+  windingDown: string[];
   skipped: Array<{ symbol: string; reason: string }>; // zone factor of zero
   unpriced: string[];
   warnings: string[];
@@ -104,6 +106,7 @@ export function planDeployment({
 
   const warnings: string[] = [];
   const unsized: string[] = [];
+  const windingDown: string[] = [];
   const skipped: Array<{ symbol: string; reason: string }> = [];
   const priced: DeployCandidate[] = [];
   for (const c of candidates) {
@@ -114,7 +117,11 @@ export function planDeployment({
       continue;
     }
     if (!(num(c.targetPct) > 0)) {
-      unsized.push(c.symbol);
+      // Two very different things share a zero target. A name you HOLD at zero
+      // is a decision already made: no new buying, exit on its own sell price.
+      // A name you hold none of is simply unsized and waiting on you.
+      if (num(c.currentValue) > 0) windingDown.push(c.symbol);
+      else unsized.push(c.symbol);
       continue;
     }
     priced.push({
@@ -133,6 +140,11 @@ export function planDeployment({
   if (unsized.length > 0) {
     warnings.push(
       `In play but not sized: ${unsized.join(", ")}. Set a target weight on the Rebalance page and the plan will size ${unsized.length === 1 ? "it" : "them"} next time — a position size is your call, not the app's.`
+    );
+  }
+  if (windingDown.length > 0) {
+    warnings.push(
+      `Winding down, so not bought: ${windingDown.join(", ")}. You hold ${windingDown.length === 1 ? "it" : "them"} at a zero target, which this plan reads as no new money in — the exit is your sell price, not a weight rule.`
     );
   }
 
@@ -154,6 +166,7 @@ export function planDeployment({
     keptInFunds: funds,
     undeployed: deployable,
     unsized,
+    windingDown,
     skipped,
     unpriced: [...unpriced],
     warnings: [...warnings, ...extra],
@@ -298,6 +311,7 @@ export function planDeployment({
     keptInFunds,
     undeployed: Math.max(0, deployable - deployed),
     unsized,
+    windingDown,
     skipped,
     unpriced: [...unpriced],
     warnings,

@@ -11,7 +11,12 @@ export type RebalanceSuggestion = {
   orderPrice: number;
   deltaShares: number;
   actionRupees: number;
-  action: "BUY" | "SELL" | "HOLD";
+  // WIND_DOWN is a position you hold and deliberately target at zero: no new
+  // buying, but the exit is governed by your own sell price, not by weight.
+  // Without it, "rebalance to target" reads a zero weight as "sell the lot at
+  // market today", which is a different instruction entirely.
+  action: "BUY" | "SELL" | "HOLD" | "WIND_DOWN";
+  windingDown: boolean;
   finalValue: number;
   finalPct: number;
 };
@@ -59,7 +64,15 @@ export function computeRebalance({
   const rows: RebalanceSuggestion[] = positions.map((p) => {
     const orderPrice = priceOf(p);
     const targetValue = (p.targetPercent / 100) * targetTotal;
-    let deltaRs = targetValue - p.marketValue;
+
+    // A zero target on something you already own means it is out of the
+    // allocation, not up for sale this morning. It is excluded from buying,
+    // and it is NOT forced out at market: it leaves when its own sell price is
+    // hit. Selling on a weight rule would dump a position at whatever the
+    // screen happens to say today, which is the opposite of having a plan.
+    const windingDown = p.targetPercent <= 0 && p.marketValue > 0;
+
+    let deltaRs = windingDown ? 0 : targetValue - p.marketValue;
     if (!allowSelling && deltaRs < 0) deltaRs = 0;
 
     let deltaShares = 0;
@@ -86,6 +99,7 @@ export function computeRebalance({
       deltaShares,
       actionRupees,
       action: "HOLD",
+      windingDown,
       finalValue: p.marketValue,
       finalPct: 0,
     };
@@ -156,7 +170,13 @@ export function computeRebalance({
   const cashAfter = cashIn + released - deployed;
 
   for (const r of rows) {
-    r.action = r.actionRupees > 0 ? "BUY" : r.actionRupees < 0 ? "SELL" : "HOLD";
+    r.action = r.windingDown
+      ? "WIND_DOWN"
+      : r.actionRupees > 0
+      ? "BUY"
+      : r.actionRupees < 0
+      ? "SELL"
+      : "HOLD";
     r.finalValue = r.currentValue + r.actionRupees;
   }
   const finalTotal = rows.reduce((s, r) => s + r.finalValue, 0);

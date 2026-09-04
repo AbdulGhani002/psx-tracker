@@ -196,11 +196,11 @@ export function RebalanceView({ positions, totalValue, availableCashBalance }: P
                       <Badge
                         tone={r.action === "BUY" ? "accent" : r.action === "SELL" ? "negative" : "default"}
                       >
-                        {r.action}
+                        {r.action === "WIND_DOWN" ? "WIND DOWN" : r.action}
                       </Badge>
                     </td>
                     <td className="px-3 py-2.5 text-right font-mono mono-num">
-                      {r.action === "HOLD" ? (
+                      {r.action === "HOLD" || r.action === "WIND_DOWN" ? (
                         "—"
                       ) : (
                         <span style={{ color: r.action === "BUY" ? "var(--positive)" : "var(--negative)" }}>
