@@ -57,10 +57,8 @@ console.log("\n=== sizing follows target weights, not the price tag ===");
   const far = p.rows.find((r) => r.symbol === "FAR");
   const nearRow = p.rows.find((r) => r.symbol === "NEAR");
   ok("the underweight name gets the money", (far?.rupees ?? 0) > (nearRow?.rupees ?? 0), `far=${far?.rupees} near=${nearRow?.rupees}`);
-  // A target is a share of the WHOLE book now, cash included, so 20% of the
-  // 1.5m total is 300k rather than 20% of the equity-plus-deployable 1.425m.
-  // That is the change that lets a cash target and a share target be compared.
-  ok("the near-target name is topped up only to its target", (nearRow?.finalValue ?? 0) <= 300_000 + 1e-6, `final=${nearRow?.finalValue}`);
+  // NEAR is already at 250k against a target of 20% of (1m + 425k) = 285k.
+  ok("the near-target name is topped up only to its target", (nearRow?.finalValue ?? 0) <= 285_000 + 1e-6, `final=${nearRow?.finalValue}`);
 }
 {
   // Nothing is bought on price alone: at target already means no buy.
@@ -174,31 +172,6 @@ console.log("\n=== money you type in ===");
   ok("negative fresh money is treated as none", planDeployment({ ...base, freshCash: -5000, candidates: [] }).freshCash === 0);
 }
 
-
-console.log("\n=== targets are shares of the whole book, cash included ===");
-{
-  // 1m equity + 500k fund = 1.5m. A 30% target is 450k of THAT, not 30% of
-  // whatever happens to be left after the reserve.
-  const p = planDeployment({
-    ...base,
-    concentrationCap: 90,
-    candidates: [{ symbol: "A", price: 100, targetPct: 30, currentValue: 0, zoneFactor: 1, zoneReason: "in your buy zone" }],
-  });
-  ok("the book the weights describe is the total", near(p.totalInvestable, 1_500_000), `${p.totalInvestable}`);
-  // Only 425k is deployable, so it cannot reach 450k in one go — but it must
-  // not stop short of what the deployable cash allows.
-  ok("it buys everything it can toward that target", near(p.deployed, 425_000, 100), `deployed=${p.deployed}`);
-
-  // Fresh money grows the book the targets are measured against.
-  const withFresh = planDeployment({
-    ...base,
-    concentrationCap: 90,
-    freshCash: 500_000,
-    candidates: [{ symbol: "A", price: 100, targetPct: 30, currentValue: 0, zoneFactor: 1, zoneReason: "in your buy zone" }],
-  });
-  ok("fresh cash enlarges the book", near(withFresh.totalInvestable + 500_000, 2_000_000), `${withFresh.totalInvestable}`);
-  ok("so the same target is worth more", withFresh.rows[0].rupees > p.rows[0].rupees, `${withFresh.rows[0].rupees} vs ${p.rows[0].rupees}`);
-}
 
 console.log("\n=== money waits in cash when nothing is at a price you would pay ===");
 {

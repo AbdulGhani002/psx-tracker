@@ -183,12 +183,9 @@ export function planDeployment({
   }
   if (priced.length === 0) return empty();
 
-  // Target weights describe the WHOLE book — shares plus the cash sitting in
-  // the fund — so a 20% cash target and a 15% MEBL target are percentages of
-  // the same thing. Sizing shares against the equity-only book instead would
-  // mean the two could never be compared, which is what made a cash target
-  // impossible to express before.
-  const projectedBook = totalInvestable + fresh;
+  // Target values measured against the equity book AFTER full deployment —
+  // that is the book the weights are meant to describe.
+  const projectedBook = equity + deployable;
 
   // The cap binds against the book as it ACTUALLY ends up, not the book you
   // would have had if every rupee were deployed — and how much is deployed

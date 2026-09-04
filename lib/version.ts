@@ -1,7 +1,7 @@
 // Single source of truth for the app version + changelog.
 // Bump APP_VERSION and prepend a CHANGELOG entry on every release.
 
-export const APP_VERSION = "9.8.0";
+export const APP_VERSION = "9.8.1";
 
 export const BUILD_DATE =
   process.env.NEXT_PUBLIC_BUILD_DATE ?? "";
@@ -18,16 +18,13 @@ export type ChangelogEntry = {
 // Reverse-chronological. Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
-    version: "9.8.0",
+    version: "9.8.1",
     date: "2026-09-04",
-    title: "Cash is a position, so it sits in the table",
+    title: "Cash came out of the targets table again",
     changes: [
-      "CASH is now a row in the targets table: the money-market fund plus any brokerage balance, with a current weight and a target of its own. It competes with every share for the same money, so keeping it off to one side was hiding the most important allocation decision on the page.",
-      "That required one denominator. Every weight is now a share of the whole book — shares plus the fund — rather than a share of the equities alone. It is the only base on which a 15% MEBL target and a 20% cash target mean comparable things, and both allocators were changed to agree with it rather than leaving the page and the plan measuring different books.",
-      "The immediate consequence is visible rather than hidden: share targets adding to 100% alongside a 5% cash target is 105% of the money, which is more book than exists. That was always true. It could not be seen before because cash was not in the total.",
-      "New switch, off by default: only buy inside the buy zone. Off, a price above your ceiling still gets bought at a tapered weight, which is the old behaviour. On, a name outside its band is not bought at all and the money stays in the fund until the price comes to you. A name with no band set counts as outside it, because an unproven price is not a cheap one.",
-      "The deployment plan reports what that holds back, so cash accumulating because nothing is at a price you would pay reads as a decision rather than as an idle balance.",
-      "The cash row has no rebalance band and cannot wind down, and neither scale nor distribute touches its target — those move shares around the room cash has left. Splitting the book evenly across cash and shares alike would be an accident, not an allocation.",
+      "CASH was briefly a row in the targets table, with weights restated as shares of the whole book so a cash target and a share target could be compared. That is reverted: the table is shares only again, and every weight is a percentage of the equity book exactly as it was before.",
+      "Reverting the row meant reverting the denominator with it. Leaving weights measured against equities-plus-cash while removing the cash row would have silently reinterpreted every number already typed in, against a slice of the book with nothing to allocate it to.",
+      "The buy-zone switch from the same release stays, because it was a separate thing. Off by default: a price above your ceiling still gets bought at a tapered weight. On: a name outside its band is not bought at all and the money stays in the fund until the price comes to you, with a name that has no band counting as outside it. The deployment plan reports what that holds back, so cash accumulating because nothing is at a price you would pay reads as a decision rather than an idle balance.",
     ],
   },
   {
