@@ -129,13 +129,26 @@ export const NO_ZONE_FACTOR = 0.35; // no band set: cheapness unproven, go light
 
 export type BuyWeight = { factor: number; reason: string };
 
-export function zoneBuyFactor(price: number | null | undefined, e: ZoneEntry): BuyWeight {
+// STRICT changes the question from "how much should I buy here" to "is this a
+// price I said I would pay". Outside the band the answer is no and the money
+// stays in cash until the price comes to you, rather than trickling in above
+// your own ceiling. A name with no band set is not in a band, so it is not
+// bought either — cheapness unproven is not the same as cheap.
+export function zoneBuyFactor(
+  price: number | null | undefined,
+  e: ZoneEntry,
+  strict = false
+): BuyWeight {
   const v = evaluateZone(price, e);
   if (v.status === "conflict") return { factor: 0, reason: "zones contradict each other" };
   if (v.status === "unknown" || v.price == null) return { factor: 0, reason: "no usable price" };
   if (v.status === "sell") return { factor: 0, reason: "in your sell zone — not a buy" };
   if (v.status === "buy") return { factor: 1, reason: "in your buy zone" };
-  if (v.status === "no_zone") return { factor: NO_ZONE_FACTOR, reason: "no buy zone set — reduced weight" };
+  if (v.status === "no_zone") {
+    return strict
+      ? { factor: 0, reason: "no buy zone set — nothing to buy against, so the money waits" }
+      : { factor: NO_ZONE_FACTOR, reason: "no buy zone set — reduced weight" };
+  }
 
   // "between": either under the band floor, or above the ceiling.
   if (e.buyZoneLow != null && v.price < e.buyZoneLow) {
@@ -143,11 +156,19 @@ export function zoneBuyFactor(price: number | null | undefined, e: ZoneEntry): B
   }
   if (e.buyZoneHigh != null && e.buyZoneHigh > 0) {
     const abovePct = ((v.price - e.buyZoneHigh) / e.buyZoneHigh) * 100;
+    if (strict) {
+      return {
+        factor: 0,
+        reason: `${abovePct.toFixed(1)}% above your buy ceiling of Rs ${e.buyZoneHigh} — waiting for it to come back`,
+      };
+    }
     const factor = Math.max(BUY_MIN_FACTOR, 1 - abovePct / BUY_DECAY_SPAN_PCT);
     return { factor, reason: `${abovePct.toFixed(1)}% above your buy ceiling — reduced weight` };
   }
   // Only a sell band is set and the price is under it.
-  return { factor: NO_ZONE_FACTOR, reason: "no buy zone set — reduced weight" };
+  return strict
+    ? { factor: 0, reason: "no buy zone set — nothing to buy against, so the money waits" }
+    : { factor: NO_ZONE_FACTOR, reason: "no buy zone set — reduced weight" };
 }
 
 // How far today's price sits from the nearest edge of the band it is heading

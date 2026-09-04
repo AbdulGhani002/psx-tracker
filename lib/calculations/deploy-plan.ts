@@ -65,6 +65,9 @@ export type DeployPlan = {
   // Held at a zero target on purpose: no new buying, exit on your own terms.
   windingDown: string[];
   skipped: Array<{ symbol: string; reason: string }>; // zone factor of zero
+  // Money that stayed in the fund because no name was at a price you said you
+  // would pay. Not idle by accident: idle on purpose, waiting for a level.
+  heldForZones: number;
   unpriced: string[];
   warnings: string[];
 };
@@ -165,6 +168,7 @@ export function planDeployment({
     pullFromFunds: 0,
     keptInFunds: funds,
     undeployed: deployable,
+    heldForZones: skipped.length > 0 ? deployable : 0,
     unsized,
     windingDown,
     skipped,
@@ -179,9 +183,12 @@ export function planDeployment({
   }
   if (priced.length === 0) return empty();
 
-  // Target values measured against the equity book AFTER full deployment —
-  // that is the book the weights are meant to describe.
-  const projectedBook = equity + deployable;
+  // Target weights describe the WHOLE book — shares plus the cash sitting in
+  // the fund — so a 20% cash target and a 15% MEBL target are percentages of
+  // the same thing. Sizing shares against the equity-only book instead would
+  // mean the two could never be compared, which is what made a cash target
+  // impossible to express before.
+  const projectedBook = totalInvestable + fresh;
 
   // The cap binds against the book as it ACTUALLY ends up, not the book you
   // would have had if every rupee were deployed — and how much is deployed
@@ -310,6 +317,9 @@ export function planDeployment({
     pullFromFunds,
     keptInFunds,
     undeployed: Math.max(0, deployable - deployed),
+    // Whatever is left over while names are sitting outside their bands is
+    // money the rules deliberately kept back.
+    heldForZones: skipped.length > 0 ? Math.max(0, deployable - deployed) : 0,
     unsized,
     windingDown,
     skipped,

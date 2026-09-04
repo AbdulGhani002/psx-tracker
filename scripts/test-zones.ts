@@ -160,5 +160,41 @@ console.log("\n=== the live book, with the owner's real bands ===");
   ok("MUREB inside its band is full weight", zoneBuyFactor(899.54, entry({ buyZoneLow: 850, buyZoneHigh: 910 })).factor === 1);
 }
 
+
+console.log("\n=== strict bands: outside the zone, the money waits ===");
+{
+  const e = { symbol: "X", buyZoneLow: 90, buyZoneHigh: 100, sellZoneLow: 200, sellZoneHigh: null, minHoldingShares: 0 };
+
+  // Inside the band nothing changes: it is a price you said you would pay.
+  ok("in the band still buys at full weight", zoneBuyFactor(95, e, true).factor === 1, `${zoneBuyFactor(95, e, true).factor}`);
+  ok("below the band still buys at full weight", zoneBuyFactor(80, e, true).factor === 1, `${zoneBuyFactor(80, e, true).factor}`);
+
+  // Above the ceiling is where advisory and binding part company.
+  const loose = zoneBuyFactor(110, e, false);
+  const strict = zoneBuyFactor(110, e, true);
+  ok("advisory mode still trickles money in above the ceiling", loose.factor > 0, `${loose.factor.toFixed(2)}`);
+  ok("strict mode buys nothing above the ceiling", strict.factor === 0, `${strict.factor}`);
+  ok("and says what it is waiting for", strict.reason.includes("above your buy ceiling"), strict.reason);
+
+  // A name with no band is not in a band.
+  const none = { symbol: "Y", buyZoneLow: null, buyZoneHigh: null, sellZoneLow: null, sellZoneHigh: null, minHoldingShares: 0 };
+  ok("advisory mode buys an unbanded name lightly", zoneBuyFactor(50, none, false).factor > 0, `${zoneBuyFactor(50, none, false).factor}`);
+  ok("strict mode does not buy an unbanded name", zoneBuyFactor(50, none, true).factor === 0, `${zoneBuyFactor(50, none, true).factor}`);
+
+  // The sell band wins in both modes: adding to what you are exiting is incoherent.
+  ok("a sell-band price buys nothing either way", zoneBuyFactor(250, e, false).factor === 0 && zoneBuyFactor(250, e, true).factor === 0);
+  // A missing price is not a cheap price, in either mode.
+  ok("no price buys nothing either way", zoneBuyFactor(null, e, false).factor === 0 && zoneBuyFactor(null, e, true).factor === 0);
+  // Strict must never buy MORE than advisory.
+  const prices = [50, 80, 90, 95, 100, 105, 120, 180, 250];
+  ok(
+    "strict is never more aggressive than advisory",
+    prices.every((px) => zoneBuyFactor(px, e, true).factor <= zoneBuyFactor(px, e, false).factor + 1e-9),
+    prices.map((px) => `${px}:${zoneBuyFactor(px, e, true).factor.toFixed(2)}/${zoneBuyFactor(px, e, false).factor.toFixed(2)}`).join(" ")
+  );
+  // Default stays advisory, so nobody's behaviour changes without asking.
+  ok("the default is advisory", zoneBuyFactor(110, e).factor === zoneBuyFactor(110, e, false).factor);
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 if (fail > 0) process.exit(1);

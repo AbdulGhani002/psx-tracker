@@ -1263,6 +1263,7 @@ async function _getAppSettings(): Promise<AppSettings> {
     pmexCgtPercent: doc?.pmexCgtPercent ?? DEFAULT_SETTINGS.pmexCgtPercent,
     concentrationCap: doc?.concentrationCap ?? DEFAULT_SETTINGS.concentrationCap,
     mfCashReservePct: (doc as any)?.mfCashReservePct ?? DEFAULT_SETTINGS.mfCashReservePct,
+    strictBuyZones: (doc as any)?.strictBuyZones ?? (DEFAULT_SETTINGS as any).strictBuyZones ?? false,
     equityRiskPremiumPct: (doc as any)?.equityRiskPremiumPct ?? DEFAULT_SETTINGS.equityRiskPremiumPct,
     defaultFairPE: (doc as any)?.defaultFairPE ?? DEFAULT_SETTINGS.defaultFairPE,
     targetMonthlyIncome: (doc as any)?.targetMonthlyIncome ?? DEFAULT_SETTINGS.targetMonthlyIncome,
@@ -1772,6 +1773,12 @@ async function _getZoneBoard(): Promise<ZoneBoard> {
   const cgtRatePct =
     (settings as any).filerStatus === "filer" ? (settings as any).cgtRateFiler : (settings as any).cgtRateNonFiler;
 
+
+  // Bands are advisory by default: a price above your ceiling still gets bought,
+  // just less. Turn this on and they become binding — outside the band nothing
+  // is bought and the money waits in the fund for the level to arrive.
+  const strictZones = !!(await getAppSettings().catch(() => ({} as any)) as any).strictBuyZones;
+
   const rows: ZoneBoardRow[] = watch.map((w) => {
     // A zone bound falls back to the older single-point target, so rows created
     // before zones existed keep working instead of silently going quiet. The
@@ -1792,7 +1799,7 @@ async function _getZoneBoard(): Promise<ZoneBoard> {
     const pos = posBySymbol.get(w.symbol);
     const sharesHeld = pos?.shares ?? 0;
     const dist = verdict.price != null ? distanceToZonePct(verdict.price, entry) : { toBuyPct: null, toSellPct: null };
-    const weight = zoneBuyFactor(verdict.price, entry);
+    const weight = zoneBuyFactor(verdict.price, entry, strictZones);
     return {
       _id: String(w._id),
       symbol: w.symbol,

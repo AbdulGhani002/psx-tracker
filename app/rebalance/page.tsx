@@ -37,13 +37,35 @@ export default async function RebalancePage() {
     .map((h: any) => h.symbol)
     .sort();
 
-  const targetRows = relevant.map((p) => ({
-    symbol: p.symbol,
-    sector: p.sector,
-    currentPercent: p.currentPercent,
-    targetPercent: p.targetPercent,
-    rebalanceBand: bandBySymbol.get(p.symbol) ?? 3,
-  }));
+  // CASH is a position. It is the money-market fund plus any brokerage balance,
+  // and it competes with every share for the same book — so it belongs in the
+  // same table, on the same denominator, with a target of its own. Weights are
+  // therefore percentages of equities PLUS cash, which is the only base on
+  // which "15% MEBL" and "20% cash" mean comparable things.
+  const cashValue = plan.cashLike;
+  const bookValue = summary.totalValue + cashValue;
+  const scale = bookValue > 0 ? summary.totalValue / bookValue : 1;
+
+  const targetRows = [
+    ...relevant.map((p) => ({
+      symbol: p.symbol,
+      sector: p.sector,
+      // currentPercent arrives as a share of the equity book; restate it as a
+      // share of the whole book so the column and the target agree.
+      currentPercent: p.currentPercent * scale,
+      targetPercent: p.targetPercent,
+      rebalanceBand: bandBySymbol.get(p.symbol) ?? 3,
+      isCash: false,
+    })),
+    {
+      symbol: "CASH",
+      sector: plan.fundsLabel ? `Money market · ${plan.fundsLabel}` : "Money market",
+      currentPercent: bookValue > 0 ? (cashValue / bookValue) * 100 : 0,
+      targetPercent: (settings as any).mfCashReservePct ?? 5,
+      rebalanceBand: 0,
+      isCash: true,
+    },
+  ];
 
   return (
     <div>
@@ -57,7 +79,14 @@ export default async function RebalancePage() {
       <Section number="01" title="Plan & targets" description="Add a company you intend to buy, then set target weights for everything.">
         <div className="space-y-6">
           <AddCompany />
-          {targetRows.length > 0 && <TargetsEditor initial={targetRows} />}
+          {targetRows.length > 0 && (
+            <TargetsEditor
+              initial={targetRows}
+              cashValue={cashValue}
+              bookValue={bookValue}
+              strictZones={!!(settings as any).strictBuyZones}
+            />
+          )}
           {dormant.length > 0 && (
             <p className="text-[12px] text-muted max-w-[80ch]">
               <span className="label-cap">Dormant · {dormant.length}</span>{" "}
@@ -128,7 +157,7 @@ export default async function RebalancePage() {
       >
         <RebalanceView
           positions={relevant}
-          totalValue={summary.totalValue}
+          totalValue={bookValue}
           availableCashBalance={0}
         />
       </Section>

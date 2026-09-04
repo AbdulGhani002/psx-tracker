@@ -16,6 +16,7 @@ const patchSchema = z.object({
   pmexCgtPercent: z.number().min(0).max(100).optional(),
   concentrationCap: z.number().min(0).max(100).optional(),
   mfCashReservePct: z.number().min(0).max(100).optional(),
+  strictBuyZones: z.boolean().optional(),
   inflationPct: z.number().min(0).max(100).optional(),
   podWhtFiler: z.number().min(0).max(100).optional(),
   podWhtNonFiler: z.number().min(0).max(100).optional(),

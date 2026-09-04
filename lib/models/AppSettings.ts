@@ -22,7 +22,12 @@ const AppSettingsSchema = new Schema(
     // The slice of total investable wealth that never leaves the money-market
     // fund. Deployment plans subtract it before anything is spendable, so a
     // buying spree cannot quietly consume the buffer.
+    // The CASH target: the share of the whole book (equities plus the fund)
+    // that is meant to sit in the money-market fund rather than in shares.
     mfCashReservePct: { type: Number, default: 5 },
+    // Only buy a name whose price is inside its buy band. Outside it, the money
+    // stays in cash and waits, instead of being deployed at a reduced weight.
+    strictBuyZones: { type: Boolean, default: false },
     inflationPct: { type: Number, default: 0 }, // annual CPI inflation, for real (inflation-adjusted) returns
     // Valuation assumptions (editable)
     // Pakistan equity risk premium, in points over the SBP policy rate. This is
@@ -66,6 +71,7 @@ export const DEFAULT_SETTINGS = {
   pmexCgtPercent: 15,
   concentrationCap: 25,
   mfCashReservePct: 5,
+  strictBuyZones: false,
   inflationPct: 0,
   equityRiskPremiumPct: 5.5,
   defaultFairPE: 8,

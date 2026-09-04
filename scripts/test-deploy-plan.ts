@@ -57,8 +57,10 @@ console.log("\n=== sizing follows target weights, not the price tag ===");
   const far = p.rows.find((r) => r.symbol === "FAR");
   const nearRow = p.rows.find((r) => r.symbol === "NEAR");
   ok("the underweight name gets the money", (far?.rupees ?? 0) > (nearRow?.rupees ?? 0), `far=${far?.rupees} near=${nearRow?.rupees}`);
-  // NEAR is already at 250k against a target of 20% of (1m + 425k) = 285k.
-  ok("the near-target name is topped up only to its target", (nearRow?.finalValue ?? 0) <= 285_000 + 1e-6, `final=${nearRow?.finalValue}`);
+  // A target is a share of the WHOLE book now, cash included, so 20% of the
+  // 1.5m total is 300k rather than 20% of the equity-plus-deployable 1.425m.
+  // That is the change that lets a cash target and a share target be compared.
+  ok("the near-target name is topped up only to its target", (nearRow?.finalValue ?? 0) <= 300_000 + 1e-6, `final=${nearRow?.finalValue}`);
 }
 {
   // Nothing is bought on price alone: at target already means no buy.
@@ -170,6 +172,63 @@ console.log("\n=== money you type in ===");
   ok("every rupee is sourced", near(p.freshCashUsed + p.brokerCashUsed + p.pullFromFunds, p.deployed));
   ok("the reserve survives", p.keptInFunds >= p.reserveRequired - 1e-6, `kept=${p.keptInFunds} reserve=${p.reserveRequired}`);
   ok("negative fresh money is treated as none", planDeployment({ ...base, freshCash: -5000, candidates: [] }).freshCash === 0);
+}
+
+
+console.log("\n=== targets are shares of the whole book, cash included ===");
+{
+  // 1m equity + 500k fund = 1.5m. A 30% target is 450k of THAT, not 30% of
+  // whatever happens to be left after the reserve.
+  const p = planDeployment({
+    ...base,
+    concentrationCap: 90,
+    candidates: [{ symbol: "A", price: 100, targetPct: 30, currentValue: 0, zoneFactor: 1, zoneReason: "in your buy zone" }],
+  });
+  ok("the book the weights describe is the total", near(p.totalInvestable, 1_500_000), `${p.totalInvestable}`);
+  // Only 425k is deployable, so it cannot reach 450k in one go — but it must
+  // not stop short of what the deployable cash allows.
+  ok("it buys everything it can toward that target", near(p.deployed, 425_000, 100), `deployed=${p.deployed}`);
+
+  // Fresh money grows the book the targets are measured against.
+  const withFresh = planDeployment({
+    ...base,
+    concentrationCap: 90,
+    freshCash: 500_000,
+    candidates: [{ symbol: "A", price: 100, targetPct: 30, currentValue: 0, zoneFactor: 1, zoneReason: "in your buy zone" }],
+  });
+  ok("fresh cash enlarges the book", near(withFresh.totalInvestable + 500_000, 2_000_000), `${withFresh.totalInvestable}`);
+  ok("so the same target is worth more", withFresh.rows[0].rupees > p.rows[0].rupees, `${withFresh.rows[0].rupees} vs ${p.rows[0].rupees}`);
+}
+
+console.log("\n=== money waits in cash when nothing is at a price you would pay ===");
+{
+  const p = planDeployment({
+    ...base,
+    concentrationCap: 90,
+    candidates: [
+      { symbol: "A", price: 100, targetPct: 30, currentValue: 0, zoneFactor: 0, zoneReason: "12% above your buy ceiling" },
+      { symbol: "B", price: 100, targetPct: 30, currentValue: 0, zoneFactor: 0, zoneReason: "12% above your buy ceiling" },
+    ],
+  });
+  ok("nothing is bought", p.rows.length === 0 && p.deployed === 0, `rows=${p.rows.length}`);
+  ok("both names are reported as skipped", p.skipped.length === 2, `${p.skipped.map((x) => x.symbol).join(",")}`);
+  ok("and the money is held on purpose, not lost", near(p.heldForZones, 425_000), `held=${p.heldForZones}`);
+  ok("it stays in the fund", near(p.keptInFunds, 500_000), `kept=${p.keptInFunds}`);
+}
+{
+  // One name in its zone, one outside: the money goes to the one you said you
+  // would pay for, and nothing is forced into the other.
+  const p = planDeployment({
+    ...base,
+    concentrationCap: 90,
+    candidates: [
+      { symbol: "IN", price: 100, targetPct: 10, currentValue: 0, zoneFactor: 1, zoneReason: "in your buy zone" },
+      { symbol: "OUT", price: 100, targetPct: 40, currentValue: 0, zoneFactor: 0, zoneReason: "above your buy ceiling" },
+    ],
+  });
+  ok("only the in-zone name is bought", p.rows.length === 1 && p.rows[0].symbol === "IN", `${p.rows.map((r) => r.symbol).join(",")}`);
+  ok("the out-of-zone name is skipped, not sized", p.skipped.some((x) => x.symbol === "OUT"), `${p.skipped.length}`);
+  ok("the leftover is reported as held for a level", p.heldForZones > 0, `held=${p.heldForZones}`);
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

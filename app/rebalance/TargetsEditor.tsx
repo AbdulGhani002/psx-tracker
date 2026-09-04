@@ -4,7 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
-import { fmtPct } from "@/lib/format";
+import { fmtPct, fmtRs } from "@/lib/format";
 
 type Row = {
   symbol: string;
@@ -12,6 +12,7 @@ type Row = {
   currentPercent: number;
   target: number;
   band: number;
+  isCash: boolean;
 };
 
 type Props = {
@@ -21,10 +22,14 @@ type Props = {
     currentPercent: number;
     targetPercent: number;
     rebalanceBand: number;
+    isCash?: boolean;
   }>;
+  cashValue: number;
+  bookValue: number;
+  strictZones: boolean;
 };
 
-export function TargetsEditor({ initial }: Props) {
+export function TargetsEditor({ initial, cashValue, bookValue, strictZones }: Props) {
   const router = useRouter();
   const [rows, setRows] = useState<Row[]>(
     initial.map((p) => ({
@@ -33,10 +38,12 @@ export function TargetsEditor({ initial }: Props) {
       currentPercent: p.currentPercent,
       target: p.targetPercent,
       band: p.rebalanceBand,
+      isCash: !!p.isCash,
     }))
   );
   const [saving, setSaving] = useState(false);
   const [savedAt, setSavedAt] = useState<number | null>(null);
+  const [strict, setStrict] = useState(strictZones);
   const [error, setError] = useState<string | null>(null);
 
   function updateRow(symbol: string, patch: Partial<Row>) {
@@ -54,17 +61,40 @@ export function TargetsEditor({ initial }: Props) {
         (r, i) =>
           r.target !== initial[i].targetPercent || r.band !== initial[i].rebalanceBand
       );
+
+      // CASH is not a holding, so its target is a setting rather than a PATCH
+      // on a share. Saved first, because the shares are sized against the book
+      // it leaves behind.
+      const cashRow = dirty.find((r) => r.isCash);
+      if (cashRow || strict !== strictZones) {
+        const patch: Record<string, unknown> = {};
+        if (cashRow) patch.mfCashReservePct = cashRow.target;
+        if (strict !== strictZones) patch.strictBuyZones = strict;
+        const res = await fetch("/api/settings", {
+          method: "PATCH",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(patch),
+        });
+        if (!res.ok) {
+          const body = await res.json().catch(() => ({}));
+          setError(body?.detail ?? body?.error ?? "Could not save the cash target.");
+          return;
+        }
+      }
+
       const results = await Promise.all(
-        dirty.map((r) =>
-          fetch(`/api/holdings/${r.symbol}`, {
-            method: "PATCH",
-            headers: { "content-type": "application/json" },
-            body: JSON.stringify({
-              targetAllocationPercent: r.target,
-              rebalanceBand: r.band,
-            }),
-          })
-        )
+        dirty
+          .filter((r) => !r.isCash)
+          .map((r) =>
+            fetch(`/api/holdings/${r.symbol}`, {
+              method: "PATCH",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({
+                targetAllocationPercent: r.target,
+                rebalanceBand: r.band,
+              }),
+            })
+          )
       );
       const failed = results.find((r) => !r.ok);
       if (failed) {
@@ -82,8 +112,13 @@ export function TargetsEditor({ initial }: Props) {
   function distributeEvenly() {
     // Only the names actually in the plan share the allocatable book. Handing a
     // slice to something you are winding down would silently re-buy it.
-    const inPlan = rows.filter((r) => !(r.currentPercent > 0.05 && r.target <= 0));
-    const goal = 100 - rows.filter((r) => r.currentPercent > 0.05 && r.target <= 0).reduce((s, r) => s + r.currentPercent, 0);
+    // Cash keeps whatever target you set for it; only the shares share out what
+    // is left. Splitting the book evenly across cash and shares alike would be
+    // an accident, not an allocation.
+    const cashTarget = rows.find((r) => r.isCash)?.target ?? 0;
+    const outOfPlan = rows.filter((r) => !r.isCash && r.currentPercent > 0.05 && r.target <= 0);
+    const inPlan = rows.filter((r) => !r.isCash && !outOfPlan.some((x) => x.symbol === r.symbol));
+    const goal = 100 - cashTarget - outOfPlan.reduce((s, r) => s + r.currentPercent, 0);
     const even = inPlan.length > 0 ? Math.floor((goal / inPlan.length) * 10) / 10 : 0;
     setRows((rs) => rs.map((r) => (inPlan.some((x) => x.symbol === r.symbol) ? { ...r, target: even } : r)));
   }
@@ -92,20 +127,28 @@ export function TargetsEditor({ initial }: Props) {
   // preserves every relative judgement you made; distributing evenly throws
   // them all away, which is why this is the button to reach for first.
   function scaleTo100() {
-    const sum = rows.reduce((s, r) => s + r.target, 0);
+    // Cash is not scaled: you chose that number deliberately and it is the one
+    // thing on the page that is not a view about a company.
+    const sum = rows.filter((r) => !r.isCash).reduce((s, r) => s + r.target, 0);
     if (sum <= 0) return;
     // Scale to what is actually allocatable: a book with part of it winding
     // down has less than 100% to share out.
-    const goal = expectedSum;
-    const scaled = rows.map((r) => ({ ...r, target: Math.round((r.target / sum) * goal * 10) / 10 }));
+    const cashTarget = rows.find((r) => r.isCash)?.target ?? 0;
+    const goal = expectedSum - cashTarget;
+    const scaled = rows.map((r) =>
+      r.isCash ? r : { ...r, target: Math.round((r.target / sum) * goal * 10) / 10 }
+    );
     // Rounding rarely lands on 100 exactly; the remainder goes to the largest
     // target, where a tenth of a point is least meaningful.
-    const after = scaled.reduce((s, r) => s + r.target, 0);
+    const after = scaled.filter((r) => !r.isCash).reduce((s, r) => s + r.target, 0);
     const drift = Math.round((goal - after) * 10) / 10;
     if (drift !== 0) {
-      let big = 0;
-      for (let i = 1; i < scaled.length; i++) if (scaled[i].target > scaled[big].target) big = i;
-      scaled[big] = { ...scaled[big], target: Math.round((scaled[big].target + drift) * 10) / 10 };
+      let big = -1;
+      for (let i = 0; i < scaled.length; i++) {
+        if (scaled[i].isCash) continue;
+        if (big < 0 || scaled[i].target > scaled[big].target) big = i;
+      }
+      if (big >= 0) scaled[big] = { ...scaled[big], target: Math.round((scaled[big].target + drift) * 10) / 10 };
     }
     setRows(scaled);
   }
@@ -115,7 +158,7 @@ export function TargetsEditor({ initial }: Props) {
   // Held at a zero target. That is a decision, not an omission: no new money
   // in, and the exit is governed by your own sell price. It does mean this
   // weight is outside the target plan, which is what the total has to allow for.
-  const windingDown = rows.filter((r) => r.currentPercent > 0.05 && r.target <= 0);
+  const windingDown = rows.filter((r) => !r.isCash && r.currentPercent > 0.05 && r.target <= 0);
   const windingDownPct = windingDown.reduce((s, r) => s + r.currentPercent, 0);
   // What the targets ought to add up to today, given part of the book is on its
   // way out and deliberately unallocated.
@@ -171,7 +214,11 @@ export function TargetsEditor({ initial }: Props) {
           </thead>
           <tbody>
             {rows.map((r) => (
-              <tr key={r.symbol} className="border-b border-rule">
+              <tr
+                key={r.symbol}
+                className="border-b border-rule"
+                style={r.isCash ? { borderTop: "1px solid var(--ink)" } : undefined}
+              >
                 <td className="px-3 py-2 font-mono font-medium">{r.symbol}</td>
                 <td className="px-3 py-2 text-[12px] text-muted">{r.sector}</td>
                 <td className="px-3 py-2 text-right font-mono mono-num">
@@ -198,16 +245,22 @@ export function TargetsEditor({ initial }: Props) {
                   <span className="ml-1 text-muted text-[11px]">%</span>
                 </td>
                 <td className="px-3 py-2 text-right">
-                  <input
-                    type="number"
-                    value={r.band}
-                    onChange={(e) => updateRow(r.symbol, { band: Number(e.target.value) })}
-                    step={0.5}
-                    min={0}
-                    max={50}
-                    className="w-16 bg-transparent border-b border-ink text-right font-mono mono-num text-[13px] py-1 focus:outline-none"
-                  />
-                  <span className="ml-1 text-muted text-[11px]">%</span>
+                  {r.isCash ? (
+                    <span className="text-muted text-[12px]">—</span>
+                  ) : (
+                    <>
+                      <input
+                        type="number"
+                        value={r.band}
+                        onChange={(e) => updateRow(r.symbol, { band: Number(e.target.value) })}
+                        step={0.5}
+                        min={0}
+                        max={50}
+                        className="w-16 bg-transparent border-b border-ink text-right font-mono mono-num text-[13px] py-1 focus:outline-none"
+                      />
+                      <span className="ml-1 text-muted text-[11px]">%</span>
+                    </>
+                  )}
                 </td>
               </tr>
             ))}
@@ -248,6 +301,30 @@ export function TargetsEditor({ initial }: Props) {
           )}
         </p>
       )}
+
+      <p className="text-[12px] text-muted mt-4 max-w-[80ch]">
+        Every weight here is a share of the whole book — shares plus the{" "}
+        <span className="font-mono">{fmtRs(cashValue)}</span> in the fund, {fmtRs(bookValue)} in total. That is what
+        lets a cash target and a share target be compared at all: CASH is a position that competes for the same money,
+        so it sits in the table rather than off to one side.
+      </p>
+
+      <label className="flex items-start gap-3 mt-4 cursor-pointer max-w-[80ch]">
+        <input
+          type="checkbox"
+          checked={strict}
+          onChange={(e) => setStrict(e.target.checked)}
+          className="mt-1"
+        />
+        <span className="text-[12px]">
+          <span className="font-medium">Only buy inside the buy zone.</span>{" "}
+          <span className="text-muted">
+            Off, a price above your ceiling still gets bought, just less of it. On, a name outside its band is not
+            bought at all and the money stays in cash until the price comes to you. A name with no band set counts as
+            outside it, because an unproven price is not a cheap one.
+          </span>
+        </span>
+      </label>
 
       <div className="flex flex-wrap items-center gap-3 mt-5">
         <Button variant="solid" onClick={saveAll} disabled={saving}>
