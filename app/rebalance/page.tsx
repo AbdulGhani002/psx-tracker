@@ -29,6 +29,14 @@ export default async function RebalancePage() {
     (p) => p.shares > 0 || (p.targetPercent ?? 0) > 0
   );
 
+  // Symbols still on your books with no shares and no target. The table above
+  // hides them, so before this line they were invisible everywhere — and the
+  // add form used to reject them as duplicates, which left them unreachable.
+  const dormant = holdings
+    .filter((h: any) => (h.currentShares ?? 0) <= 0 && (h.targetAllocationPercent ?? 0) <= 0)
+    .map((h: any) => h.symbol)
+    .sort();
+
   const targetRows = relevant.map((p) => ({
     symbol: p.symbol,
     sector: p.sector,
@@ -50,6 +58,14 @@ export default async function RebalancePage() {
         <div className="space-y-6">
           <AddCompany />
           {targetRows.length > 0 && <TargetsEditor initial={targetRows} />}
+          {dormant.length > 0 && (
+            <p className="text-[12px] text-muted max-w-[80ch]">
+              <span className="label-cap">Dormant · {dormant.length}</span>{" "}
+              <span className="font-mono">{dormant.join(", ")}</span> are still on your books with no shares and no
+              target, so they are left out of the table above and out of every weight on this page. Their transaction
+              history is intact. Type one into the form above to bring it back into the plan, or ignore them.
+            </p>
+          )}
         </div>
       </Section>
 

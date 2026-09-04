@@ -25,7 +25,16 @@ export async function POST(req: NextRequest) {
     await connectDb();
 
     const exists = await HoldingModel.findOne({ userId: await uid(), symbol });
-    if (exists) return NextResponse.json({ error: "exists", symbol }, { status: 409 });
+
+    // A holding you no longer own is DORMANT, not a duplicate. Sell out of a
+    // position and the record stays behind with no shares and no target, which
+    // the targets table hides as a ghost. Refusing to re-add it left those
+    // symbols unreachable from every screen: invisible in the table, rejected
+    // here. So a dormant record is adopted rather than rejected — the target
+    // goes on, the price is refreshed, and it reappears in the plan.
+    if (exists && (exists.currentShares ?? 0) > 0) {
+      return NextResponse.json({ error: "exists", symbol }, { status: 409 });
+    }
 
     const snap = await fetchPSXPage(symbol);
     if (!snap || snap.price == null) {
@@ -36,15 +45,29 @@ export async function POST(req: NextRequest) {
     }
 
     const info = getSectorInfo(symbol);
-    const created = await HoldingModel.create({
-      userId: await uid(),
-      symbol,
-      name: snap.name || info.name,
-      sector: snap.sector || info.sector,
-      shariaCompliant: info.shariaCompliant,
-      targetAllocationPercent: targetAllocationPercent ?? 0,
-      notes: "",
-    });
+    const created = exists
+      ? await HoldingModel.findOneAndUpdate(
+          { _id: exists._id },
+          {
+            $set: {
+              targetAllocationPercent: targetAllocationPercent ?? exists.targetAllocationPercent ?? 0,
+              // Refresh the name and sector while we are here; a dormant record
+              // can be years old. Cost basis and history are left untouched.
+              name: snap.name || exists.name || info.name,
+              sector: snap.sector || exists.sector || info.sector,
+            },
+          },
+          { new: true }
+        )
+      : await HoldingModel.create({
+          userId: await uid(),
+          symbol,
+          name: snap.name || info.name,
+          sector: snap.sector || info.sector,
+          shariaCompliant: info.shariaCompliant,
+          targetAllocationPercent: targetAllocationPercent ?? 0,
+          notes: "",
+        });
 
     await PriceSnapshotModel.create({
       userId: await uid(),
@@ -56,7 +79,16 @@ export async function POST(req: NextRequest) {
     });
 
     return NextResponse.json(
-      { ok: true, symbol, name: created.name, sector: created.sector, price: snap.price },
+      {
+        ok: true,
+        symbol,
+        name: created?.name,
+        sector: created?.sector,
+        price: snap.price,
+        // Tells the page whether to say "added" or "brought back", because
+        // silently reusing an old record would hide that history exists.
+        adopted: !!exists,
+      },
       { status: 201 }
     );
   } catch (err) {

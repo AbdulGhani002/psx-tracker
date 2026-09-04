@@ -1,7 +1,7 @@
 // Single source of truth for the app version + changelog.
 // Bump APP_VERSION and prepend a CHANGELOG entry on every release.
 
-export const APP_VERSION = "9.5.0";
+export const APP_VERSION = "9.6.0";
 
 export const BUILD_DATE =
   process.env.NEXT_PUBLIC_BUILD_DATE ?? "";
@@ -17,6 +17,19 @@ export type ChangelogEntry = {
 
 // Reverse-chronological. Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: "9.6.0",
+    date: "2026-09-04",
+    title: "Fourteen symbols were in a dead end",
+    changes: [
+      "Selling out of a position leaves its record behind with no shares and no target. The targets table hid those as ghosts, and the add form rejected them as duplicates. So fourteen symbols on this account — ABOT, AHL, BOP, CSAP, DOL, FABL, FATIMA, GGL, KEL, KOSM, NBP, OGDC, PAKT, SNGP, and PPL until it was rescued — were unreachable from every screen at once: invisible in the table, refused by the form that says it adds things, with no way out from the interface.",
+      "A dormant holding is now adopted rather than refused. Type it in with a weight and it comes back into the plan, keeping its transaction history rather than being duplicated. A symbol you genuinely hold shares in is still refused, because that one really is in the table and the message now says so.",
+      "Dormant symbols are listed under the targets table instead of existing only in the database, so you can see what is on your books and bring any of it back.",
+      "The targets total was a red number and nothing else. It now says what an off-100 total actually does: weights describing 86% of the book mean 14% of it is spoken for by nothing, the deployment plan never buys that share, and cash sits in the fund waiting for an instruction that does not exist. Fine if deliberate, a silent leak if not.",
+      "New button: scale to 100%. It keeps every relative judgement you made and just makes them add up, which is almost always what you want — distribute evenly throws all of them away.",
+      "A position you own and target at zero is now flagged in its own row as SELL ALL, and named underneath. That is what the plan reads it as, and it is more often a target nobody set than a decision to liquidate. On this account it was ABL and INDU.",
+    ],
+  },
   {
     version: "9.5.0",
     date: "2026-09-03",

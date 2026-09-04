@@ -84,6 +84,29 @@ export function TargetsEditor({ initial }: Props) {
     setRows((rs) => rs.map((r) => ({ ...r, target: even })));
   }
 
+  // Keep the shape of what you decided and just make it add up. Scaling
+  // preserves every relative judgement you made; distributing evenly throws
+  // them all away, which is why this is the button to reach for first.
+  function scaleTo100() {
+    const sum = rows.reduce((s, r) => s + r.target, 0);
+    if (sum <= 0) return;
+    const scaled = rows.map((r) => ({ ...r, target: Math.round((r.target / sum) * 1000) / 10 }));
+    // Rounding rarely lands on 100 exactly; the remainder goes to the largest
+    // target, where a tenth of a point is least meaningful.
+    const after = scaled.reduce((s, r) => s + r.target, 0);
+    const drift = Math.round((100 - after) * 10) / 10;
+    if (drift !== 0) {
+      let big = 0;
+      for (let i = 1; i < scaled.length; i++) if (scaled[i].target > scaled[big].target) big = i;
+      scaled[big] = { ...scaled[big], target: Math.round((scaled[big].target + drift) * 10) / 10 };
+    }
+    setRows(scaled);
+  }
+
+  // Owning something you target at nothing is a standing instruction to sell it
+  // all. Sometimes that is exactly right; more often the target was never set.
+  const ownedButUntargeted = rows.filter((r) => r.currentPercent > 0.05 && r.target <= 0);
+
   if (rows.length === 0) return null;
 
   return (
@@ -99,7 +122,8 @@ export function TargetsEditor({ initial }: Props) {
           <div className="label-cap">Total</div>
           <div
             className="font-display mono-num text-[20px]"
-            style={{
+            style={{
+
               color:
                 Math.abs(offBy) < 0.05
                   ? "var(--positive)"
@@ -136,6 +160,15 @@ export function TargetsEditor({ initial }: Props) {
                 <td className="px-3 py-2 text-[12px] text-muted">{r.sector}</td>
                 <td className="px-3 py-2 text-right font-mono mono-num">
                   {fmtPct(r.currentPercent / 100, 1)}
+                  {r.currentPercent > 0.05 && r.target <= 0 && (
+                    <span
+                      className="ml-2 text-[10px] font-mono uppercase tracking-stat"
+                      style={{ color: "var(--negative)" }}
+                      title="You hold this and target nothing, so the plan reads it as sell the lot."
+                    >
+                      sell all
+                    </span>
+                  )}
                 </td>
                 <td className="px-3 py-2 text-right">
                   <input
@@ -173,10 +206,44 @@ export function TargetsEditor({ initial }: Props) {
         </div>
       )}
 
+      {Math.abs(offBy) >= 0.05 && (
+        <p className="text-[12px] mt-4 max-w-[80ch]" style={{ color: offBy < 0 ? "var(--negative)" : "var(--accent-deep)" }}>
+          {offBy < 0 ? (
+            <>
+              These targets describe {targetSum.toFixed(1)}% of the equity book, so{" "}
+              <strong>{Math.abs(offBy).toFixed(1)}% of it is spoken for by nothing.</strong> The deployment plan sizes
+              every buy against these weights, so that share simply never gets bought — cash sits in the fund waiting
+              for an instruction that does not exist. That is fine if you meant to hold it back, and a silent leak if
+              you did not.
+            </>
+          ) : (
+            <>
+              These targets add to {targetSum.toFixed(1)}%, which is {offBy.toFixed(1)}% more book than you have. Every
+              name will read as underweight forever and the plan will keep asking for money you do not have.
+            </>
+          )}
+        </p>
+      )}
+
+      {ownedButUntargeted.length > 0 && (
+        <p className="text-[12px] mt-3 max-w-[80ch]" style={{ color: "var(--negative)" }}>
+          You hold {ownedButUntargeted.map((r) => r.symbol).join(", ")} but target{" "}
+          {ownedButUntargeted.length === 1 ? "it" : "them"} at zero. The plan reads that as an instruction to sell the
+          lot. If you meant to keep {ownedButUntargeted.length === 1 ? "it" : "them"}, give{" "}
+          {ownedButUntargeted.length === 1 ? "it a weight" : "them weights"} — a blank target is not the same as no
+          opinion.
+        </p>
+      )}
+
       <div className="flex flex-wrap items-center gap-3 mt-5">
         <Button variant="solid" onClick={saveAll} disabled={saving}>
           {saving ? "Saving…" : "Save Targets"}
         </Button>
+        {Math.abs(offBy) >= 0.05 && targetSum > 0 && (
+          <Button variant="outline" onClick={scaleTo100}>
+            Scale to 100%
+          </Button>
+        )}
         <Button variant="outline" onClick={distributeEvenly}>
           Distribute Evenly
         </Button>

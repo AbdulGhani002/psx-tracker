@@ -26,15 +26,25 @@ export function AddCompany() {
       });
       const body = await res.json().catch(() => ({}));
       if (res.status === 201) {
+        const weighted = Number(target) > 0;
         setMsg({
           kind: "ok",
-          text: `Added ${body.name || sym}${body.price ? ` at Rs ${body.price}` : ""}. It's now in the plan below as a BUY.`,
+          text: body.adopted
+            ? weighted
+              ? `${body.name || sym} was already on your books with no shares and no target, so it has been brought back rather than duplicated. Its history is intact and it is in the plan below as a BUY.`
+              : `${body.name || sym} was already on your books and its history is intact, but you gave it no target — so it stays dormant and out of the plan. Add it again with a weight to bring it back.`
+            : weighted
+            ? `Added ${body.name || sym}${body.price ? ` at Rs ${body.price}` : ""}. It's now in the plan below as a BUY.`
+            : `Added ${body.name || sym}${body.price ? ` at Rs ${body.price}` : ""}, but with no target weight it will not be sized for a buy. Give it a target in the table below.`,
         });
         setSymbol("");
         setTarget("");
         router.refresh();
       } else if (res.status === 409) {
-        setMsg({ kind: "err", text: `${sym} is already in your portfolio.` });
+        setMsg({
+          kind: "err",
+          text: `You already hold ${sym}, so it is in the targets table below — set its weight there rather than adding it again.`,
+        });
       } else if (res.status === 404) {
         setMsg({ kind: "err", text: body.detail || `Couldn't find ${sym} on PSX.` });
       } else {
