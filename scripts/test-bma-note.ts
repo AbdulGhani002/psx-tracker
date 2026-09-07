@@ -92,5 +92,84 @@ const emptyBuy = [["PURCHASE CONFIRMATION", "Trade Date: 30/07/2026", "nothing t
 const [none] = parseBmaNote(emptyBuy);
 ok("confirmation with no rows → loud problem", none.problems.some((p) => p.includes("no trade rows")));
 
+
+// ---------------------------------------- the quantity after the company name
+// BMA has printed the quantity in more than one place. This layout, from the
+// 7 September 2026 note, puts it between the company name and the market rate.
+// The old regex only looked for it leading or trailing, so it matched the four
+// money columns, found no quantity, and refused the whole note.
+{
+  const page = [
+    "PURCHASE CONFIRMATION 54223886",
+    "Client Name: MUHAMMAD ABDUL GHANI QURESHI - 56088",
+    "Trade Date: 07/09/2026",
+    "Security Name Quantity Market (+) Net Rate Amount",
+    "MEBL - PK0077401013 - MEEZAN BANK LTD 10 564.9800 0.8480 565.8280 5,658.28",
+    "MEBL - PK0077401013 - MEEZAN BANK LTD 60 564.9800 0.8475 565.8275 33,949.65",
+    "PPL - PK0081801018 - PAKISTAN PETROLEUM LIMITED 40 227.7600 0.3415 228.1015 9,124.06",
+    "PTL - PK0125201019 - PANTHER TYRES LIMITED 89 53.6900 0.0804 53.7704 4,785.57",
+    "PTL - PK0125201019 - PANTHER TYRES LIMITED 1 53.6500 0.0800 53.7300 53.73",
+    "TOTAL 200 53,571.29",
+    "S.S.T 12.03",
+    "G R A N D T O T A L 53,583.32",
+  ];
+  const [c] = parseBmaNote([page]);
+
+  ok("mid-line quantity: the note reconciles", c.problems.length === 0, c.problems.join(" | "));
+  ok("mid-line quantity: five rows read", c.rows.length === 5, String(c.rows.length));
+  ok("mid-line quantity: quantities are right", c.rows.map((r) => r.qty).join(",") === "10,60,40,89,1", c.rows.map((r) => r.qty).join(","));
+  ok("mid-line quantity: the name excludes the digits", c.rows[0].name === "MEEZAN BANK LTD", c.rows[0].name);
+  ok("mid-line quantity: market rate is the market rate", c.rows[0].marketRate === 564.98, String(c.rows[0].marketRate));
+  ok("mid-line quantity: net rate is market plus commission", c.rows[0].netRate === 565.828, String(c.rows[0].netRate));
+  ok("mid-line quantity: total quantity", c.totalQty === 200, String(c.totalQty));
+  ok("mid-line quantity: grand total", c.grandTotal === 53583.32, String(c.grandTotal));
+
+  const rows = toImportRows(c);
+  // The two MEBL fills share a market rate, so they merge into one position.
+  ok("mid-line quantity: same price merges", rows.filter((r) => r.symbol === "MEBL").length === 1, String(rows.length));
+  ok("mid-line quantity: merged MEBL is 70 shares", rows.find((r) => r.symbol === "MEBL")?.shares === 70, String(rows.find((r) => r.symbol === "MEBL")?.shares));
+  // The two PTL fills do NOT share a rate, so they stay apart.
+  ok("mid-line quantity: different prices stay apart", rows.filter((r) => r.symbol === "PTL").length === 2, String(rows.filter((r) => r.symbol === "PTL").length));
+
+  // Every rupee on the note has to land somewhere.
+  const net = rows.reduce((s, r) => s + r.shares * r.price + r.fees, 0);
+  ok("mid-line quantity: import rows add to the grand total", Math.abs(net - 53583.32) < 0.02, net.toFixed(2));
+}
+
+{
+  // A sale in the same layout: commission comes OFF the market rate.
+  const page = [
+    "SALE CONFIRMATION 54229507",
+    "Trade Date: 07/09/2026",
+    "ABL - PK0083501012 - ALLIED BANK LIMITED 250 170.7500 0.2561 170.4939 42,623.47",
+    "TOTAL 250 42,623.47",
+    "S.S.T 9.61",
+    "G R A N D T O T A L 42,613.86",
+  ];
+  const [c] = parseBmaNote([page]);
+  ok("sale in the same layout reconciles", c.problems.length === 0, c.problems.join(" | "));
+  ok("sale side is read", c.side === "SELL", c.side);
+  ok("sale quantity", c.rows[0]?.qty === 250, String(c.rows[0]?.qty));
+  const rows = toImportRows(c);
+  const proceeds = rows[0].shares * rows[0].price - rows[0].fees;
+  ok("sale proceeds equal the grand total", Math.abs(proceeds - 42613.86) < 0.02, proceeds.toFixed(2));
+}
+
+{
+  // The old leading-quantity layout must still work.
+  const page = [
+    "PURCHASE CONFIRMATION 1",
+    "Trade Date: 01/08/2026",
+    "500 ENGRO - PK0068901014 - ENGRO CORPORATION 285.5000 0.1500 285.6500 142,825.00",
+    "TOTAL 500 142,825.00",
+    "S.S.T 12.00",
+    "G R A N D T O T A L 142,837.00",
+  ];
+  const [c] = parseBmaNote([page]);
+  ok("leading-quantity layout still reads", c.problems.length === 0, c.problems.join(" | "));
+  ok("leading quantity is picked up", c.rows[0]?.qty === 500, String(c.rows[0]?.qty));
+  ok("leading layout: name is clean", c.rows[0]?.name === "ENGRO CORPORATION", c.rows[0]?.name);
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 if (fail > 0) process.exit(1);

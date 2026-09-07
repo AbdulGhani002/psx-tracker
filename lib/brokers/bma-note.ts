@@ -73,14 +73,20 @@ export function parseBmaNote(pages: string[][]): Confirmation[] {
     }
 
     // Rows: with positional lines each trade reconstructs as one line —
-    //   [qty] SYMBOL - PK########## - NAME [market] [comm] [net] [amount]
-    // Tolerate qty appearing before or after the ISIN block.
+    //   [qty] SYMBOL - PK########## - NAME [qty] market comm net amount [qty]
+    // BMA has printed the quantity in three different places across the notes
+    // seen so far: leading, between the company name and the market rate, and
+    // trailing. All three are accepted; the four money columns are what
+    // actually identify the row, and every one of them is still checked against
+    // the others below.
     const rows: NoteRow[] = [];
-    const rowRe = /^\s*([\d,]+)?\s*([A-Z]{2,8})\s*-\s*PK\w{10}\s*-\s*(.+?)\s+([\d,]+\.\d{4})\s+([\d,]*\.\d{4})\s+([\d,]+\.\d{4})\s+([\d,]+\.\d{2})\s*([\d,]+)?\s*$/;
+    const rowRe =
+      /^\s*([\d,]+)?\s*([A-Z]{2,8})\s*-\s*PK\w{10}\s*-\s*(.+?)\s+(?:([\d,]+)\s+)?([\d,]+\.\d{4})\s+([\d,]*\.\d{4})\s+([\d,]+\.\d{4})\s+([\d,]+\.\d{2})\s*([\d,]+)?\s*$/;
     for (const line of lines) {
       const m = rowRe.exec(line);
       if (!m) continue;
-      const qty = m[1] != null ? num(m[1]) : m[8] != null ? num(m[8]) : NaN;
+      const qtyRaw = m[1] ?? m[4] ?? m[9];
+      const qty = qtyRaw != null ? num(qtyRaw) : NaN;
       if (!Number.isFinite(qty) || qty <= 0) {
         problems.push(`row without quantity: "${line.slice(0, 80)}"`);
         continue;
@@ -89,10 +95,10 @@ export function parseBmaNote(pages: string[][]): Confirmation[] {
         symbol: m[2],
         name: m[3].trim(),
         qty,
-        marketRate: num(m[4]),
-        commPerShare: num(m[5]),
-        netRate: num(m[6]),
-        amount: num(m[7]),
+        marketRate: num(m[5]),
+        commPerShare: num(m[6]),
+        netRate: num(m[7]),
+        amount: num(m[8]),
       });
     }
     if (rows.length === 0) problems.push("no trade rows recognised — layout may have changed; nothing imported");
