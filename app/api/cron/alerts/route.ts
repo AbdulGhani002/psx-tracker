@@ -76,11 +76,16 @@ async function runAlertsForCurrentUser(forceDigest = false) {
     if (!r.alertsOn || r.priceStale || r.price == null) continue;
     if (r.status === "buy") {
       const sized = plan?.rows.find((x) => x.symbol === r.symbol);
+      // Only say something when there is something to do. "No cash above your
+      // reserve" was appended to every zone hit, four names a day, which turned
+      // a useful price signal into a nightly reminder of one unchanged fact.
+      // When the plan can size the buy, the order is spelled out; when it
+      // cannot, the zone hit stands on its own.
       const how = sized
         ? `\n   → Plan: buy <b>${sized.shares.toLocaleString("en-PK")}</b> shares for Rs ${Math.round(sized.rupees).toLocaleString("en-PK")}` +
           (plan && plan.pullFromFunds > 0 ? ` (redeem Rs ${Math.round(plan.pullFromFunds).toLocaleString("en-PK")} from the fund)` : "")
         : r.targetPct > 0
-        ? `\n   → No cash above your ${plan?.reservePct ?? 5}% fund reserve to size it today.`
+        ? ""
         : `\n   → No target weight set, so it cannot be sized. Set one on Rebalance.`;
       candidates.push({
         key: `zone-buy:${r.symbol}:${today}`,
@@ -146,15 +151,26 @@ async function runAlertsForCurrentUser(forceDigest = false) {
   }
 
   // 2. Rebalance drift (position beyond its band)
+  //    One message a week listing everything out of band, not one message per
+  //    name per night. Drift is slow; seven separate pings every evening about
+  //    the same seven positions was noise that trained the reader to ignore the
+  //    channel, and the buy-zone hits were drowning in it.
   const [summary, holdings] = await Promise.all([getPortfolioSummary(), getAllHoldings()]);
   const bandBySymbol = new Map(holdings.map((h) => [h.symbol, (h as any).rebalanceBand ?? 3]));
+  const drifted: string[] = [];
   for (const p of summary.positions) {
     if (p.shares <= 0 || p.targetPercent <= 0) continue;
     const band = bandBySymbol.get(p.symbol) ?? 3;
     if (Math.abs(p.deviation) > band) {
       const dir = p.deviation > 0 ? "over" : "under";
-      candidates.push({ key: `drift:${p.symbol}:${today}`, message: `⚖️ <b>${p.symbol}</b> drifted ${dir} target — ${p.currentPercent.toFixed(1)}% vs ${p.targetPercent}% (±${band}%)` });
+      drifted.push(`${p.symbol} ${dir} — ${p.currentPercent.toFixed(1)}% vs ${p.targetPercent}% (±${band}%)`);
     }
+  }
+  if (drifted.length > 0) {
+    candidates.push({
+      key: `drift:all:${isoWeekKey(new Date())}`,
+      message: `⚖️ <b>Out of band this week</b> (${drifted.length}):\n` + drifted.map((d) => `   ${d}`).join("\n"),
+    });
   }
 
   // 3. Upcoming ex-dividend / book-closure (next 14 days). Deduped by symbol+date

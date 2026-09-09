@@ -1,7 +1,7 @@
 // Single source of truth for the app version + changelog.
 // Bump APP_VERSION and prepend a CHANGELOG entry on every release.
 
-export const APP_VERSION = "9.8.1";
+export const APP_VERSION = "9.9.0";
 
 export const BUILD_DATE =
   process.env.NEXT_PUBLIC_BUILD_DATE ?? "";
@@ -17,6 +17,22 @@ export type ChangelogEntry = {
 
 // Reverse-chronological. Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: "9.9.0",
+    date: "2026-09-09",
+    title: "Charts on Telegram, a trend read under each, and a model that says how little it knows",
+    changes: [
+      "Two kinds of Telegram noise are gone. Every buy-zone hit used to end with \"no cash above your reserve to size it today\" — four names a night, the same sentence each time, until a real price signal read like a nag. The zone hit now stands on its own and the sizing line appears only when there is an order to place. Drift alerts fired one message per position per night; they are one message a week listing everything out of band.",
+      "New, every weekday at 14:45 CEST after the PSX close: a chart for the KSE-100, KMI-30 and KSE-30, and one for every position you hold. A year of closes, the 50- and 200-day averages, your buy and sell bands shaded onto the price, and your average cost as a line. Drawn in ink on paper like the rest of the app, because a chart read on a phone in daylight does better with weight than colour.",
+      "The charts are made with no image library at all. The server build cannot carry native binaries, so the tracker now has its own rasteriser: lines, bands, and a five-by-seven bitmap font, encoded to PNG with nothing but Node's zlib. About three hundred lines, and it renders a chart in under a tenth of a second.",
+      "Under each holding, a verdict on whether today is a day to add. It combines two things that were never in the same place before: your buy band, which says whether the PRICE is right, and the trend, which says whether the price has stopped falling. BUY when both agree. WAIT when it is at your price but still under its 50-day average, because a name inside its band and in a downtrend is a knife, and the one thing this report exists to do is stop you catching it because the band said so.",
+      "A neural network forecast is included because it was asked for, and its measured skill is printed next to it every single time. Skill is out-of-sample accuracy minus the best naive baseline — which on the PSX is not 50% but roughly 55%, because the market drifts up and always guessing up is right more often than not.",
+      "Here is what that skill actually is, on your own names, walked forward through five years with no lookahead: mean accuracy 52.5% against a naive baseline of 55.0%. Skill of minus 2.5 points. A trading rule built on it beat buy-and-hold on two names of thirteen, which is what chance gives you. A logistic regression scores the same, so it is the data and not the depth. This is the most replicated finding in finance and there was never a version of this build that was going to escape it.",
+      "The harness was tested before the result was believed. On pure noise it reports skill of about zero. On a planted momentum signal it finds plus eleven points and beats buy-and-hold by a wide margin. So it can see skill when skill exists, and the zero on real prices is a fact about the market rather than a bug in the code. Features were also tested for lookahead directly: alter every bar after day k and the features of day k do not move by a bit.",
+      "So the report says, in its own words, that the percentages are a coin toss and that the bands and the trend are the signal. The number is there because you asked for it. The sentence next to it is there so you never have to wonder how much to trust it.",
+      "The walk-forward is cached per symbol per day, so the report costs about forty seconds of server time a day rather than forty seconds per page view.",
+    ],
+  },
   {
     version: "9.8.1",
     date: "2026-09-04",
