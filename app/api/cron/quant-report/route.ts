@@ -13,14 +13,29 @@ export const runtime = "nodejs";
 export const maxDuration = 300;
 
 // Machine-only, once per trading day after the close: the index charts, a
-// chart per holding, the trend under each, the model's forecast beside its
-// measured skill, and a verdict on whether today is a day to add. Deduped per
-// user per day; body {force:true} re-sends.
+// chart per holding, the trend under each, the model's odds beside their
+// measured record, and a verdict on whether today is a day to add. Deduped per
+// user per day; body {force:true} re-sends; body {dryRun:true, userId} builds
+// the report for that user and returns the text without sending anything, so
+// the wording can be read before it reaches a phone.
 export async function POST(req: Request) {
   if (!cronAuthorised()) return NextResponse.json({ error: "forbidden" }, { status: 403 });
   await connectDb();
-  const force = await req.json().then((b) => b?.force === true).catch(() => false);
+  const body: any = await req.json().catch(() => ({}));
+  const force = body?.force === true;
   const userIds = await getAllUserIds();
+  if (body?.dryRun === true) {
+    const id = typeof body.userId === "string" && userIds.includes(body.userId) ? body.userId : userIds[0];
+    if (!id) return NextResponse.json({ error: "no users" }, { status: 404 });
+    const report = await runAsUser(id, () => buildQuantReport());
+    return NextResponse.json({
+      ok: true,
+      userId: id,
+      model: report.model,
+      summary: report.summary,
+      charts: [...report.indices, ...report.holdings].map((it) => ({ symbol: it.symbol, verdict: it.verdict, bytes: it.png.length, caption: it.caption })),
+    });
+  }
   const results: Array<{ sent: boolean; reason?: string; charts?: number }> = [];
   for (const id of userIds) {
     results.push(await runAsUser(id, () => runForCurrentUser(force)));

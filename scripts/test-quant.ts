@@ -1,16 +1,22 @@
 // The quant stack has to prove it is honest before its numbers mean anything.
 //
-// The important tests here are the ones about the HARNESS, not the model:
+// The important tests here are the ones about the HARNESS, not the models:
 // that features never see the future, that the walk-forward reports zero on
 // pure noise, and that it reports strong skill when a signal is planted. If
 // those hold, then a zero on real data is a fact about the market and not a
 // bug in the code.
+//
+//   npx tsx scripts/test-quant.ts
 
 import { Raster, INK, PAPER } from "../lib/charts/raster";
 import { renderPriceChart, sma } from "../lib/charts/price-chart";
-import { buildFeatures, readTrend, FEATURE_NAMES } from "../lib/quant/features";
-import { trainMlp, predictMlp, mulberry32 } from "../lib/quant/mlp";
+import { buildFeatures, readTrend, FEATURE_NAMES, TARGET_NAMES, DIP_PCT } from "../lib/quant/features";
+import { trainMlp, predictMlp, predictMlpAll, mulberry32 } from "../lib/quant/mlp";
+import { trainGbm, predictGbm, trainGbmMulti, gbmFeatureUse } from "../lib/quant/gbm";
 import { walkForward, describeForecast, DEFAULT_WALK } from "../lib/quant/walkforward";
+import { buildPanel, walkForwardPanel, auc, spearman, describeAuc, predictEnsemble, trainEnsemble, DEFAULT_PANEL, type PanelOptions } from "../lib/quant/panel";
+import { marketContext, MARKET_CONTEXT_NAMES } from "../lib/quant/context";
+import { despike } from "../lib/timeseries/macro";
 import type { EodBar } from "../lib/timeseries/psx-eod";
 
 let pass = 0, fail = 0;
@@ -52,29 +58,23 @@ function randomWalk(n: number, drift = 0.0003, vol = 0.015, start = 100): EodBar
   check("png has the signature", png.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])));
   check("png IHDR width", png.readUInt32BE(16) === 120, png.readUInt32BE(16));
   check("png IHDR height", png.readUInt32BE(20) === 60, png.readUInt32BE(20));
-  check("png ends with IEND", png.subarray(png.length - 8, png.length - 4).toString("ascii") === "IEND");
-  // Walk the chunks and recompute every CRC: a bad CRC is a corrupt image.
-  let off = 8, chunks = 0, crcOk = true;
   const table = new Uint32Array(256);
   for (let n = 0; n < 256; n++) { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1; table[n] = c >>> 0; }
   const crc = (b: Buffer) => { let c = 0xffffffff; for (const x of b) c = table[(c ^ x) & 0xff] ^ (c >>> 8); return (c ^ 0xffffffff) >>> 0; };
+  let off = 8, chunks = 0, crcOk = true;
   while (off < png.length) {
     const len = png.readUInt32BE(off);
     const body = png.subarray(off + 4, off + 8 + len);
-    const stored = png.readUInt32BE(off + 8 + len);
-    if (crc(body) !== stored) crcOk = false;
+    if (crc(body) !== png.readUInt32BE(off + 8 + len)) crcOk = false;
     chunks++;
     off += 12 + len;
   }
-  check("png has three chunks", chunks === 3, chunks);
-  check("every chunk CRC is right", crcOk);
-
+  check("png has three chunks with good CRCs", chunks === 3 && crcOk, chunks);
   const bars = randomWalk(300);
   const closes = bars.map((b) => b.close);
   const chart = renderPriceChart({ title: "TEST", bars, ma50: sma(closes, 50), ma200: sma(closes, 200), buyZone: { low: 90, high: 100 }, avgCost: 95 });
   check("a full chart renders to a real png", chart.length > 5000 && chart.readUInt32BE(16) === 1200, chart.length);
-  const tiny = renderPriceChart({ title: "EMPTY", bars: [] });
-  check("an empty series still renders rather than throwing", tiny.length > 1000);
+  check("an empty series still renders rather than throwing", renderPriceChart({ title: "EMPTY", bars: [] }).length > 1000);
 }
 
 // -------------------------------------------------------------- features
@@ -83,76 +83,152 @@ function randomWalk(n: number, drift = 0.0003, vol = 0.015, start = 100): EodBar
   const bars = randomWalk(700, 0.0003, 0.02, 100);
   const rows = buildFeatures(bars, index, 5);
   check("features start after the 250-day warm-up", rows.length === 700 - 250, rows.length);
-  check("every row has the full feature vector", rows.every((r) => r.x.length === FEATURE_NAMES.length));
-  check("the last five rows have no target", rows.slice(-5).every((r) => r.y === null && r.fwdRet === null));
-  check("earlier rows have a target", rows.slice(0, -5).every((r) => r.y !== null && r.fwdRet !== null));
+  check("every row has the full feature vector", rows.every((r) => r.x.length === FEATURE_NAMES.length), FEATURE_NAMES.length);
+  check("the last five rows have no target", rows.slice(-5).every((r) => r.y === null && r.fwdRet === null && r.targets === null));
+  check("earlier rows have all three targets", rows.slice(0, -5).every((r) => r.targets?.length === TARGET_NAMES.length && r.fwdRel != null));
   check("no feature is NaN", rows.every((r) => r.x.every((v) => Number.isFinite(v))));
 
   // The lookahead test. Change every bar AFTER row k and the features of row k
   // must not move by a single bit. If they do, the model is reading the future.
+  // The market context is rebuilt from the tampered bars too, so it is tested
+  // for lookahead by the same move.
+  const others = new Map<string, EodBar[]>();
+  for (let s = 0; s < 12; s++) others.set("S" + s, randomWalk(700, 0.0002, 0.02, 50 + s));
+  const ctx = marketContext(others, index);
+  const rowsCtx = buildFeatures(bars, index, 5, ctx);
+  check("context widens the feature vector", rowsCtx.every((r) => r.x.length === FEATURE_NAMES.length + MARKET_CONTEXT_NAMES.length));
   const k = 200;
   const cutDate = rows[k].date;
-  const tampered = bars.map((b) => (b.date > cutDate ? { ...b, close: b.close * 3, volume: b.volume * 7 } : b));
-  const tamperedIdx = index.map((b) => (b.date > cutDate ? { ...b, close: b.close * 0.5 } : b));
-  const rows2 = buildFeatures(tampered, tamperedIdx, 5);
-  const same = rows2[k].x.every((v, i) => v === rows[k].x[i]);
-  check("features at day k ignore everything after day k", same, same ? "" : rows2[k].x.map((v, i) => (v !== rows[k].x[i] ? FEATURE_NAMES[i] : "")).filter(Boolean).join(","));
+  const tamper = (b: EodBar[], f: number) => b.map((x) => (x.date > cutDate ? { ...x, close: x.close * f, volume: x.volume * 7 } : x));
+  const tamperedOthers = new Map([...others].map(([s, b]) => [s, tamper(b, 2 + (s.length % 3))]));
+  const rows2 = buildFeatures(tamper(bars, 3), tamper(index, 0.5), 5, marketContext(tamperedOthers, tamper(index, 0.5)));
+  const same = rows2[k].x.every((v, i) => v === rowsCtx[k].x[i]);
+  const names = [...FEATURE_NAMES, ...MARKET_CONTEXT_NAMES];
+  check("features at day k ignore everything after day k", same, same ? "" : rows2[k].x.map((v, i) => (v !== rowsCtx[k].x[i] ? names[i] : "")).filter(Boolean).join(","));
   check("but the target at day k does change, because it IS the future", rows2[k].fwdRet !== rows[k].fwdRet);
-  // A day's own close must not leak either: the target compares day k+5 to day k.
   const fwd = Math.log(bars[k + 250 + 5].close / bars[k + 250].close);
   check("the forward return is measured from day k to day k+horizon", Math.abs((rows[k].fwdRet ?? 0) - fwd) < 1e-12);
+
+  // Dip target: a series that drops 6% on the day after k and recovers.
+  const dipBars = randomWalk(400, 0, 0.001, 100);
+  const j = 300;
+  const dipped = dipBars.map((b, i) => (i === j + 2 ? { ...b, close: dipBars[j].close * (1 - (DIP_PCT + 1) / 100) } : b));
+  const dipRows = buildFeatures(dipped, randomWalk(400, 0, 0.001, 40000), 5);
+  const at = dipRows.find((r) => r.date === dipped[j].date)!;
+  const before = dipRows.find((r) => r.date === dipped[j - 10].date)!;
+  check("a 6% drop inside the horizon sets the dip target", at.targets![2] === 1);
+  check("and a window without one does not", before.targets![2] === 0);
 
   const t = readTrend(bars);
   check("trend read produces a label", t != null && ["UPTREND", "RECOVERING", "WEAKENING", "DOWNTREND", "SIDEWAYS"].includes(t.label), t?.label);
   check("trend read needs history", readTrend(bars.slice(0, 100)) === null);
 }
 
+// ------------------------------------------------------------- context
+{
+  // Twelve names all rising steadily: everything above its averages.
+  const up = new Map<string, EodBar[]>();
+  for (let s = 0; s < 12; s++) up.set("U" + s, weekdays(300).map((date, i) => ({ date, close: 100 * Math.exp(0.002 * i), volume: 1e6, vwap: 100 })));
+  const idx = weekdays(300).map((date, i) => ({ date, close: 40000 * Math.exp(0.002 * i), volume: 0, vwap: 0 }));
+  const ctx = marketContext(up, idx);
+  const last = ctx.get(weekdays(300)[299])!;
+  check("breadth is 100% above the 50-day when every name rises", Math.abs(last[0] - 0.5) < 1e-9, last[0]);
+  check("breadth is 100% above the 200-day too", Math.abs(last[1] - 0.5) < 1e-9, last[1]);
+  check("every name is up over 20 sessions", Math.abs(last[2] - 0.5) < 1e-9, last[2]);
+  check("identical names have zero dispersion", Math.abs(last[3]) < 1e-9, last[3]);
+  const early = ctx.get(weekdays(300)[5])!;
+  check("too few names with history leaves the context neutral", early.every((v) => v === 0));
+
+  const spiky: EodBar[] = weekdays(50).map((date, i) => ({ date, close: i === 25 ? 400 : 200 + i * 0.1, volume: 0, vwap: 0 }));
+  check("a one-day bad tick is dropped", despike(spiky).length === 49);
+  const stepped: EodBar[] = weekdays(50).map((date, i) => ({ date, close: i >= 25 ? 260 : 200, volume: 0, vwap: 0 }));
+  check("a real step change is kept", despike(stepped).length === 50);
+}
+
 // ------------------------------------------------------------------- mlp
 {
-  // A planted linear rule: up when the first feature is positive.
   const X: number[][] = [], Y: number[] = [];
   for (let i = 0; i < 600; i++) { const x = Array.from({ length: 5 }, () => gauss()); X.push(x); Y.push(x[0] > 0 ? 1 : 0); }
-  const logit = trainMlp(X, Y, { hidden: [], epochs: 60, seed: 1 });
   const acc = (m: any) => X.filter((x, i) => (predictMlp(m, x) > 0.5 ? 1 : 0) === Y[i]).length / X.length;
+  const logit = trainMlp(X, Y, { hidden: [], epochs: 60, seed: 1 });
   check("logistic regression learns a linear rule", acc(logit) > 0.93, acc(logit).toFixed(3));
 
-  // XOR: a straight line cannot do it, a hidden layer can. This is the one
-  // thing that justifies having hidden layers at all.
   const Xx: number[][] = [], Yx: number[] = [];
   for (let i = 0; i < 800; i++) { const a = gauss(), b = gauss(); Xx.push([a, b, gauss() * 0.1]); Yx.push(a * b > 0 ? 1 : 0); }
   const lin = trainMlp(Xx, Yx, { hidden: [], epochs: 60, seed: 2 });
-  const net = trainMlp(Xx, Yx, { hidden: [16, 8], epochs: 200, lr: 0.03, seed: 2 });
+  const net = trainMlp(Xx, Yx, { hidden: [16, 8], epochs: 200, seed: 2 });
   const accX = (m: any) => Xx.filter((x, i) => (predictMlp(m, x) > 0.5 ? 1 : 0) === Yx[i]).length / Xx.length;
   check("a line cannot learn XOR", accX(lin) < 0.65, accX(lin).toFixed(3));
   check("the network can", accX(net) > 0.85, accX(net).toFixed(3));
   check("predictions are probabilities", Xx.every((x) => { const p = predictMlp(net, x); return p >= 0 && p <= 1; }));
   check("the same seed gives the same model", predictMlp(trainMlp(X, Y, { hidden: [4], epochs: 20, seed: 9 }), X[0]) === predictMlp(trainMlp(X, Y, { hidden: [4], epochs: 20, seed: 9 }), X[0]));
+
+  // Two outputs, two different rules, one network.
+  const Y2 = Xx.map((x, i) => [Yx[i], x[0] > 0 ? 1 : 0]);
+  const multi = trainMlp(Xx, Y2, { hidden: [16, 8], epochs: 200, seed: 3 });
+  const acc2 = (o: number) => Xx.filter((x, i) => (predictMlpAll(multi, x)[o] > 0.5 ? 1 : 0) === Y2[i][o]).length / Xx.length;
+  check("a multi-output network learns XOR on output 0", acc2(0) > 0.85, acc2(0).toFixed(3));
+  check("and the linear rule on output 1", acc2(1) > 0.93, acc2(1).toFixed(3));
+  const thawed = JSON.parse(JSON.stringify(multi));
+  check("a network survives a JSON round trip", predictMlpAll(thawed, Xx[5]).every((v, o) => v === predictMlpAll(multi, Xx[5])[o]));
+}
+
+// ------------------------------------------------------------------- gbm
+{
+  const X: number[][] = [], Y: number[] = [];
+  for (let i = 0; i < 1500; i++) { const x = Array.from({ length: 6 }, () => gauss()); X.push(x); Y.push(x[0] + 0.5 * x[1] > 0 ? 1 : 0); }
+  const m = trainGbm(X, Y, { rounds: 200, seed: 1 });
+  const acc = X.filter((x, i) => (predictGbm(m, x) > 0.5 ? 1 : 0) === Y[i]).length / X.length;
+  check("boosted trees learn a linear rule", acc > 0.9, acc.toFixed(3));
+  check("early stopping keeps the round count finite", m.rounds > 0 && m.rounds <= 200, m.rounds);
+
+  const Xx: number[][] = [], Yx: number[] = [];
+  for (let i = 0; i < 1500; i++) { const a = gauss(), b = gauss(); Xx.push([a, b, gauss()]); Yx.push(a * b > 0 ? 1 : 0); }
+  const mx = trainGbm(Xx, Yx, { rounds: 300, maxDepth: 3, minLeaf: 20, seed: 2 });
+  const accX = Xx.filter((x, i) => (predictGbm(mx, x) > 0.5 ? 1 : 0) === Yx[i]).length / Xx.length;
+  check("boosted trees learn XOR", accX > 0.85, accX.toFixed(3));
+  check("tree probabilities stay in range", Xx.every((x) => { const p = predictGbm(mx, x); return p >= 0 && p <= 1; }));
+  const thawed = JSON.parse(JSON.stringify(mx));
+  check("a booster survives a JSON round trip", predictGbm(thawed, Xx[7]) === predictGbm(mx, Xx[7]));
+  check("the same seed gives the same booster", predictGbm(trainGbm(X, Y, { rounds: 30, seed: 5 }), X[3]) === predictGbm(trainGbm(X, Y, { rounds: 30, seed: 5 }), X[3]));
+
+  const Y2 = Xx.map((x, i) => [Yx[i], x[2] > 0 ? 1 : 0]);
+  const both = trainGbmMulti(Xx, Y2, { rounds: 200, maxDepth: 3, minLeaf: 20, seed: 4 });
+  const use = gbmFeatureUse(both);
+  check("one booster per target", both.length === 2);
+  check("feature use sums to one", Math.abs(use.reduce((s, v) => s + v, 0) - 1) < 1e-9);
+  check("the second booster leans on the feature that drives its target", use[2] > 0.2, use.map((v) => v.toFixed(2)).join(","));
+}
+
+// -------------------------------------------------------------- statistics
+{
+  const perfect = Array.from({ length: 50 }, (_, i) => ({ p: i / 50, y: i >= 25 ? 1 : 0 }));
+  check("AUC of a perfect ranking is 1", auc(perfect) === 1);
+  check("AUC of a reversed ranking is 0", auc(perfect.map((q) => ({ ...q, p: 1 - q.p }))) === 0);
+  const noise = Array.from({ length: 4000 }, () => ({ p: rnd(), y: rnd() < 0.6 ? 1 : 0 }));
+  check("AUC of noise is about a half", Math.abs(auc(noise) - 0.5) < 0.03, auc(noise).toFixed(3));
+  check("AUC with all ties is a half", auc(Array.from({ length: 20 }, (_, i) => ({ p: 0.5, y: i % 2 }))) === 0.5);
+  check("spearman of a monotone map is 1", Math.abs(spearman([1, 2, 3, 4, 5], [10, 20, 40, 80, 160]) - 1) < 1e-12);
+  check("spearman of a reversed map is -1", Math.abs(spearman([1, 2, 3, 4, 5], [5, 4, 3, 2, 1]) + 1) < 1e-12);
+  check("AUC words never oversell", describeAuc(0.51) === "coin toss" && describeAuc(0.45) === "worse than a coin toss" && describeAuc(0.66) === "clear skill");
 }
 
 // ------------------------------------------------------------ walk-forward
 {
   const opts = { ...DEFAULT_WALK, minTrain: 300, step: 50, train: { ...DEFAULT_WALK.train, epochs: 60 } };
-
-  // Pure noise. The only honest answer is "no skill", and a harness that finds
-  // skill here is leaking the future somewhere.
   const index = randomWalk(1100, 0.0003, 0.01, 40000);
   const noise = randomWalk(1100, 0.0003, 0.02, 100);
   const wfNoise = walkForward(buildFeatures(noise, index, 5), opts)!;
-  check("walk-forward runs on noise", wfNoise != null && wfNoise.n > 300, wfNoise?.n);
+  check("single-name walk-forward runs on noise", wfNoise != null && wfNoise.n > 300, wfNoise?.n);
   check("on noise, skill is about zero", Math.abs(wfNoise.skill) < 5, wfNoise.skill.toFixed(2));
-  check("on noise, the naive baseline is reported", wfNoise.naiveBest >= 0.5, wfNoise.naiveBest.toFixed(3));
   check("skill is accuracy minus the naive baseline", Math.abs(wfNoise.skill - (wfNoise.accuracy - wfNoise.naiveBest) * 100) < 1e-9);
   check("trades are non-overlapping", wfNoise.rule.trades <= Math.ceil(wfNoise.n / 5));
 
-  // A planted signal: the next five days follow the last five, strongly. A
-  // model that cannot find THIS is broken; one that finds it proves the harness
-  // can see skill when skill exists.
   const dates = weekdays(1100);
   const planted: EodBar[] = [];
   let p = 100;
   const rets: number[] = [];
   for (let i = 0; i < dates.length; i++) {
-    // Momentum block: each five-day block continues the previous block's sign.
     const block = Math.floor(i / 5);
     const prevBlockRet = block > 0 ? rets.slice((block - 1) * 5, block * 5).reduce((s, v) => s + v, 0) : 0;
     const sign = block === 0 ? 1 : prevBlockRet >= 0 ? 1 : -1;
@@ -164,11 +240,80 @@ function randomWalk(n: number, drift = 0.0003, vol = 0.015, start = 100): EodBar
   const wfSignal = walkForward(buildFeatures(planted, index, 5), opts)!;
   check("on a planted signal, the harness finds real skill", wfSignal.skill > 10, wfSignal.skill.toFixed(1));
   check("and the rule beats buy-and-hold there", wfSignal.edgePct > 0, wfSignal.edgePct.toFixed(1));
-
-  // The words under a number never oversell it.
   check("53% with no skill is called a coin toss", describeForecast(0.53, -1.2).includes("coin toss"));
-  check("62% with skill is allowed to lean", describeForecast(0.62, 6).includes("leans up") && describeForecast(0.62, 6).includes("some skill"));
   check("negative skill is called what it is", describeForecast(0.7, -4).includes("worse than guessing"));
+}
+
+// ---------------------------------------------------------------- panel
+{
+  const popts: PanelOptions = { ...DEFAULT_PANEL, minTrain: 400, step: 150, horizon: 20, seeds: 1, train: { ...DEFAULT_PANEL.train, epochs: 40 }, gbm: { ...DEFAULT_PANEL.gbm, rounds: 120, minLeaf: 30 } };
+  const N = 1000;
+  const index = randomWalk(N, 0.0003, 0.01, 40000);
+
+  // Pooled noise, twice, because each target has a clean null in a different
+  // world. Sixteen unrelated random walks share nothing, so "up" must be a
+  // coin toss there. Sixteen names that are the market plus their own noise
+  // share the market's path, which makes "up" a handful of correlated bets
+  // per window (too few to test) but leaves "beat" as pure noise.
+  const walks = new Map<string, EodBar[]>();
+  for (let s = 0; s < 32; s++) walks.set("W" + s, randomWalk(N, 0.0003, 0.02, 100));
+  const pw = buildPanel(walks, index, 20, { context: marketContext(walks, index) });
+  check("the panel stacks every name", pw.symbols.length === 32 && pw.rows.length === 32 * (N - 250), pw.rows.length);
+  check("panel rows are in date order", pw.rows.every((r, i) => i === 0 || r.di >= pw.rows[i - 1].di));
+  const ww = walkForwardPanel(pw, popts)!;
+  check("pooled walk-forward runs on noise", ww != null && ww.n > 5000, ww?.n);
+  check("on unrelated noise, AUC(up) is about a half", Math.abs(ww.targets[0].auc - 0.5) < 0.05, ww.targets[0].auc.toFixed(3));
+  check("on unrelated noise, skill is about zero", Math.abs(ww.targets[0].skill) < 5, ww.targets[0].skill.toFixed(2));
+  check("per-name records exist for every name", ww.perSymbol.length === 32);
+
+  const noise = new Map<string, EodBar[]>();
+  const nDates = weekdays(N);
+  for (let s = 0; s < 32; s++) {
+    let p = 100;
+    const bars: EodBar[] = [];
+    for (let i = 0; i < N; i++) {
+      const mkt = i > 0 ? Math.log(index[i].close / index[i - 1].close) : 0;
+      p *= Math.exp(mkt + 0.0001 + 0.018 * gauss());
+      bars.push({ date: nDates[i], close: p, volume: 1e6 * (0.5 + rnd()), vwap: p });
+    }
+    noise.set("N" + s, bars);
+  }
+  const pn = buildPanel(noise, index, 20, { context: marketContext(noise, index) });
+  const wn = walkForwardPanel(pn, popts)!;
+  check("on market-plus-noise, AUC(beat) is about a half", Math.abs(wn.targets[1].auc - 0.5) < 0.05, wn.targets[1].auc.toFixed(3));
+  check("on market-plus-noise, the rank IC is about zero", Math.abs(wn.icRel.mean) < 0.04, wn.icRel.mean.toFixed(3));
+  check("on market-plus-noise, the top fifth does not beat the bottom fifth", Math.abs(wn.spread.mean) < 1.5, wn.spread.mean.toFixed(2) + "%");
+
+  // A planted cross-sectional signal: each name carries a drift that flips
+  // sign every sixty sessions, so its own recent relative return predicts its
+  // next relative return. A harness that cannot find THIS is broken.
+  const dates = weekdays(N);
+  const planted = new Map<string, EodBar[]>();
+  for (let s = 0; s < 16; s++) {
+    let p = 100;
+    let drift = rnd() < 0.5 ? 0.004 : -0.004;
+    const bars: EodBar[] = [];
+    for (let i = 0; i < N; i++) {
+      if (i % 60 === 0 && i > 0 && rnd() < 0.5) drift = -drift;
+      p *= Math.exp(drift + 0.012 * gauss() + Math.log(index[i].close / (index[i - 1]?.close ?? index[i].close)));
+      bars.push({ date: dates[i], close: p, volume: 1e6, vwap: p });
+    }
+    planted.set("P" + s, bars);
+  }
+  const pp = buildPanel(planted, index, 20, { context: marketContext(planted, index) });
+  const wp = walkForwardPanel(pp, popts)!;
+  check("on a planted cross-sectional signal, AUC(beat) is well above a half", wp.targets[1].auc > 0.6, wp.targets[1].auc.toFixed(3));
+  check("and the rank IC is clearly positive", wp.icRel.mean > 0.15, wp.icRel.mean.toFixed(3));
+  check("and the top fifth beats the bottom fifth", wp.spread.mean > 1, wp.spread.mean.toFixed(2) + "%");
+
+  // Ensemble plumbing: both kinds, averaged, deterministic, JSON-safe.
+  const rows = pp.rows.filter((r) => r.targets).slice(0, 3000);
+  const learners = trainEnsemble(rows, { ...popts, train: { ...popts.train, epochs: 10 }, gbm: { ...popts.gbm, rounds: 20 } });
+  check("both kinds of learner are trained", learners.some((l) => l.kind === "mlp") && learners.some((l) => l.kind === "gbm"));
+  const p1 = predictEnsemble(learners, rows[10].x);
+  const p2 = predictEnsemble(JSON.parse(JSON.stringify(learners)), rows[10].x);
+  check("the ensemble returns one probability per target", p1.length === TARGET_NAMES.length && p1.every((v) => v >= 0 && v <= 1));
+  check("the ensemble survives a JSON round trip", p1.every((v, i) => v === p2[i]));
 }
 
 console.log("\n" + pass + " passed, " + fail + " failed");

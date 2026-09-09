@@ -34,7 +34,7 @@ export const DEFAULT_WALK: WalkOptions = {
   horizon: 5,
   threshold: 0.55,
   cashYieldPct: 11,
-  train: { hidden: [16, 8], epochs: 150, lr: 0.02, l2: 2e-3, batch: 32, patience: 12, seed: 7 },
+  train: { hidden: [16, 8], epochs: 150, lr: 5e-3, l2: 1e-3, batch: 32, patience: 12, seed: 7 },
 };
 
 export type OosPoint = { date: string; p: number; y: number; fwdRet: number };

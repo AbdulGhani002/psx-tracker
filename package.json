@@ -7,10 +7,13 @@
     "build": "next build",
     "start": "next start -p 8010 -H 0.0.0.0",
     "lint": "next lint",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "bundle:jobs": "esbuild scripts/quant-train.ts --bundle --platform=node --target=node20 --format=cjs --outfile=dist/jobs/quant-train.js --external:mongoose --log-level=warning",
+    "test:quant": "tsx scripts/test-quant.ts"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.9.1",
+    "@resvg/resvg-wasm": "^2.6.2",
     "date-fns": "^4.1.0",
     "mongoose": "^8.9.5",
     "next": "14.2.18",
