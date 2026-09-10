@@ -1,7 +1,7 @@
 // Single source of truth for the app version + changelog.
 // Bump APP_VERSION and prepend a CHANGELOG entry on every release.
 
-export const APP_VERSION = "9.10.0";
+export const APP_VERSION = "9.11.0";
 
 export const BUILD_DATE =
   process.env.NEXT_PUBLIC_BUILD_DATE ?? "";
@@ -17,6 +17,22 @@ export type ChangelogEntry = {
 
 // Reverse-chronological. Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: "9.11.0",
+    date: "2026-09-10",
+    title: "Where the index is going, at what levels; bands the model would write; a short message and a weekly email with the charts",
+    changes: [
+      "The daily Telegram message is six lines: the indices, breadth and regime, the model's read of the KSE-100 with levels, what to do with your names, and the Pakistan line. Everything longer (the model's record, the per-name detail) moved to the weekly email.",
+      "The model now says where, not just whether. Its odds are turned into levels through the name's own volatility: a centre, a likely range one standard deviation either side, and the 5% dip level with its odds. For the KSE-100 today that reads as a centre near 175,000, a range of about 166,000 to 184,500, and 30% odds of touching 163,350 first. Beside it, the levels the chart itself carries, nearest first: the 50- and 200-day averages, the 20-day low and high, the 250-day high. The tilt from the model is capped at half a deviation, because its record is modest and a range should not pretend otherwise.",
+      "Every chart carries the same projection as a fan to the right of the last bar: the centre as a dashed line, the range as the two thin edges, the dip level as a dotted rule, the levels written in the margin. Ink on paper, as before.",
+      "Bands the model would write down for each name: buy one deviation to half a deviation under the centre, sell half to one deviation over it, rounded to the tick. They are printed beside your own bands in each caption, offered outright where you have written none (PPL today), and kept in the feed store per user for the app to show. They are a volatility read, not a valuation; your own bands still decide the verdict.",
+      "The weekly email (Sunday, with the plan PDF) now carries the market section: the long-form model text and every chart inline with its caption. The daily message stays short because the detail has somewhere to live.",
+      "Training runs on Abdul's machine, on the CPU (the trees need no GPU, and the network trains in seconds), and only the trained model is pushed to the server. Forty fixed rounds per booster, chosen among three settings on the same walk-forward: three seeds score direction AUC 0.61 (skill +1.6 against always-up), 5% dip AUC 0.61 (skill +1.4), beating the index 0.53. The dip record clears the bar, so dip odds now stage buys.",
+      "Tried and not shipped: each name's rank among the others on momentum, volatility and relative strength, as seven extra features. On the same walk-forward it moved nothing (direction 0.60 against 0.60, ranking 0.535 against 0.526, dip 0.61 against 0.61), so it stays behind a flag.",
+      "The trend table lost a hole: a name under both its averages was called sideways when its 50-day still sat above its 200-day, and the verdict treated sideways as not falling. Below both averages is a downtrend now, whatever the averages are doing to each other. LUCK went from BUY to WAIT on that alone.",
+      "The harness: 88 checks, including that the projection's centre sits on the price at even odds and moves with them, that the model bands sit in order, and that the ranks at a date do not move when every later bar is changed.",
+    ],
+  },
   {
     version: "9.10.0",
     date: "2026-09-10",

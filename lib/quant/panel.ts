@@ -27,7 +27,7 @@
 // are computed on every `horizon`-th date only.
 
 import type { EodBar } from "@/lib/timeseries/psx-eod";
-import { buildFeatures, TARGET_NAMES, type FeatureRow } from "./features";
+import { buildFeatures, TARGET_NAMES, RANK_FEATURE_NAMES, RANK_SOURCE, type FeatureRow } from "./features";
 import { trainMlp, predictMlpAll, type MlpModel, type TrainOptions } from "./mlp";
 import { trainGbmMulti, predictGbm, type GbmModel, type GbmOptions } from "./gbm";
 
@@ -38,6 +38,7 @@ export type PanelBuildOptions = {
   minRows?: number;
   context?: Map<string, number[]> | null; // per-date market/macro vector, see context.ts
   include?: (symbol: string, date: string) => boolean; // dynamic universe membership
+  ranks?: boolean; // append each name's cross-sectional ranks for the date
 };
 
 export function buildPanel(bars: Map<string, EodBar[]>, index: EodBar[], horizon: number, o: PanelBuildOptions = {}): Panel {
@@ -56,8 +57,34 @@ export function buildPanel(bars: Map<string, EodBar[]>, index: EodBar[], horizon
   const rows: PanelRow[] = [];
   for (const [symbol, rs] of per) for (const r of rs) rows.push({ ...r, symbol, di: di.get(r.date)! });
   rows.sort((a, b) => a.di - b.di || (a.symbol < b.symbol ? -1 : a.symbol > b.symbol ? 1 : 0));
+  if (o.ranks) appendRanks(rows);
   return { rows, dates, symbols: per.map((p) => p[0]).sort(), horizon };
 }
+
+// Percentile rank of each RANK_SOURCE column within the date, appended to x.
+// A date with fewer than eight names gets neutral zeros: a rank among three
+// is not a rank.
+function appendRanks(rows: PanelRow[]) {
+  let i = 0;
+  while (i < rows.length) {
+    let j = i;
+    while (j < rows.length && rows[j].di === rows[i].di) j++;
+    const n = j - i;
+    if (n < 8) {
+      for (let k = i; k < j; k++) rows[k].x.push(...new Array<number>(RANK_SOURCE.length).fill(0));
+    } else {
+      const extra: number[][] = Array.from({ length: n }, () => new Array<number>(RANK_SOURCE.length).fill(0));
+      RANK_SOURCE.forEach((col, c) => {
+        const order = Array.from({ length: n }, (_, k) => k).sort((a, b) => rows[i + a].x[col] - rows[i + b].x[col]);
+        for (let r = 0; r < n; r++) extra[order[r]][c] = r / (n - 1) - 0.5;
+      });
+      for (let k = 0; k < n; k++) rows[i + k].x.push(...extra[k]);
+    }
+    i = j;
+  }
+}
+
+export const RANK_NAMES: readonly string[] = RANK_FEATURE_NAMES;
 
 // A trained thing that turns a feature row into target probabilities. The
 // network answers all targets at once; the boosted trees are one booster per

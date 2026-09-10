@@ -14,6 +14,25 @@ import { sendTelegramDocument, sendTelegram } from "@/lib/notify/telegram";
 import { sendEmail } from "@/lib/auth/mailer";
 import { getPlaybook } from "@/lib/plan";
 import { assembleWeeklyReport, buildWeeklyTex, weeklySummaryText, weeklyEmailHtml } from "@/lib/statement/weekly";
+import { buildQuantReport, type QuantReport } from "@/lib/quant/report";
+
+const esc = (s: string) => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+
+// The market section of the weekly email: the long-form text, then every
+// chart inline with its caption. Captions carry Telegram's <b>/<i> tags,
+// which are also HTML, so they pass through as they are.
+function quantEmailHtml(q: QuantReport): string {
+  const charts = [...q.indices, ...q.holdings]
+    .map(
+      (it) =>
+        `<div style="margin:18px 0"><img src="cid:${it.symbol}.png" alt="${esc(it.title)}" style="max-width:100%;border:1px solid #d5d8dd"><div style="font-size:13px;margin-top:6px;white-space:pre-line">${it.caption}</div></div>`
+    )
+    .join("");
+  return `<h2 style="margin:28px 0 4px;font-size:20px">Market and model</h2>
+<div style="color:#6b7280;font-size:13px;margin-bottom:14px">${esc(q.date)}${q.model ? ` · model trained ${esc(q.model.trainedOn.slice(0, 10))}, ${q.model.names} names, ${q.model.horizon} sessions ahead` : ""}</div>
+<div style="border:1px solid #d5d8dd;padding:14px 16px;font-size:14px;white-space:pre-line">${esc(q.detail)}</div>
+${charts}`;
+}
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -45,10 +64,11 @@ async function compilePdf(tex: string): Promise<Buffer> {
 export async function POST(req: Request) {
   if (!cronAuthorised()) return NextResponse.json({ error: "forbidden" }, { status: 403 });
   await connectDb();
-  const force = await req
-    .json()
-    .then((b) => b?.force === true)
-    .catch(() => false);
+  const body: any = await req.json().catch(() => ({}));
+  const force = body?.force === true;
+  // {emailOnly:true} skips Telegram: for checking the email without a second
+  // PDF landing on the phone.
+  const emailOnly = body?.emailOnly === true;
   const userIds = await getAllUserIds();
   let telegramSent = 0;
   let emailSent = 0;
@@ -98,7 +118,16 @@ export async function POST(req: Request) {
       const filename = `weekly-plan-${data.weekKey}.pdf`;
       const caption = weeklySummaryText(data).slice(0, 1000);
 
-      if (token && chatId) {
+      // The charts and the model's long text. A failure here must not cost
+      // the plan its delivery.
+      let quant: QuantReport | null = null;
+      try {
+        quant = await buildQuantReport();
+      } catch (e) {
+        errors.push(`charts: ${String(e).slice(0, 160)}`);
+      }
+
+      if (token && chatId && !emailOnly) {
         try {
           if (pdf) {
             const r = await sendTelegramDocument(token, chatId, filename, pdf, caption);
@@ -117,11 +146,13 @@ export async function POST(req: Request) {
 
       if (email) {
         try {
+          const attachments: Array<{ filename: string; content: Buffer; contentId?: string }> = pdf ? [{ filename, content: pdf }] : [];
+          if (quant) for (const it of [...quant.indices, ...quant.holdings]) attachments.push({ filename: `${it.symbol}.png`, content: it.png, contentId: `${it.symbol}.png` });
           const ok = await sendEmail(
             email,
-            `Weekly plan — ${data.weekLabel}`,
-            weeklyEmailHtml(data),
-            pdf ? [{ filename, content: pdf }] : []
+            `Weekly plan and charts — ${data.weekLabel}`,
+            weeklyEmailHtml(data) + (quant ? quantEmailHtml(quant) : ""),
+            attachments
           );
           if (ok) emailSent++;
           else errors.push("email_failed");

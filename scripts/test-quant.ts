@@ -17,6 +17,8 @@ import { walkForward, describeForecast, DEFAULT_WALK } from "../lib/quant/walkfo
 import { buildPanel, walkForwardPanel, auc, spearman, describeAuc, predictEnsemble, trainEnsemble, DEFAULT_PANEL, type PanelOptions } from "../lib/quant/panel";
 import { marketContext, MARKET_CONTEXT_NAMES } from "../lib/quant/context";
 import { despike } from "../lib/timeseries/macro";
+import { probit, projectLevels, modelBands } from "../lib/quant/projection";
+import { RANK_FEATURE_NAMES, RANK_SOURCE } from "../lib/quant/features";
 import type { EodBar } from "../lib/timeseries/psx-eod";
 
 let pass = 0, fail = 0;
@@ -215,6 +217,48 @@ function randomWalk(n: number, drift = 0.0003, vol = 0.015, start = 100): EodBar
   check("spearman of a monotone map is 1", Math.abs(spearman([1, 2, 3, 4, 5], [10, 20, 40, 80, 160]) - 1) < 1e-12);
   check("spearman of a reversed map is -1", Math.abs(spearman([1, 2, 3, 4, 5], [5, 4, 3, 2, 1]) + 1) < 1e-12);
   check("AUC words never oversell", describeAuc(0.51) === "coin toss" && describeAuc(0.45) === "worse than a coin toss" && describeAuc(0.66) === "clear skill");
+}
+
+// ------------------------------------------------------------ projection
+{
+  check("probit inverts the normal curve", Math.abs(probit(0.5)) < 1e-9 && Math.abs(probit(0.975) - 1.959964) < 1e-4 && Math.abs(probit(0.1) + 1.281552) < 1e-4);
+  const bars = randomWalk(400, 0.0003, 0.015, 100);
+  const flat = projectLevels(bars, 20, 0.5, 0.3)!;
+  const bull = projectLevels(bars, 20, 0.65, 0.3)!;
+  const bear = projectLevels(bars, 20, 0.35, 0.3)!;
+  const last = bars[bars.length - 1].close;
+  check("even odds put the centre on today's price", Math.abs(flat.median - last) < 1e-9);
+  check("higher odds lift the centre, lower odds drop it", bull.median > last && bear.median < last);
+  check("the range brackets the centre one deviation each way", flat.low < flat.median && flat.median < flat.high && Math.abs(Math.log(flat.high / flat.median) - flat.sigmaH) < 1e-9);
+  check("the tilt is capped at half a deviation", Math.abs(Math.log(projectLevels(bars, 20, 0.99, 0.3)!.median / last)) <= 0.5 * flat.sigmaH + 1e-9);
+  check("the dip level is 5% under today", Math.abs(flat.dipLevel - last * 0.95) < 1e-9);
+  check("the range widens with the horizon", projectLevels(bars, 60, 0.5, 0.3)!.high > flat.high);
+  const b = modelBands(flat);
+  check("model bands sit in order: buy below, sell above", b.buyLow < b.buyHigh && b.buyHigh < flat.median && flat.median < b.sellLow && b.sellLow < b.sellHigh);
+  check("projection needs a year of history", projectLevels(bars.slice(0, 200), 20, 0.5, 0.3) === null);
+}
+
+// ------------------------------------------------------------ ranks
+{
+  const index = randomWalk(400, 0.0004, 0.01, 40000);
+  const names = new Map<string, EodBar[]>();
+  for (let s = 0; s < 12; s++) names.set("R" + s, randomWalk(400, 0.0002 * s, 0.015, 100));
+  const p = buildPanel(names, index, 20, { ranks: true });
+  const width = FEATURE_NAMES.length + RANK_FEATURE_NAMES.length;
+  check("ranks widen the feature vector", p.rows.every((r) => r.x.length === width), width);
+  const lastDi = p.dates.length - 1;
+  const day = p.rows.filter((r) => r.di === lastDi);
+  const c = RANK_SOURCE[0], rk = FEATURE_NAMES.length;
+  const sorted = [...day].sort((a, b) => a.x[c] - b.x[c]);
+  check("the lowest name ranks -0.5 and the highest +0.5", Math.abs(sorted[0].x[rk] + 0.5) < 1e-9 && Math.abs(sorted[sorted.length - 1].x[rk] - 0.5) < 1e-9);
+  check("ranks are monotone in the feature they rank", sorted.every((r, i) => i === 0 || r.x[rk] >= sorted[i - 1].x[rk]));
+  // Tamper with the future and the ranks of an earlier day must not move.
+  const cut = p.dates[100];
+  const tampered = new Map([...names].map(([s, b]) => [s, b.map((x) => (x.date > cut ? { ...x, close: x.close * 2 } : x))]));
+  const p2 = buildPanel(tampered, index, 20, { ranks: true });
+  const before = p.rows.filter((r) => r.date === cut).map((r) => r.x.slice(rk).join(","));
+  const after = p2.rows.filter((r) => r.date === cut).map((r) => r.x.slice(rk).join(","));
+  check("ranks at day k ignore everything after day k", before.length > 0 && before.join("|") === after.join("|"));
 }
 
 // ------------------------------------------------------------ walk-forward

@@ -26,6 +26,7 @@ export type StoredQuantModel = {
   dipPct: number;
   featureNames: string[]; // base features followed by the context names, in row order
   contextNames: string[];
+  rankNames: string[]; // empty when the model was trained without cross-sectional ranks
   targetNames: string[];
   universe: string[];
   universeSource: string;

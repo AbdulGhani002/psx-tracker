@@ -62,6 +62,13 @@ export const FEATURE_NAMES = [
   "idxDd250",
 ] as const;
 
+// Cross-sectional ranks, added by the panel (they need every name on the
+// date): where the name's momentum, volatility and relative strength sit
+// against the rest of the universe that day, 0 = lowest, 1 = highest, less
+// a half. RANK_SOURCE gives the index of the base feature each one ranks.
+export const RANK_FEATURE_NAMES = ["rkRet20", "rkRet60", "rkMom12", "rkVol20", "rkVolRatio", "rkRel20", "rkRel60"] as const;
+export const RANK_SOURCE: number[] = [3, 4, 5, 16, 18, 21, 22];
+
 // up:   the close `horizon` sessions on is above today's
 // beat: the name's forward return beats the index's over the same sessions
 // dip:  some close within the next `horizon` sessions is DIP_PCT below today's

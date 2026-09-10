@@ -16,12 +16,16 @@ export type PriceChartInput = {
   buyZone?: { low: number | null; high: number | null };
   sellZone?: { low: number | null; high: number | null };
   avgCost?: number | null;
+  // Where the model puts the price `horizon` sessions on: the centre, one
+  // standard deviation either side, and the 5% dip level. Drawn as a fan to
+  // the right of the last bar.
+  projection?: { horizon: number; median: number; low: number; high: number; dipLevel: number } | null;
   footer?: string;
   width?: number;
   height?: number;
 };
 
-const L = 84, R = 24, T = 64, B = 52;
+const T = 64, B = 52;
 
 // Ticks a person would draw: 1, 2, 2.5, 5 times a power of ten.
 function niceTicks(lo: number, hi: number, want = 6): number[] {
@@ -51,15 +55,11 @@ export function renderPriceChart(input: PriceChartInput): Buffer {
   r.clear(PAPER);
 
   const bars = input.bars.filter((b) => Number.isFinite(b.close) && b.close > 0);
-  const plotW = width - L - R;
   const plotH = height - T - B;
 
-  // --- title ------------------------------------------------------------------
-  r.text(L, 18, input.title.toUpperCase(), INK, 3);
-  if (input.subtitle) r.text(L, 44, input.subtitle, MID, 2);
-
   if (bars.length < 2) {
-    r.text(L, T + plotH / 2, "NOT ENOUGH PRICE HISTORY TO DRAW", GREY, 2);
+    r.text(84, 18, input.title.toUpperCase(), INK, 3);
+    r.text(84, T + plotH / 2, "NOT ENOUGH PRICE HISTORY TO DRAW", GREY, 2);
     return r.toPng();
   }
 
@@ -68,6 +68,8 @@ export function renderPriceChart(input: PriceChartInput): Buffer {
   const extra: number[] = [];
   for (const arr of [input.ma50, input.ma200]) if (arr) for (const v of arr) if (v != null && Number.isFinite(v)) extra.push(v);
   if (input.avgCost != null && input.avgCost > 0) extra.push(input.avgCost);
+  const proj = input.projection && input.projection.horizon > 0 ? input.projection : null;
+  if (proj) extra.push(proj.low, proj.high, proj.dipLevel);
   for (const z of [input.buyZone, input.sellZone]) {
     if (z?.low != null && z.low > 0) extra.push(z.low);
     if (z?.high != null && z.high > 0) extra.push(z.high);
@@ -79,7 +81,21 @@ export function renderPriceChart(input: PriceChartInput): Buffer {
   hi += pad;
   if (lo < 0) lo = 0;
 
-  const xAt = (i: number) => L + (i / (bars.length - 1)) * plotW;
+  // Margins follow the labels: the left one is as wide as the widest price
+  // tick, the right one opens up when a projection needs its levels written
+  // beside the fan.
+  const ticks = niceTicks(lo, hi, 6);
+  const L = Math.max(84, Math.max(...ticks.map((t) => r.textWidth(fmt(t), 2))) + 18);
+  const R = proj ? 136 : 24;
+  const plotW = width - L - R;
+
+  // --- title ------------------------------------------------------------------
+  r.text(L, 18, input.title.toUpperCase(), INK, 3);
+  if (input.subtitle) r.text(L, 44, input.subtitle, MID, 2);
+
+  // The x axis leaves room to the right for the projection, when there is one.
+  const slots = bars.length - 1 + (proj ? proj.horizon : 0);
+  const xAt = (i: number) => L + (i / slots) * plotW;
   const yAt = (v: number) => T + (1 - (v - lo) / (hi - lo)) * plotH;
 
   // --- bands, drawn first so the price sits on top ------------------------------
@@ -101,7 +117,6 @@ export function renderPriceChart(input: PriceChartInput): Buffer {
   band(input.sellZone, [240, 236, 228], "SELL ZONE");
 
   // --- grid and axes ----------------------------------------------------------
-  const ticks = niceTicks(lo, hi, 6);
   for (const tv of ticks) {
     const y = yAt(tv);
     r.line(L, y, L + plotW, y, FAINT, 1);
@@ -153,11 +168,38 @@ export function renderPriceChart(input: PriceChartInput): Buffer {
   // --- the price itself -----------------------------------------------------------
   r.polyline(bars.map((b, i) => [xAt(i), yAt(b.close)] as [number, number]), INK, 2.2);
 
-  // Last price, called out on the right edge.
+  // Last price, called out at the last bar.
   const last = bars[bars.length - 1];
   const ly = yAt(last.close);
-  r.fillRect(L + plotW - 2, ly - 2, 5, 5, INK);
-  r.textRight(L + plotW - 8, Math.max(T + 2, ly - 22), fmt(last.close), INK, 2);
+  const lx0 = xAt(bars.length - 1);
+  r.fillRect(lx0 - 2, ly - 2, 5, 5, INK);
+  r.textRight(lx0 - 8, Math.max(T + 2, ly - 22), fmt(last.close), INK, 2);
+
+  // --- the projection fan -----------------------------------------------------------
+  if (proj) {
+    const xe = L + plotW;
+    const yM = yAt(proj.median), yH = yAt(proj.high), yL = yAt(proj.low);
+    r.polyline([[lx0, ly], [xe, yH]], LIGHT, 1, [3, 3]);
+    r.polyline([[lx0, ly], [xe, yL]], LIGHT, 1, [3, 3]);
+    r.polyline([[lx0, ly], [xe, yM]], INK, 1.4, [5, 4]);
+    r.line(xe, yH, xe, yL, LIGHT, 1);
+    // The levels are written in the right margin, each at its own height,
+    // nudged apart when two would collide.
+    const labels: Array<{ y: number; text: string; rgb: Rgb }> = [
+      { y: yH, text: fmt(proj.high), rgb: GREY },
+      { y: yM, text: fmt(proj.median), rgb: INK },
+      { y: yL, text: fmt(proj.low), rgb: GREY },
+    ];
+    const yD = yAt(proj.dipLevel);
+    if (yD > T && yD < T + plotH) {
+      r.polyline([[lx0, yD], [xe, yD]], GREY, 1, [1, 3]);
+      labels.push({ y: yD, text: `DIP ${fmt(proj.dipLevel)}`, rgb: GREY });
+    }
+    labels.sort((a, b) => a.y - b.y);
+    for (let i = 1; i < labels.length; i++) if (labels[i].y - labels[i - 1].y < 15) labels[i].y = labels[i - 1].y + 15;
+    for (const lb of labels) r.text(xe + 6, Math.min(T + plotH - 12, Math.max(T + 2, lb.y - 5)), lb.text, lb.rgb, 2);
+    r.textCenter((lx0 + xe) / 2, T + plotH + 12, `+${proj.horizon}D`, GREY, 2);
+  }
 
   // --- legend ---------------------------------------------------------------------
   // On the title row, right-aligned, where nothing else needs the space. The

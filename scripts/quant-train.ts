@@ -18,7 +18,7 @@
 import { join } from "node:path";
 import { writeFileSync, statSync } from "node:fs";
 import { buildPanel, walkForwardPanel, trainFinal, predictEnsemble, type PanelWalkResult } from "../lib/quant/panel";
-import { buildFeatures, readTrend, FEATURE_NAMES, TARGET_NAMES, DIP_PCT } from "../lib/quant/features";
+import { buildFeatures, readTrend, FEATURE_NAMES, TARGET_NAMES, DIP_PCT, RANK_FEATURE_NAMES } from "../lib/quant/features";
 import { marketContext, macroContext, mergeContext } from "../lib/quant/context";
 import { gbmFeatureUse } from "../lib/quant/gbm";
 import { kse100Symbols, loadBars, TRAIN_INDICES } from "../lib/quant/universe";
@@ -92,8 +92,9 @@ async function main() {
     ctx = mergeContext(market, macro, dates);
   }
 
-  const panel = buildPanel(bars, index, opts.horizon, { context: ctx?.context ?? null });
-  const featureNames = [...FEATURE_NAMES, ...(ctx?.names ?? [])];
+  const useRanks = has("ranks");
+  const panel = buildPanel(bars, index, opts.horizon, { context: ctx?.context ?? null, ranks: useRanks });
+  const featureNames = [...FEATURE_NAMES, ...(ctx?.names ?? []), ...(useRanks ? RANK_FEATURE_NAMES : [])];
   console.log(`Panel: ${panel.rows.length.toLocaleString()} rows, ${panel.symbols.length} names, ${panel.dates.length} sessions with features, ${featureNames.length} features (${ctx?.names.length ?? 0} context), targets ${TARGET_NAMES.join("/")} (dip = ${DIP_PCT}%).`);
   console.log(`Config: ${JSON.stringify({ horizon: opts.horizon, seeds: opts.seeds, step: opts.step, minTrain: opts.minTrain, threshold: opts.threshold, learner: opts.learner, mlp: opts.train, gbm: opts.gbm })}`);
 
@@ -125,14 +126,15 @@ async function main() {
   }
 
   console.log(`\nLatest forecasts, ${opts.horizon} sessions ahead (${TARGET_NAMES.join(" / ")}):`);
+  // The latest rows come out of the panel itself, so the ranks (if any) are
+  // the same ones the model was trained on.
+  const lastRows = new Map<string, (typeof panel.rows)[number]>();
+  for (const r of panel.rows) lastRows.set(r.symbol, r);
   for (const sym of [...TRAIN_INDICES, ...held]) {
-    const b = bars.get(sym);
-    if (!b) continue;
-    const rows = buildFeatures(b, index, opts.horizon, ctx?.context ?? null);
-    const last = rows[rows.length - 1];
+    const last = lastRows.get(sym);
     if (!last) continue;
     const p = predictEnsemble(final.learners, last.x);
-    const trend = readTrend(b);
+    const trend = readTrend(bars.get(sym) ?? []);
     console.log(`  ${pad(sym, 8)} up ${(p[0] * 100).toFixed(0).padStart(3)}%   beat ${(p[1] * 100).toFixed(0).padStart(3)}%   dip ${(p[2] * 100).toFixed(0).padStart(3)}%   ${trend?.label ?? "-"}   as of ${last.date}`);
   }
 
@@ -145,6 +147,7 @@ async function main() {
     dipPct: DIP_PCT,
     featureNames,
     contextNames: ctx?.names ?? [],
+    rankNames: useRanks ? [...RANK_FEATURE_NAMES] : [],
     targetNames: [...TARGET_NAMES],
     universe: panel.symbols,
     universeSource,

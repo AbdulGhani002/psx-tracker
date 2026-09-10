@@ -3,7 +3,10 @@
 // returns false, so signup/reset flows still work locally (the link is logged).
 const FROM = process.env.MAIL_FROM || "PSX Portfolio <noreply@psx.app>";
 
-export type MailAttachment = { filename: string; content: Buffer };
+// contentId lets the HTML show the file inline (<img src="cid:...">). If the
+// API refuses the field the send is retried without it, so the pictures still
+// arrive as attachments rather than not at all.
+export type MailAttachment = { filename: string; content: Buffer; contentId?: string };
 
 export async function sendEmail(
   to: string,
@@ -17,20 +20,29 @@ export async function sendEmail(
     return false;
   }
   try {
-    const body: Record<string, unknown> = { from: FROM, to, subject, html };
-    // Resend takes attachments base64-encoded in the JSON body, so a PDF rides
-    // along with no multipart handling and no extra dependency.
-    if (attachments.length > 0) {
-      body.attachments = attachments.map((a) => ({
-        filename: a.filename,
-        content: a.content.toString("base64"),
-      }));
+    const post = async (withIds: boolean) => {
+      const body: Record<string, unknown> = { from: FROM, to, subject, html };
+      // Resend takes attachments base64-encoded in the JSON body, so a PDF rides
+      // along with no multipart handling and no extra dependency.
+      if (attachments.length > 0) {
+        body.attachments = attachments.map((a) => ({
+          filename: a.filename,
+          content: a.content.toString("base64"),
+          ...(withIds && a.contentId ? { content_id: a.contentId } : {}),
+        }));
+      }
+      return fetch("https://api.resend.com/emails", {
+        method: "POST",
+        headers: { authorization: `Bearer ${key}`, "content-type": "application/json" },
+        body: JSON.stringify(body),
+      });
+    };
+    const hasIds = attachments.some((a) => a.contentId);
+    let res = await post(hasIds);
+    if (!res.ok && hasIds && res.status >= 400 && res.status < 500) {
+      console.log(`[mailer] resend refused inline ids (${res.status}); retrying as plain attachments`);
+      res = await post(false);
     }
-    const res = await fetch("https://api.resend.com/emails", {
-      method: "POST",
-      headers: { authorization: `Bearer ${key}`, "content-type": "application/json" },
-      body: JSON.stringify(body),
-    });
     if (!res.ok) {
       // The reason matters when a weekly report silently stops arriving.
       console.log(`[mailer] resend rejected ${res.status}: ${(await res.text().catch(() => "")).slice(0, 300)}`);

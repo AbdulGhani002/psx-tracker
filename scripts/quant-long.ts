@@ -21,7 +21,7 @@
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { buildPanel, walkForwardPanel, type PanelOptions, type PanelPoint, auc, spearman } from "../lib/quant/panel";
-import { FEATURE_NAMES } from "../lib/quant/features";
+import { FEATURE_NAMES, RANK_FEATURE_NAMES } from "../lib/quant/features";
 import { marketContext, macroContext, mergeContext } from "../lib/quant/context";
 import { loadMacro } from "../lib/timeseries/macro";
 import { diskBarsCache } from "../lib/quant/store";
@@ -166,8 +166,9 @@ async function main() {
 
   const memberBars = new Map([...bars].filter(([s]) => memberSymbols.has(s)));
   const include = (symbol: string, date: string) => members.get(Number(date.slice(0, 4)))?.has(symbol) ?? false;
-  const panel = buildPanel(memberBars, index, opts.horizon, { context: ctx.context, include, minRows: 60 });
-  const featureNames = [...FEATURE_NAMES, ...ctx.names];
+  const useRanks = has("ranks");
+  const panel = buildPanel(memberBars, index, opts.horizon, { context: ctx.context, include, minRows: 60, ranks: useRanks });
+  const featureNames = [...FEATURE_NAMES, ...ctx.names, ...(useRanks ? RANK_FEATURE_NAMES : [])];
   console.log(`Panel: ${panel.rows.length.toLocaleString()} rows, ${panel.symbols.length} names, ${panel.dates.length} sessions, ${featureNames.length} features. Built in ${((Date.now() - t0) / 1000).toFixed(0)}s.`);
   console.log(`Config: ${JSON.stringify({ horizon: opts.horizon, seeds: opts.seeds, step: opts.step, minTrain: opts.minTrain, learner: opts.learner, mlp: opts.train, gbm: opts.gbm })}`);
 
