@@ -36,14 +36,14 @@ export async function POST(req: Request) {
       charts: [...report.indices, ...report.holdings].map((it) => ({ symbol: it.symbol, verdict: it.verdict, bytes: it.png.length, caption: it.caption })),
     });
   }
-  const results: Array<{ sent: boolean; reason?: string; charts?: number }> = [];
+  const results: Array<{ sent: boolean; reason?: string; charts?: number; errors?: string[] }> = [];
   for (const id of userIds) {
     results.push(await runAsUser(id, () => runForCurrentUser(force)));
   }
-  return NextResponse.json({ ok: true, users: userIds.length, sent: results.filter((r) => r.sent).length });
+  return NextResponse.json({ ok: true, users: userIds.length, sent: results.filter((r) => r.sent).length, errors: results.flatMap((r) => r.errors ?? []) });
 }
 
-async function runForCurrentUser(force: boolean): Promise<{ sent: boolean; reason?: string; charts?: number }> {
+async function runForCurrentUser(force: boolean): Promise<{ sent: boolean; reason?: string; charts?: number; errors?: string[] }> {
   const settings: any = await getAppSettings();
   const token = settings.telegramBotToken ?? "";
   const chatId = settings.telegramChatId ?? "";
@@ -64,14 +64,20 @@ async function runForCurrentUser(force: boolean): Promise<{ sent: boolean; reaso
   if (report.indices.length + report.holdings.length === 0) return { sent: false, reason: "no_charts" };
 
   // Summary first, then the pictures in albums of at most ten. Each album
-  // send is independent so a failed batch does not stop the next.
-  await sendTelegram(token, chatId, report.summary);
+  // send is independent so a failed batch does not stop the next, and every
+  // refusal is written down: a report that silently stops arriving is worse
+  // than one that says why.
+  const errors: string[] = [];
+  const s = await sendTelegram(token, chatId, report.summary);
+  if (!s.ok) errors.push(`summary: ${s.detail ?? "failed"}`);
   let charts = 0;
   const all = [...report.indices, ...report.holdings];
   for (let i = 0; i < all.length; i += 10) {
     const batch = all.slice(i, i + 10).map((it) => ({ png: it.png, caption: it.caption, filename: `${it.symbol}.png` }));
     const r = await sendTelegramPhotos(token, chatId, batch);
     if (r.ok) charts += batch.length;
+    else errors.push(`album ${i / 10 + 1} (${batch.map((b) => b.filename).join(",")}): ${r.detail ?? "failed"}`);
   }
-  return { sent: charts > 0, charts };
+  if (errors.length) console.log(`[quant-report] ${errors.join(" | ")}`);
+  return { sent: charts > 0, charts, errors };
 }

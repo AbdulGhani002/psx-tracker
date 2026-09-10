@@ -354,7 +354,11 @@ export async function buildQuantReport(): Promise<QuantReport> {
     ];
     if (kse?.projection) {
       parts.push(`KSE-100: ${projectionLine(kse.projection)} ${levelsLine(kse.projection)}${kseRec ? ` On the index alone the record is direction AUC ${kseRec.auc.toFixed(2)}, dip AUC ${kseRec.aucDip.toFixed(2)} over ${kseRec.n} sessions.` : ""}`);
-      modelShort = `Model (record ${rec.up.auc.toFixed(2)} direction / ${rec.dip.auc.toFixed(2)} dip): KSE-100 ${projectionLine(kse.projection).replace(/^Next \d+ sessions: /, "")}`;
+      const longT = long?.summary?.targets;
+      const recordShort = longT?.length
+        ? `5y record ${rec.up.auc.toFixed(2)} direction / ${rec.dip.auc.toFixed(2)} dip, 24y ${longT[0].auc.toFixed(2)} / ${longT[2].auc.toFixed(2)}`
+        : `record ${rec.up.auc.toFixed(2)} direction / ${rec.dip.auc.toFixed(2)} dip`;
+      modelShort = `Model (${recordShort}): KSE-100 ${projectionLine(kse.projection).replace(/^Next \d+ sessions: /, "")}`;
     }
     if (long?.summary?.targets?.length) {
       const t = long.summary.targets;
@@ -364,8 +368,20 @@ export async function buildQuantReport(): Promise<QuantReport> {
     if (ups.length >= 3 && Math.max(...ups) - Math.min(...ups) < 0.03) {
       parts.push(`The direction odds barely differ from name to name today (${odds(Math.min(...ups))} to ${odds(Math.max(...ups))}): the model is saying the market, not the name, decides the next ${model.horizon} sessions.`);
     }
-    const dirWords = rec.up.auc >= RECORD_FLOOR ? "a modest tilt worth reading" : "a coin toss: read them as noise";
-    const dipWords = rec.dip.auc >= RECORD_FLOOR ? "carry real information and are used to stage buys" : "are too weak to act on";
+    // Twenty-four years outrank five. When the long test says coin toss, the
+    // recent record is called what it is: unproven.
+    const longUp = long?.summary?.targets?.[0]?.auc ?? null;
+    const longDip = long?.summary?.targets?.[2]?.auc ?? null;
+    const dirWords =
+      longUp != null && longUp < 0.53
+        ? `unproven: a modest tilt over the last five years (AUC ${rec.up.auc.toFixed(2)}) but a coin toss over twenty-four (${longUp.toFixed(2)})`
+        : rec.up.auc >= RECORD_FLOOR
+        ? "a modest tilt worth reading"
+        : "a coin toss: read them as noise";
+    const dipWords =
+      rec.dip.auc >= RECORD_FLOOR
+        ? `carry real information over the last five years and are used to stage buys${longDip != null && longDip < 0.56 ? ` (over twenty-four years the edge is slighter, ${longDip.toFixed(2)})` : ""}`
+        : "are too weak to act on";
     parts.push(`<i>Read the direction odds as ${dirWords}; the dip odds ${dipWords}. The bands and the trend remain the signal.</i>`);
     modelNote = parts.join("\n");
   }
@@ -383,7 +399,17 @@ export async function buildQuantReport(): Promise<QuantReport> {
     .filter(Boolean)
     .join(" ");
 
-  const summary = [`<b>Charts ${today}</b>`, idxShort, [breadthShort, regimeShort].filter(Boolean).join(" "), modelShort, actionShort, macroShort]
+  // Over twenty-four years the one durable thing the model does is rank
+  // names against each other. When the long test says so (rank IC with a
+  // t-statistic of at least 3), that order goes in the short message.
+  const longIc = long?.summary?.icRel ?? null;
+  const rankedNames = holdings.filter((h) => h.forecast).sort((a, b) => b.forecast!.beat - a.forecast!.beat);
+  const rankShort =
+    longIc && longIc.tStat >= 3 && rankedNames.length >= 2
+      ? `Model's order (24y rank IC ${longIc.mean >= 0 ? "+" : ""}${longIc.mean.toFixed(2)}, t ${longIc.tStat.toFixed(1)}): ${rankedNames.map((h) => `${h.symbol} ${odds(h.forecast!.beat)}`).join(" · ")}.`
+      : "";
+
+  const summary = [`<b>Charts ${today}</b>`, idxShort, [breadthShort, regimeShort].filter(Boolean).join(" "), modelShort, actionShort, rankShort, macroShort]
     .filter((l) => l !== "")
     .join("\n")
     .slice(0, 4096);
