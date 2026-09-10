@@ -40,7 +40,14 @@ export async function POST(req: Request) {
   for (const id of userIds) {
     results.push(await runAsUser(id, () => runForCurrentUser(force)));
   }
-  return NextResponse.json({ ok: true, users: userIds.length, sent: results.filter((r) => r.sent).length, errors: results.flatMap((r) => r.errors ?? []) });
+  return NextResponse.json({
+    ok: true,
+    users: userIds.length,
+    sent: results.filter((r) => r.sent).length,
+    // Why each user did or did not get it, so a silent zero can be read.
+    results: results.map((r, i) => ({ user: userIds[i].slice(-6), sent: r.sent, reason: r.reason ?? null, charts: r.charts ?? 0 })),
+    errors: results.flatMap((r) => r.errors ?? []),
+  });
 }
 
 async function runForCurrentUser(force: boolean): Promise<{ sent: boolean; reason?: string; charts?: number; errors?: string[] }> {
