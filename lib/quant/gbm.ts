@@ -40,6 +40,11 @@ export type GbmOptions = {
   valFrac?: number;
   patience?: number;
   seed?: number;
+  // false: keep every round and ignore the validation slice. Used for the
+  // final model once the round count has been chosen across the walk-forward
+  // windows, because one recent slice is a poor judge of how many trees to
+  // keep when the market has just changed character.
+  earlyStop?: boolean;
 };
 
 const sigmoid = (z: number) => 1 / (1 + Math.exp(-z));
@@ -90,6 +95,7 @@ export function trainGbm(Xraw: number[][], y: number[], opts: GbmOptions = {}): 
   const bins = Math.min(255, opts.bins ?? 64);
   const valFrac = opts.valFrac ?? 0.15;
   const patience = opts.patience ?? 30;
+  const earlyStop = opts.earlyStop ?? true;
   const rnd = mulberry32(opts.seed ?? 7);
 
   const n = Xraw.length;
@@ -201,6 +207,7 @@ export function trainGbm(Xraw: number[][], y: number[], opts: GbmOptions = {}): 
       F[i] += tree.value[node];
     }
 
+    if (!earlyStop) continue;
     const val = lossOver(nTr, n);
     if (val < best.val - 1e-6) {
       best = { val, rounds: r + 1, train: lossOver(0, nTr) };
@@ -208,6 +215,7 @@ export function trainGbm(Xraw: number[][], y: number[], opts: GbmOptions = {}): 
     } else if (++stale >= patience) break;
   }
 
+  if (!earlyStop) return { trees, base, rounds: trees.length, features: d, trainLoss: lossOver(0, nTr), valLoss: lossOver(nTr, n) };
   return { trees: trees.slice(0, best.rounds), base, rounds: best.rounds, features: d, trainLoss: best.train, valLoss: best.val };
 }
 
@@ -225,11 +233,16 @@ export function predictGbm(m: GbmModel, x: number[]): number {
   return sigmoid(predictGbmLogit(m, x));
 }
 
-// One booster per target column.
-export function trainGbmMulti(X: number[][], Y: number[][], opts: GbmOptions = {}): GbmModel[] {
+// One booster per target column. `roundsPerTarget` fixes each booster's
+// round count (no early stopping), for the final model.
+export function trainGbmMulti(X: number[][], Y: number[][], opts: GbmOptions = {}, roundsPerTarget?: number[]): GbmModel[] {
   const k = Y[0].length;
   const out: GbmModel[] = [];
-  for (let o = 0; o < k; o++) out.push(trainGbm(X, Y.map((r) => r[o]), { ...opts, seed: (opts.seed ?? 7) + o * 17 }));
+  for (let o = 0; o < k; o++) {
+    const fixed = roundsPerTarget?.[o];
+    const o2: GbmOptions = fixed != null ? { ...opts, rounds: fixed, earlyStop: false } : opts;
+    out.push(trainGbm(X, Y.map((r) => r[o]), { ...o2, seed: (opts.seed ?? 7) + o * 17 }));
+  }
   return out;
 }
 

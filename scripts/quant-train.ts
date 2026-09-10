@@ -4,7 +4,7 @@
 //        [--learner both|mlp|gbm] [--hidden 32,16] [--l2 1e-4] [--lr 5e-3] [--epochs 80] [--batch 64] [--patience 8]
 //        [--rounds 300] [--depth 4] [--minLeaf 100] [--gbmLr 0.05]
 //        [--no-context] [--macro] [--universe kse100|held] [--symbols A,B] [--held A,B]
-//        [--no-validate] [--windows N] [--cache DIR] [--out FILE]
+//        [--no-validate] [--windows N] [--cache DIR] [--out FILE] [--fixedRounds] [--no-median]
 //
 // With --dry it uses a disk cache and touches no database; --out writes the
 // trained ensemble with its walk-forward record as JSON, which
@@ -102,15 +102,19 @@ async function main() {
     let seen = 0;
     validation = walkForwardPanel(panel, opts, (w) => {
       seen++;
-      console.log(`  window ${w.window}: trained on ${w.trainRows.toLocaleString()} rows, predicted ${w.testRows.toLocaleString()} (${w.from} to ${w.to}) in ${(w.ms / 1000).toFixed(1)}s`);
+      console.log(`  window ${w.window}: trained on ${w.trainRows.toLocaleString()} rows, predicted ${w.testRows.toLocaleString()} (${w.from} to ${w.to}) in ${(w.ms / 1000).toFixed(1)}s${w.rounds ? `, rounds ${w.rounds.map((r) => r.toFixed(0)).join("/")}` : ""}`);
       if (maxWindows > 0 && seen >= maxWindows) throw new Error("__stop__");
     });
   }
   if (validation) printResult(validation, held);
 
-  console.log("\nTraining the final ensemble on every row with a known outcome...");
+  // The final boosters take the median round count the windows kept, so one
+  // recent slice cannot shrink the shipped model to a stump when the market
+  // has just changed character. --no-median keeps per-slice early stopping.
+  const finalRounds = !has("no-median") && validation?.medianRounds ? validation.medianRounds : null;
+  console.log(`\nTraining the final ensemble on every row with a known outcome${finalRounds ? ` (boosters fixed at ${finalRounds.join("/")} rounds, the medians the windows kept)` : ""}...`);
   const t1 = Date.now();
-  const final = trainFinal(panel, opts);
+  const final = trainFinal(panel, opts, finalRounds ?? undefined);
   const desc = final.learners.map((l) => (l.kind === "mlp" ? `mlp ${l.model.epochs}ep val ${l.model.valLoss.toFixed(4)}` : `gbm ${l.models.map((m) => m.rounds).join("/")} rounds`)).join("; ");
   console.log(`Trained ${final.learners.length} learner(s) on ${final.rows.toLocaleString()} rows to ${final.trainedTo} in ${((Date.now() - t1) / 1000).toFixed(0)}s: ${desc}.`);
   const gbms = final.learners.filter((l) => l.kind === "gbm").flatMap((l) => (l.kind === "gbm" ? l.models : []));
@@ -146,6 +150,7 @@ async function main() {
     universeSource,
     rows: final.rows,
     config: opts,
+    finalRounds,
     learners: final.learners,
     validation: validation ? validationNoPoints : null,
     runtimeSec: Math.round((Date.now() - t0) / 1000),

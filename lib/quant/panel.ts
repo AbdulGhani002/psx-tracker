@@ -135,6 +135,8 @@ export type PanelWalkResult = {
   icRel: SeriesStat; // p(beat) against forward relative return
   spread: SeriesStat; // top fifth minus bottom fifth by p(beat), relative return per horizon, in %
   perSymbol: SymbolMetrics[];
+  roundsPerWindow?: number[][]; // per window, per target: rounds the boosters kept
+  medianRounds?: number[]; // per target, across windows
   points?: PanelPoint[];
 };
 
@@ -238,7 +240,7 @@ function lowerBound(rows: PanelRow[], di: number): number {
   return lo;
 }
 
-export function trainEnsemble(rows: PanelRow[], opts: PanelOptions): Learner[] {
+export function trainEnsemble(rows: PanelRow[], opts: PanelOptions, fixedRounds?: number[]): Learner[] {
   const X = rows.map((r) => r.x);
   const Y = rows.map((r) => r.targets!);
   const learners: Learner[] = [];
@@ -249,9 +251,17 @@ export function trainEnsemble(rows: PanelRow[], opts: PanelOptions): Learner[] {
   }
   if (opts.learner !== "mlp") {
     const base = opts.gbm.seed ?? 7;
-    for (let s = 0; s < seeds; s++) learners.push({ kind: "gbm", models: trainGbmMulti(X, Y, { ...opts.gbm, seed: base + s * 101 }) });
+    for (let s = 0; s < seeds; s++) learners.push({ kind: "gbm", models: trainGbmMulti(X, Y, { ...opts.gbm, seed: base + s * 101 }, fixedRounds) });
   }
   return learners;
+}
+
+// Rounds the boosters kept, per target, averaged over the seeds.
+export function roundsKept(learners: Learner[]): number[] | null {
+  const g = learners.filter((l): l is Extract<Learner, { kind: "gbm" }> => l.kind === "gbm");
+  if (g.length === 0) return null;
+  const k = g[0].models.length;
+  return Array.from({ length: k }, (_, o) => g.reduce((s, l) => s + l.models[o].rounds, 0) / g.length);
 }
 
 // Average within each kind, then across kinds, so three networks and one
@@ -271,7 +281,7 @@ export function predictEnsemble(learners: Learner[], x: number[]): number[] {
   return out;
 }
 
-export type WindowInfo = { window: number; trainRows: number; testRows: number; from: string; to: string; ms: number };
+export type WindowInfo = { window: number; trainRows: number; testRows: number; from: string; to: string; ms: number; rounds: number[] | null };
 
 export function walkForwardPanel(panel: Panel, opts: PanelOptions, onWindow?: (w: WindowInfo) => void, keepPoints = false): PanelWalkResult | null {
   const usable = panel.rows.filter((r) => r.targets != null);
@@ -279,6 +289,7 @@ export function walkForwardPanel(panel: Panel, opts: PanelOptions, onWindow?: (w
   if (usable.length === 0 || nDates < opts.minTrain + opts.step) return null;
 
   const points: PanelPoint[] = [];
+  const roundsPerWindow: number[][] = [];
   let windows = 0;
   for (let start = opts.minTrain; start < nDates; start += opts.step) {
     const t0 = Date.now();
@@ -290,11 +301,22 @@ export function walkForwardPanel(panel: Panel, opts: PanelOptions, onWindow?: (w
     if (train.length < 200 || test.length === 0) continue;
     const learners = trainEnsemble(train, opts);
     windows++;
+    const rounds = roundsKept(learners);
+    if (rounds) roundsPerWindow.push(rounds);
     for (const r of test) points.push({ symbol: r.symbol, date: r.date, di: r.di, p: predictEnsemble(learners, r.x), t: r.targets!, fwdRet: r.fwdRet!, fwdRel: r.fwdRel! });
-    onWindow?.({ window: windows, trainRows: train.length, testRows: test.length, from: test[0].date, to: test[test.length - 1].date, ms: Date.now() - t0 });
+    onWindow?.({ window: windows, trainRows: train.length, testRows: test.length, from: test[0].date, to: test[test.length - 1].date, ms: Date.now() - t0, rounds });
   }
   if (points.length === 0) return null;
-  return scorePanel(points, opts, windows, panel.symbols.length, keepPoints);
+  const result = scorePanel(points, opts, windows, panel.symbols.length, keepPoints);
+  if (roundsPerWindow.length) {
+    result.roundsPerWindow = roundsPerWindow;
+    const k = roundsPerWindow[0].length;
+    result.medianRounds = Array.from({ length: k }, (_, o) => {
+      const v = roundsPerWindow.map((w) => w[o]).sort((a, b) => a - b);
+      return Math.max(10, Math.round(v[Math.floor(v.length / 2)]));
+    });
+  }
+  return result;
 }
 
 export function scorePanel(points: PanelPoint[], opts: PanelOptions, windows: number, symbols: number, keepPoints = false): PanelWalkResult {
@@ -381,9 +403,11 @@ export function scorePanel(points: PanelPoint[], opts: PanelOptions, windows: nu
 }
 
 // Train on every row with a known outcome, for the forecasts that go out.
-export function trainFinal(panel: Panel, opts: PanelOptions): { learners: Learner[]; rows: number; trainedTo: string } {
+// With `fixedRounds` (the median the walk-forward windows kept) the boosters
+// take that many rounds instead of judging by the most recent slice alone.
+export function trainFinal(panel: Panel, opts: PanelOptions, fixedRounds?: number[]): { learners: Learner[]; rows: number; trainedTo: string } {
   const usable = panel.rows.filter((r) => r.targets != null);
-  const learners = trainEnsemble(usable, opts);
+  const learners = trainEnsemble(usable, opts, fixedRounds);
   return { learners, rows: usable.length, trainedTo: usable[usable.length - 1]?.date ?? "" };
 }
 

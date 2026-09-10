@@ -192,8 +192,12 @@ function randomWalk(n: number, drift = 0.0003, vol = 0.015, start = 100): EodBar
   check("a booster survives a JSON round trip", predictGbm(thawed, Xx[7]) === predictGbm(mx, Xx[7]));
   check("the same seed gives the same booster", predictGbm(trainGbm(X, Y, { rounds: 30, seed: 5 }), X[3]) === predictGbm(trainGbm(X, Y, { rounds: 30, seed: 5 }), X[3]));
 
+  const fixed = trainGbm(X, Y, { rounds: 25, earlyStop: false, seed: 1 });
+  check("without early stopping a booster keeps every round", fixed.rounds === 25 && fixed.trees.length === 25, fixed.rounds);
   const Y2 = Xx.map((x, i) => [Yx[i], x[2] > 0 ? 1 : 0]);
   const both = trainGbmMulti(Xx, Y2, { rounds: 200, maxDepth: 3, minLeaf: 20, seed: 4 });
+  const sized = trainGbmMulti(Xx, Y2, { rounds: 200, maxDepth: 3, minLeaf: 20, seed: 4 }, [12, 7]);
+  check("per-target round counts are honoured", sized[0].rounds === 12 && sized[1].rounds === 7, sized.map((m) => m.rounds).join("/"));
   const use = gbmFeatureUse(both);
   check("one booster per target", both.length === 2);
   check("feature use sums to one", Math.abs(use.reduce((s, v) => s + v, 0) - 1) < 1e-9);

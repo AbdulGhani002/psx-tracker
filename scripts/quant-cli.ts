@@ -89,6 +89,7 @@ export function optionsFromArgs(): PanelOptions {
       lr: num("gbmLr", DEFAULT_PANEL.gbm.lr!),
       patience: num("gbmPatience", DEFAULT_PANEL.gbm.patience!),
       subsample: num("subsample", DEFAULT_PANEL.gbm.subsample!),
+      earlyStop: !has("fixedRounds"),
     },
   };
 }

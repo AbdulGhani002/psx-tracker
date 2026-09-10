@@ -31,6 +31,7 @@ export type StoredQuantModel = {
   universeSource: string;
   rows: number;
   config: PanelOptions;
+  finalRounds: number[] | null; // per target, when the final boosters used fixed rounds
   learners: Learner[];
   validation: Omit<PanelWalkResult, "points"> | null;
   runtimeSec: number;
