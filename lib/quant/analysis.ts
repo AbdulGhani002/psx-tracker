@@ -58,7 +58,7 @@ export type ModelZone = {
   buyHigh: number;
   sellLow: number;
   sellHigh: number;
-  fails: number; // the 20-day low: below it the case is gone
+  fails: number; // the lower of the 20-day low and the buy-zone floor: below it the case is gone
   trigger: number | null; // the 50-day, for names that must reclaim it first
 };
 
@@ -77,6 +77,7 @@ export function readName(args: {
   held: boolean;
   market: MarketState;
   pctile: number | null; // rank of p(beat) among the universe, 0..1, 1 = strongest
+  rank?: { pos: number; of: number } | null; // the same, as "4 of 90", for the words
   trend: TrendRead | null;
   price: number;
   projection: Projection;
@@ -84,17 +85,20 @@ export function readName(args: {
   pDip: number;
   dipUsable: boolean; // the dip record clears the bar
 }): NameRead {
-  const { held, market, pctile, trend, price, projection, bands, pDip, dipUsable } = args;
+  const { held, market, pctile, rank, trend, price, projection, bands, pDip, dipUsable } = args;
   const standing = standingOf(pctile);
   const t = trend?.label ?? "SIDEWAYS";
   const falling = t === "DOWNTREND" || t === "WEAKENING";
-  const zone: ModelZone = { ...bands, fails: projection.low20, trigger: falling ? projection.ma50 : null };
+  // A name sitting on its 20-day low would otherwise "fail" at today's price;
+  // the buy-zone floor is the lower bound the model itself stands behind.
+  const fails = Math.min(projection.low20, bands.buyLow);
+  const zone: ModelZone = { ...bands, fails, trigger: falling ? projection.ma50 : null };
   const inBuy = price <= bands.buyHigh;
   const inSell = price >= bands.sellLow;
-  const rankText = pctile != null ? `rank ${Math.round((1 - pctile) * 100)}th percentile` : "unranked";
+  const rankText = rank ? `rank ${rank.pos} of ${rank.of} on the model's odds of beating the market` : pctile != null ? `${standing.toLowerCase()} on the model's odds of beating the market` : "unranked";
   const buyZone = `buy ${fmt(bands.buyLow)} to ${fmt(bands.buyHigh)}`;
   const sellZone = `sell ${fmt(bands.sellLow)} to ${fmt(bands.sellHigh)}`;
-  const failsAt = `case fails below ${fmt(projection.low20)}`;
+  const failsAt = `The case fails below ${fmt(fails)}`;
 
   let verdict: ModelVerdict;
   let line: string;
@@ -104,8 +108,8 @@ export function readName(args: {
       verdict = market === "WEAK" || falling ? "SELL" : "TRIM";
       line =
         verdict === "SELL"
-          ? `Weak name (${rankText} on the model's odds of beating the market) in a ${market === "WEAK" ? "weak market" : "downtrend"}. Sell into any strength; ${sellZone} if it gets there, and out below ${fmt(projection.low20)} regardless.`
-          : `Weak name (${rankText}). Trim into strength: ${sellZone}; ${failsAt}.`;
+          ? `Weak name (${rankText}) in a ${market === "WEAK" ? "weak market" : "downtrend"}. Sell into any strength: ${sellZone} if it gets there, and out below ${fmt(fails)} regardless.`
+          : `Weak name (${rankText}). Trim into strength: ${sellZone}. ${failsAt}.`;
     } else {
       verdict = "AVOID";
       line = `Weak name (${rankText}). Not a buy at any of these levels while it ranks here.`;
@@ -116,23 +120,23 @@ export function readName(args: {
       line = `Strong name (${rankText}) in a weak market. ${held ? "Keep it; add" : "Buy"} only at the band low, ${fmt(bands.buyLow)}, and only once the index reclaims its 200-day. ${failsAt}.`;
     } else if (falling) {
       verdict = "WATCH";
-      line = `Strong name (${rankText}) but still under its ${t === "DOWNTREND" ? "50- and 200-day" : "50-day"} average. Buy on a close back above the 50-day${projection.ma50 ? ` (${fmt(projection.ma50)})` : ""}; until then ${buyZone} is where a dip would be worth catching, and the ${failsAt}.`;
+      line = `Strong name (${rankText}) but still under its ${t === "DOWNTREND" ? "50- and 200-day" : "50-day"} average. Buy on a close back above the 50-day${projection.ma50 ? ` (${fmt(projection.ma50)})` : ""}; until then ${buyZone} is where a dip would be worth catching. ${failsAt}.`;
     } else if (dipUsable && pDip >= 0.55) {
       verdict = "STAGE";
-      line = `Strong name (${rankText}), trend intact, market ${market.toLowerCase()}. ${odds(pDip)} odds of a 5% lower price first, so half now and half at ${fmt(bands.buyLow)} to ${fmt(bands.buyHigh)}. ${sellZone.charAt(0).toUpperCase() + sellZone.slice(1)}; ${failsAt}.`;
+      line = `Strong name (${rankText}), trend intact, market ${market.toLowerCase()}. ${odds(pDip)} odds of a 5% lower price first, so half now and half at ${fmt(bands.buyLow)} to ${fmt(bands.buyHigh)}. ${sellZone.charAt(0).toUpperCase() + sellZone.slice(1)}. ${failsAt}.`;
     } else {
       verdict = "BUY";
       line = inBuy
-        ? `Strong name (${rankText}), trend intact, market ${market.toLowerCase()}, price inside the model's buy zone. Buy up to ${fmt(bands.buyHigh)}; ${sellZone}; ${failsAt}.`
-        : `Strong name (${rankText}), trend intact, market ${market.toLowerCase()}. Buy on a pullback into ${fmt(bands.buyLow)} to ${fmt(bands.buyHigh)}${dipUsable ? ` (dip odds ${odds(pDip)})` : ""}; ${sellZone}; ${failsAt}.`;
+        ? `Strong name (${rankText}), trend intact, market ${market.toLowerCase()}, price inside the model's buy zone. Buy up to ${fmt(bands.buyHigh)}; ${sellZone}. ${failsAt}.`
+        : `Strong name (${rankText}), trend intact, market ${market.toLowerCase()}. Buy on a pullback into ${fmt(bands.buyLow)} to ${fmt(bands.buyHigh)}${dipUsable ? ` (dip odds ${odds(pDip)})` : ""}; ${sellZone}. ${failsAt}.`;
     }
   } else {
     // Middle of the pack.
     if (held) {
       verdict = inSell ? "TRIM" : "HOLD";
       line = inSell
-        ? `Middling name (${rankText}) already inside the model's sell zone (${sellZone}). Take some off; ${failsAt}.`
-        : `Middling name (${rankText}). Nothing to add; ${buyZone} would be the place if it ever ranked higher, ${sellZone}; ${failsAt}.`;
+        ? `Middling name (${rankText}), already inside the model's sell zone (${sellZone}). Take some off. ${failsAt}.`
+        : `Middling name (${rankText}). Nothing to add. If it ranked higher, ${fmt(bands.buyLow)} to ${fmt(bands.buyHigh)} would be the place to buy; the model would ${sellZone}. ${failsAt}.`;
     } else {
       verdict = "PASS";
       line = `Middling name (${rankText}). There are stronger names for new money; ${buyZone} only if it climbs into the top fifth.`;

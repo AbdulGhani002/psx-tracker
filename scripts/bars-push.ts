@@ -1,19 +1,25 @@
 // Fetch the day's bars here and hand them to the server's cache, so the
 // report never depends on the server being able to reach the PSX portal.
 //
-//   npx tsx scripts/bars-push.ts [--out FILE] [--held A,B] [--symbols A,B]
+//   npx tsx scripts/bars-push.ts [--archive DIR] [--out FILE] [--held A,B] [--symbols A,B]
 //
 // Writes one JSON bundle {fetchedAt, series: {SYMBOL: bars}} for the three
 // indices, today's KSE-100 members and the held names. scripts/bars-push.sh
 // uploads it and jobs/quant-import.js puts each series under eod:bars:SYMBOL
 // with the same fetchedAt, which is what the report's six-hour cache reads.
-// Requests go out one at a time with a pause, which is how a person's browser
-// would look to the portal.
+//
+// With --archive, stock series come from the exchange's archive, adjusted for
+// bonus issues and splits from its own LDCP column (the live feed is not
+// consistently adjusted: MARI's 1:10 of September 2024 is still a 90% crash
+// in it), and the live feed only supplies today's close, appended when its
+// previous close matches the archive's. Indices always come from the live
+// feed. Requests go out one at a time with a pause.
 
 import { writeFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { fetchEodBars, type EodBar } from "../lib/timeseries/psx-eod";
 import { kse100Symbols, TRAIN_INDICES } from "../lib/quant/universe";
+import { loadArchive, appendLive } from "../lib/quant/archive";
 
 const argOf = (n: string) => {
   const i = process.argv.indexOf("--" + n);
@@ -29,19 +35,29 @@ async function main() {
   const extra = (argOf("symbols") ?? "").split(",").map((s) => s.trim().toUpperCase()).filter(Boolean);
   const uni = await kse100Symbols();
   const symbols = [...new Set([...TRAIN_INDICES, ...uni.symbols, ...held, ...extra])];
-  console.log(`Fetching ${symbols.length} series (universe ${uni.source})...`);
+  const archiveDir = argOf("archive");
+  const archive = archiveDir ? loadArchive(archiveDir, new Set(symbols)) : null;
+  console.log(`Fetching ${symbols.length} series (universe ${uni.source})${archive ? `; ${archive.size} stock series from the adjusted archive, live feed for the latest close` : ""}...`);
   const series: Record<string, EodBar[]> = {};
-  let failed = 0;
+  let failed = 0, appended = 0, fromArchive = 0;
   for (const s of symbols) {
     try {
-      const bars = await fetchEodBars(s);
-      if (bars.length > 0) series[s] = bars;
-      else failed++;
+      const live = await fetchEodBars(s).catch(() => [] as EodBar[]);
+      const arch = archive?.get(s);
+      if (arch && arch.length >= 250) {
+        const bars = arch.map((b) => ({ ...b }));
+        appended += appendLive(bars, live);
+        series[s] = bars;
+        fromArchive++;
+      } else if (live.length > 0) {
+        series[s] = live;
+      } else failed++;
     } catch {
       failed++;
     }
     await sleep(350);
   }
+  if (archive) console.log(`${fromArchive} series from the archive, ${appended} live closes appended.`);
   const bundle = { fetchedAt: new Date().toISOString(), series };
   writeFileSync(out, JSON.stringify(bundle));
   const last = series.KSE100?.[series.KSE100.length - 1];

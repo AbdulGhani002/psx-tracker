@@ -20,7 +20,7 @@ import { despike } from "../lib/timeseries/macro";
 import { probit, projectLevels, modelBands } from "../lib/quant/projection";
 import { RANK_FEATURE_NAMES, RANK_SOURCE } from "../lib/quant/features";
 import { readMarket, readName, standingOf } from "../lib/quant/analysis";
-import { membership, equalWeightIndex } from "../lib/quant/archive";
+import { membership, equalWeightIndex, adjustedSeries, appendLive, type RawRow } from "../lib/quant/archive";
 import { strategyBacktest, indexGate } from "../lib/quant/strategy";
 import type { PanelPoint } from "../lib/quant/panel";
 import type { EodBar } from "../lib/timeseries/psx-eod";
@@ -309,6 +309,33 @@ function randomWalk(n: number, drift = 0.0003, vol = 0.015, start = 100): EodBar
   const rising = new Map<string, EodBar[]>([["A", mk(100, 1, 0.001)], ["B", mk(20, 1, 0.001)]]);
   const ew = equalWeightIndex(rising, null, 2);
   check("the equal-weight index chains the mean daily log return", ew.length === dates.length - 1 && Math.abs(Math.log(ew[ew.length - 1].close / ew[0].close) - 0.001 * (dates.length - 2)) < 1e-9);
+}
+
+// ------------------------------------------------------------ adjustment
+{
+  // Twenty flat days at 100, then a 1:5 split: the sheet shows 20 as the
+  // close and 20 as LDCP against a raw previous close of 100.
+  const raw: RawRow[] = [];
+  for (let i = 0; i < 20; i++) raw.push([20240100 + i + 1, 100, 101, 99, 100, 1000, 100]);
+  raw.push([20240201, 20, 20.5, 19.5, 20, 5000, 20]);
+  raw.push([20240202, 20, 21, 19, 21, 5000, 20]);
+  const adj = adjustedSeries(raw);
+  check("a split scales every earlier close by the LDCP ratio", Math.abs(adj[0].close - 20) < 1e-9 && Math.abs(adj[19].close - 20) < 1e-9 && adj[20].close === 20 && adj[21].close === 21);
+  check("and scales earlier volume the other way", Math.abs(adj[0].volume - 5000) < 1e-6);
+  check("the adjusted series has no jump on the ex-date", Math.abs(adj[20].close / adj[19].close - 1) < 1e-9);
+  const plain: RawRow[] = raw.slice(0, 20).map((r, i) => [r[0], 100 + i, 101 + i, 99 + i, 100 + i, 1000, i === 0 ? 0 : 100 + i - 1]);
+  const same = adjustedSeries(plain);
+  check("a series whose LDCP always equals the previous close is untouched", same.every((b, i) => Math.abs(b.close - (100 + i)) < 1e-9));
+
+  const arch = adj.slice();
+  const live = [
+    { date: "2024-02-01", close: 20, volume: 1, vwap: 20 },
+    { date: "2024-02-02", close: 21, volume: 1, vwap: 21 },
+    { date: "2024-02-05", close: 22, volume: 1, vwap: 22 },
+  ];
+  check("the live close is appended when the feed's previous close matches", appendLive(arch, live) === 1 && arch[arch.length - 1].date === "2024-02-05");
+  const arch2 = adj.slice();
+  check("and refused when it does not (an unadjusted action in the feed)", appendLive(arch2, [{ date: "2024-02-02", close: 105, volume: 1, vwap: 105 }, { date: "2024-02-05", close: 110, volume: 1, vwap: 110 }]) === 0);
 }
 
 // ------------------------------------------------------------ strategy

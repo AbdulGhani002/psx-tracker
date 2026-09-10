@@ -10,9 +10,13 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 TMPDIR_W=$(cygpath -m "${TEMP:-/tmp}" 2>/dev/null || echo "${TEMP:-/tmp}")
 OUT="$TMPDIR_W/psx-bars-bundle.json"
+ARCHIVE="${ARCHIVE:-C:/CC/Data/psx-history}"
 
-echo "=== $(date -u +%Y-%m-%dT%H:%MZ) fetching"
-npx tsx scripts/bars-push.ts --out "$OUT" "$@"
+echo "=== $(date -u +%Y-%m-%dT%H:%MZ) archive (missing days only)"
+npx tsx scripts/psx-history.ts --out "$ARCHIVE" --from 2002-01-01 --concurrency 2 | tail -2
+
+echo "=== fetching"
+npx tsx scripts/bars-push.ts --archive "$ARCHIVE" --out "$OUT" "$@"
 
 echo "=== uploading"
 ssh -o BatchMode=yes apex-vps 'cat > /root/bars-bundle.json' < "$OUT"

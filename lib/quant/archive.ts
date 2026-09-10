@@ -19,24 +19,74 @@ import { FEATURE_NAMES, RANK_FEATURE_NAMES } from "./features";
 
 const iso = (n: number) => String(n).replace(/(\d{4})(\d{2})(\d{2})/, "$1-$2-$3");
 
-export function loadArchive(dir: string): Map<string, EodBar[]> {
+// The sheets carry raw prices, so a 10% bonus issue reads as a 9% fall and a
+// 1:10 split as a 90% crash; over twenty-four years that turned an
+// equal-weight index of the most traded names into a losing one. The sheets
+// also carry LDCP, the exchange's own previous close, which it adjusts on
+// ex-dates. Where LDCP differs from the raw previous close by more than half
+// a percent, that ratio is the adjustment, and every earlier price is scaled
+// by it (volume the other way). Cash dividends are not adjusted here, and
+// need not be: the targets are twenty-session returns, not total returns.
+export type RawRow = [d: number, o: number, h: number, l: number, c: number, v: number, ldcp?: number];
+
+export function adjustedSeries(raw: RawRow[], threshold = 0.005): EodBar[] {
+  const n = raw.length;
+  const mult = new Float64Array(n).fill(1);
+  // Walk backwards: the multiplier for day i is the product of every
+  // adjustment that happened AFTER day i.
+  let m = 1;
+  for (let i = n - 1; i >= 0; i--) {
+    mult[i] = m;
+    const ldcp = raw[i][6] ?? 0;
+    const prev = i > 0 ? raw[i - 1][4] : 0;
+    if (ldcp > 0 && prev > 0) {
+      const f = ldcp / prev;
+      if (Math.abs(f - 1) > threshold && f > 0.005 && f < 200) m *= f;
+    }
+  }
+  const bars: EodBar[] = [];
+  for (let i = 0; i < n; i++) {
+    const [d, , h, l, c, v] = raw[i];
+    if (!(c > 0)) continue;
+    const k = mult[i];
+    // Close against the day's typical price stands in for close against
+    // VWAP, which this archive does not carry.
+    const typical = h > 0 && l > 0 ? ((h + l + c) / 3) * k : c * k;
+    bars.push({ date: iso(d), close: c * k, volume: v > 0 ? v / k : 0, vwap: typical });
+  }
+  return bars;
+}
+
+export function loadArchive(dir: string, only: Set<string> | null = null): Map<string, EodBar[]> {
   const idx = JSON.parse(readFileSync(join(dir, "index.json"), "utf8")) as { index: Array<{ symbol: string; bars: number }> };
   const out = new Map<string, EodBar[]>();
   for (const e of idx.index) {
+    if (only && !only.has(e.symbol)) continue;
     const f = join(dir, "symbols", e.symbol + ".json");
     if (!existsSync(f)) continue;
-    const raw = JSON.parse(readFileSync(f, "utf8")) as number[][];
-    const bars: EodBar[] = [];
-    for (const [d, , h, l, c, v] of raw) {
-      if (!(c > 0)) continue;
-      // Close against the day's typical price stands in for close against
-      // VWAP, which this archive does not carry.
-      const typical = h > 0 && l > 0 ? (h + l + c) / 3 : c;
-      bars.push({ date: iso(d), close: c, volume: v > 0 ? v : 0, vwap: typical });
-    }
+    const raw = JSON.parse(readFileSync(f, "utf8")) as RawRow[];
+    const bars = adjustedSeries(raw);
     if (bars.length >= 250) out.set(e.symbol, bars);
   }
   return out;
+}
+
+// Today's close from the live feed, appended to an adjusted archive series
+// when the feed's previous close matches the archive's last close (so no
+// unadjusted corporate action slips in). Returns how many days were added.
+export function appendLive(archive: EodBar[], live: EodBar[], tolerance = 0.005): number {
+  if (archive.length === 0 || live.length === 0) return 0;
+  const last = archive[archive.length - 1];
+  let added = 0;
+  for (let i = 0; i < live.length; i++) {
+    if (live[i].date <= last.date) continue;
+    const prev = i > 0 ? live[i - 1] : null;
+    const anchor = archive[archive.length - 1];
+    if (!prev || prev.date !== anchor.date || Math.abs(prev.close / anchor.close - 1) > tolerance) break;
+    archive.push({ ...live[i] });
+    added++;
+  }
+  return added;
 }
 
 // Per calendar year, the `top` names by median traded value in the previous year.

@@ -60,6 +60,7 @@ export type ReportItem = {
   verdictLine: string;
   standing: NameStanding | null;
   pctile: number | null;
+  rank: { pos: number; of: number } | null;
   zone: ModelZone | null;
   yourZone: string;
   forecast: Forecast | null;
@@ -112,7 +113,7 @@ function zoneLine(z: ModelZone): string {
 
 // Short captions: what it is, where the model puts it, what to do.
 function captionFor(item: Omit<ReportItem, "png" | "caption">, rec: ModelRecord | null): string {
-  const head = `<b>${item.title}</b>  ${money(item.last)}  (${pct(item.dayChangePct, 2)})${item.trend ? ` · ${item.trend.label.toLowerCase()}` : ""}${item.pctile != null ? ` · ${Math.round((1 - item.pctile) * 100) <= 20 ? "top" : Math.round((1 - item.pctile) * 100) >= 80 ? "bottom" : "middle"} of the model's ranking (${Math.round((1 - item.pctile) * 100)}th percentile)` : ""}`;
+  const head = `<b>${item.title}</b>  ${money(item.last)}  (${pct(item.dayChangePct, 2)})${item.trend ? ` · ${item.trend.label.toLowerCase()}` : ""}${item.rank ? ` · rank ${item.rank.pos} of ${item.rank.of} by the model` : ""}`;
   const lines = [head];
   if (item.verdict === "INDEX") {
     if (item.projection) lines.push(projectionLine(item.projection), levelsLine(item.projection));
@@ -219,6 +220,11 @@ export async function buildQuantReport(): Promise<QuantReport> {
     const below = beatValues.filter((b) => b < f.beat).length;
     return below / (beatValues.length - 1);
   };
+  const rankOf = (symbol: string): { pos: number; of: number } | null => {
+    const f = forecasts.get(symbol);
+    if (!f || beatValues.length < 8) return null;
+    return { pos: beatValues.filter((b) => b > f.beat).length + 1, of: beatValues.length };
+  };
 
   // Market strength, from the names themselves.
   const br = breadthNow(stockBars);
@@ -261,7 +267,7 @@ export async function buildQuantReport(): Promise<QuantReport> {
     let modelZone: ModelZone | null = null;
     if (heldName) {
       if (projection && bands && market) {
-        const read = readName({ held: true, market: market.state, pctile, trend, price: last.close, projection, bands, pDip: forecast?.dip ?? 0.5, dipUsable });
+        const read = readName({ held: true, market: market.state, pctile, rank: rankOf(symbol), trend, price: last.close, projection, bands, pDip: forecast?.dip ?? 0.5, dipUsable });
         verdict = read.verdict;
         verdictLine = read.line;
         standing = read.standing;
@@ -291,7 +297,7 @@ export async function buildQuantReport(): Promise<QuantReport> {
       footer: `LAST ${last.close.toFixed(2)}  ${pct(dayChangePct, 2)} ON THE DAY${heldName ? `   ${verdict}` : ""}${projection ? `   MODEL ${odds(projection.pUp)} HIGHER IN ${projection.horizon}D` : ""}`,
     });
 
-    const base = { symbol, title, trend, verdict, verdictLine, standing, pctile, zone: modelZone, yourZone: yourBands(zone), forecast, projection, bands, last: last.close, dayChangePct, relative, vol };
+    const base = { symbol, title, trend, verdict, verdictLine, standing, pctile, rank: heldName ? rankOf(symbol) : null, zone: modelZone, yourZone: yourBands(zone), forecast, projection, bands, last: last.close, dayChangePct, relative, vol };
     return { ...base, png, caption: captionFor(base, rec) };
   };
 
@@ -305,8 +311,8 @@ export async function buildQuantReport(): Promise<QuantReport> {
     const item = make(symbol, `${symbol} ${pos.name ?? ""}`.trim(), true);
     if (item) holdings.push(item);
   }
-  const rankOf = (vv: Verdict) => (vv === "INDEX" ? 99 : VERDICT_RANK[vv]);
-  holdings.sort((a, b) => rankOf(a.verdict) - rankOf(b.verdict) || (b.pctile ?? 0) - (a.pctile ?? 0) || a.symbol.localeCompare(b.symbol));
+  const verdictOrder = (vv: Verdict) => (vv === "INDEX" ? 99 : VERDICT_RANK[vv]);
+  holdings.sort((a, b) => verdictOrder(a.verdict) - verdictOrder(b.verdict) || (b.pctile ?? 0) - (a.pctile ?? 0) || a.symbol.localeCompare(b.symbol));
 
   // --- the market and the model, in words ------------------------------------
   const kseItem = indices.find((i) => i.symbol === "KSE100");
@@ -363,11 +369,11 @@ export async function buildQuantReport(): Promise<QuantReport> {
 
   const byVerdict = (vv: ModelVerdict) => holdings.filter((h) => h.verdict === vv).map((h) => h.symbol);
   const says: string[] = [];
-  for (const vv of ["BUY", "STAGE", "SELL", "TRIM", "WATCH", "WAIT", "HOLD"] as ModelVerdict[]) {
+  for (const vv of ["BUY", "STAGE", "SELL", "TRIM", "WATCH", "WAIT"] as ModelVerdict[]) {
     const names = byVerdict(vv);
     if (names.length) says.push(`${vv} ${names.join(", ")}`);
   }
-  const saysShort = says.length ? `Model says: ${says.join(" · ")}.` : "";
+  const saysShort = says.length ? `Model says: ${says.join(" · ")}.` : "Model says: nothing to do today; every name held is a HOLD.";
   const ranked = holdings.filter((h) => h.forecast).sort((a, b) => b.forecast!.beat - a.forecast!.beat);
   const rankShort = ranked.length >= 2 ? `Order (odds of beating the market): ${ranked.map((h) => `${h.symbol} ${odds(h.forecast!.beat)}`).join(" · ")}.` : "";
 
@@ -377,7 +383,7 @@ export async function buildQuantReport(): Promise<QuantReport> {
     .slice(0, 4096);
 
   const holdingLines = holdings.map((h) => {
-    const bits = [`${h.symbol} ${money(h.last)} (${pct(h.dayChangePct)})${h.trend ? `, ${h.trend.label.toLowerCase()}` : ""}${h.pctile != null ? `, ${Math.round((1 - h.pctile) * 100)}th percentile` : ""}`];
+    const bits = [`${h.symbol} ${money(h.last)} (${pct(h.dayChangePct)})${h.trend ? `, ${h.trend.label.toLowerCase()}` : ""}${h.rank ? `, rank ${h.rank.pos} of ${h.rank.of}` : ""}`];
     if (h.forecast) bits.push(`odds: beats market ${odds(h.forecast.beat)}, higher ${odds(h.forecast.up)}, dip first ${odds(h.forecast.dip)}`);
     if (h.zone) bits.push(zoneLine(h.zone).replace(/\.$/, ""));
     bits.push(`${h.verdict}: ${h.verdictLine}`);

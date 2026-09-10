@@ -32,6 +32,7 @@ mkdirSync(SYMS, { recursive: true });
 
 async function download() {
   const dates = weekdaysBetween(FROM, TO).filter((d) => !existsSync(join(DAYS, d + ".json")));
+  const recentCutoff = new Date(Date.now() - 4 * 86400000).toISOString().slice(0, 10);
   console.log(`${dates.length} days to fetch (${FROM} to ${TO}), ${CONC} at a time.`);
   let done = 0, traded = 0, failed = 0;
   const t0 = Date.now();
@@ -41,6 +42,10 @@ async function download() {
       const date = queue.shift()!;
       try {
         const rows = await fetchHistoricalDay(date);
+        // A sheet the portal has not published yet looks exactly like a
+        // holiday. Do not write an empty day for the last few sessions, or
+        // it would never be asked for again once it is out.
+        if (rows.length === 0 && date >= recentCutoff) continue;
         writeFileSync(join(DAYS, date + ".json"), JSON.stringify(rows));
         if (rows.length > 0) traded++;
       } catch (e) {
@@ -58,7 +63,11 @@ async function download() {
   console.log(`Downloaded ${done} days (${traded} trading days, ${failed} failed) in ${((Date.now() - t0) / 60000).toFixed(1)} min.`);
 }
 
-// Per-symbol files: rows of [yyyymmdd, open, high, low, close, volume].
+// Per-symbol files: rows of [yyyymmdd, open, high, low, close, volume, ldcp].
+// LDCP is the exchange's own "last day closing price", which it adjusts on
+// ex-dates for bonus shares, rights and splits; where it differs from the
+// previous raw close, a corporate action happened and the ratio is the
+// adjustment factor. lib/quant/archive.ts uses it to build adjusted series.
 function assemble() {
   const files = readdirSync(DAYS).filter((f) => f.endsWith(".json")).sort();
   const series = new Map<string, number[][]>();
@@ -69,10 +78,10 @@ function assemble() {
     if (rows.length === 0) continue;
     tradingDays++;
     const dnum = Number(date.replace(/-/g, ""));
-    for (const [symbol, open, high, low, close, volume] of rows) {
+    for (const [symbol, open, high, low, close, volume, ldcp] of rows) {
       let s = series.get(symbol);
       if (!s) series.set(symbol, (s = []));
-      s.push([dnum, open, high, low, close, volume]);
+      s.push([dnum, open, high, low, close, volume, ldcp ?? 0]);
     }
   }
   const iso = (n: number) => String(n).replace(/(\d{4})(\d{2})(\d{2})/, "$1-$2-$3");
