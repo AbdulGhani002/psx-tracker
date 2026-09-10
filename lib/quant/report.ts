@@ -173,7 +173,7 @@ export async function buildQuantReport(): Promise<QuantReport> {
   // model is scale-free and was trained on a wider, older universe; any name
   // with a year of history can be scored.
   const symbols = [...new Set([...TRAIN_INDICES, ...uni.symbols, ...held])];
-  const bars = await loadBars(symbols, mongoBarsCache(6), 4);
+  const bars = await loadBars(symbols, mongoBarsCache(6));
   const kse = bars.get("KSE100") ?? [];
   const stockBars = new Map([...bars].filter(([s]) => !TRAIN_INDICES.includes(s)));
   const ew = equalWeightIndex(stockBars);

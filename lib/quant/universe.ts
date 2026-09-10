@@ -38,11 +38,15 @@ export async function kse100Symbols(): Promise<{ symbols: string[]; source: "mar
 // evening report and the weekly training never fetch the same day twice, and
 // short enough that a morning run never trains on yesterday's close.
 export type BarsCache = {
-  get(symbol: string): Promise<EodBar[] | null>;
+  get(symbol: string): Promise<EodBar[] | null>; // fresh only
   put(symbol: string, bars: EodBar[]): Promise<void>;
+  getStale?(symbol: string): Promise<EodBar[] | null>; // whatever we last had, any age
 };
 
-export async function loadBars(symbols: string[], cache: BarsCache | null = null, concurrency = 4): Promise<Map<string, EodBar[]>> {
+// Fetches from the server go one at a time with a pause between them: a
+// burst of ninety requests in a few seconds got the server's address dropped
+// by the portal on 10 September 2026. Cache hits cost nothing and skip the pause.
+export async function loadBars(symbols: string[], cache: BarsCache | null = null, concurrency = 1, pauseMs = 400): Promise<Map<string, EodBar[]>> {
   const out = new Map<string, EodBar[]>();
   const queue = [...new Set(symbols)];
   const worker = async () => {
@@ -55,11 +59,18 @@ export async function loadBars(symbols: string[], cache: BarsCache | null = null
           out.set(s, hit);
           continue;
         }
-        const bars = await fetchEodBars(s);
+        if (pauseMs > 0) await new Promise((r) => setTimeout(r, pauseMs));
+        const bars = await fetchEodBars(s).catch(() => [] as EodBar[]);
         if (bars.length > 0) {
           out.set(s, bars);
           if (cache) await cache.put(s, bars).catch(() => {});
+          continue;
         }
+        // The feed is down or throttled: yesterday's series beats no series.
+        // A report built on it says so through its dates; a report with no
+        // charts says nothing.
+        const stale = cache?.getStale ? await cache.getStale(s).catch(() => null) : null;
+        if (stale && stale.length > 0) out.set(s, stale);
       } catch {
         /* a name that fails to load is left out of the panel */
       }

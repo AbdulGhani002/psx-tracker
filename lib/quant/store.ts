@@ -83,6 +83,12 @@ export function mongoBarsCache(maxAgeHours = 6): BarsCache {
       const c = doc?.data as CachedBars | undefined;
       return fresh(c, maxAgeHours) ? c!.bars : null;
     },
+    async getStale(symbol) {
+      await connectDb();
+      const doc: any = await FeedSnapshotModel.findOne({ key: `eod:bars:${symbol}` }).lean();
+      const c = doc?.data as CachedBars | undefined;
+      return c && Array.isArray(c.bars) && c.bars.length > 0 ? c.bars : null;
+    },
     async put(symbol, bars) {
       await connectDb();
       const data: CachedBars = { fetchedAt: new Date().toISOString(), bars };
@@ -106,6 +112,16 @@ export function diskBarsCache(dir: string, maxAgeHours = 6): BarsCache {
         // Older cache files were a bare array; treat them as fresh enough.
         if (Array.isArray(c)) return c.length > 0 ? (c as EodBar[]) : null;
         return fresh(c, maxAgeHours) ? (c as CachedBars).bars : null;
+      } catch {
+        return null;
+      }
+    },
+    async getStale(symbol) {
+      const f = join(dir, symbol + ".json");
+      if (!existsSync(f)) return null;
+      try {
+        const c = JSON.parse(readFileSync(f, "utf8"));
+        return Array.isArray(c) ? (c as EodBar[]) : (c as CachedBars).bars ?? null;
       } catch {
         return null;
       }

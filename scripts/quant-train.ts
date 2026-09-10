@@ -109,7 +109,7 @@ async function main() {
     const cacheDir = argOf("cache") || process.env.QUANT_CACHE || join(process.env.TEMP || process.env.TMP || ".", "psx-quant-cache");
     const cache = DRY ? diskBarsCache(cacheDir) : mongoBarsCache();
     console.log(`${DRY ? "DRY RUN. " : ""}Loading bars for ${symbols.length} symbols (universe ${universeMode}/${universeSource}, ${held.length} held)...`);
-    bars = await loadBars(symbols, cache, 4);
+    bars = await loadBars(symbols, cache, 2, 250);
     const kse = bars.get("KSE100");
     if (!kse || kse.length < 400) {
       console.error("No KSE-100 history; cannot build features.");
