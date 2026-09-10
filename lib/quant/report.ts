@@ -127,13 +127,18 @@ function captionFor(item: Omit<ReportItem, "png" | "caption">, rec: ModelRecord 
   if (item.trend) lines.push(`Trend: ${item.trend.line}`);
   const facts: string[] = [];
   if (item.relative) facts.push(`vs KSE-100 over 20 sessions ${pct(item.relative.rel20Pct)} (rank ${item.relative.rank} of ${item.relative.of})`);
-  if (item.vol) facts.push(`volatility ${item.vol.pct.toFixed(0)}% annualised${item.vol.percentile != null ? `, calmer than ${Math.round(item.vol.percentile * 100)}% of its own year` : ""}`);
+  if (item.vol) {
+    const p = item.vol.percentile;
+    const where = p == null ? "" : p <= 0.2 ? `, in the calmest ${Math.max(1, Math.round(p * 100))}% of its own year` : p >= 0.8 ? `, in the wildest ${Math.max(1, Math.round((1 - p) * 100))}% of its own year` : `, middling for it`;
+    facts.push(`volatility ${item.vol.pct.toFixed(0)}% annualised${where}`);
+  }
   if (facts.length) lines.push(facts.join("; ") + ".");
   if (item.forecast && rec) {
     const f = item.forecast;
+    const isIndex = item.verdict === "INDEX";
     lines.push(
-      `Model, ${f.horizon} sessions: up ${odds(f.up)} · beats the index ${odds(f.beat)} · ${DIP_PCT}% dip first ${odds(f.dip)}. ` +
-        `Record: up ${recordWords(rec.up)}; beat ${recordWords(rec.beat)}; dip ${recordWords(rec.dip)}` +
+      `Model, ${f.horizon} sessions: up ${odds(f.up)}${isIndex ? "" : ` · beats the index ${odds(f.beat)}`} · ${DIP_PCT}% dip first ${odds(f.dip)}. ` +
+        `Record: up ${recordWords(rec.up)}; ${isIndex ? "" : `beat ${recordWords(rec.beat)}; `}dip ${recordWords(rec.dip)}` +
         (rec.own ? `; on this name alone, direction AUC ${rec.own.auc.toFixed(2)} over ${rec.own.n} sessions` : "") +
         "."
     );
@@ -337,6 +342,10 @@ export async function buildQuantReport(): Promise<QuantReport> {
     if (long?.summary?.targets?.length) {
       const t = long.summary.targets;
       parts.push(`Long test, ${long.years}, ${long.names} names, no survivorship bias: direction AUC ${t[0].auc.toFixed(2)}, relative ${t[1].auc.toFixed(2)}, dip ${t[2].auc.toFixed(2)}, rank IC ${long.summary.icRel.mean >= 0 ? "+" : ""}${long.summary.icRel.mean.toFixed(3)} (t ${long.summary.icRel.tStat.toFixed(1)}).`);
+    }
+    const ups = holdings.map((h) => h.forecast?.up).filter((v): v is number => v != null);
+    if (ups.length >= 3 && Math.max(...ups) - Math.min(...ups) < 0.03) {
+      parts.push(`The direction odds barely differ from name to name today (${odds(Math.min(...ups))} to ${odds(Math.max(...ups))}): the model is saying the market, not the name, decides the next ${model.horizon} sessions.`);
     }
     const dirWords = rec.up.auc >= RECORD_FLOOR ? "a modest tilt worth reading" : "a coin toss: read them as noise";
     const dipWords = rec.dip.auc >= RECORD_FLOOR ? "carry real information and are used to stage buys" : "are too weak to act on";

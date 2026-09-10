@@ -87,6 +87,8 @@ export function optionsFromArgs(): PanelOptions {
       maxDepth: num("depth", DEFAULT_PANEL.gbm.maxDepth!),
       minLeaf: num("minLeaf", DEFAULT_PANEL.gbm.minLeaf!),
       lr: num("gbmLr", DEFAULT_PANEL.gbm.lr!),
+      patience: num("gbmPatience", DEFAULT_PANEL.gbm.patience!),
+      subsample: num("subsample", DEFAULT_PANEL.gbm.subsample!),
     },
   };
 }

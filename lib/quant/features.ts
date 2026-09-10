@@ -239,12 +239,14 @@ export function readTrend(bars: EodBar[]): TrendRead | null {
   const offHighPct = (c / high - 1) * 100;
   const ret20Pct = (c / closes[i - 20] - 1) * 100;
 
+  // Above both averages is a trend (an uptrend once the 50 is over the 200,
+  // a recovery before that); below both is a downtrend whatever the two
+  // averages are doing to each other; one above and one below is the turn.
   let label: TrendRead["label"];
-  if (above50 && above200 && goldenCross) label = "UPTREND";
+  if (above50 && above200) label = goldenCross ? "UPTREND" : "RECOVERING";
   else if (above200 && !above50) label = "WEAKENING";
   else if (!above200 && above50) label = "RECOVERING";
-  else if (!above200 && !above50 && !goldenCross) label = "DOWNTREND";
-  else label = "SIDEWAYS";
+  else label = "DOWNTREND";
 
   const line =
     `${label.toLowerCase()}: ${above50 ? "above" : "below"} 50d, ${above200 ? "above" : "below"} 200d` +
