@@ -1,3 +1,5 @@
+# Kept for reference only: training runs on Abdul's machine (scripts/quant-push.sh)
+# and this timer is disabled on the server.
 [Unit]
 Description=PSX tracker weekly model training (walk-forward validation, then the live ensemble)
 After=network-online.target

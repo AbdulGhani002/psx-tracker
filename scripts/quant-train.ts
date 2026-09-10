@@ -4,18 +4,19 @@
 //        [--learner both|mlp|gbm] [--hidden 32,16] [--l2 1e-4] [--lr 5e-3] [--epochs 80] [--batch 64] [--patience 8]
 //        [--rounds 300] [--depth 4] [--minLeaf 100] [--gbmLr 0.05]
 //        [--no-context] [--macro] [--universe kse100|held] [--symbols A,B] [--held A,B]
-//        [--no-validate] [--windows N] [--cache DIR]
+//        [--no-validate] [--windows N] [--cache DIR] [--out FILE]
 //
-// Without --dry it connects to Mongo, reads the held symbols, caches bars in
-// the feed store and saves the trained ensemble with its walk-forward record
-// under quant:model, where the daily report reads it. With --dry it uses a
-// disk cache and writes nothing, which is how the experiments were run.
+// With --dry it uses a disk cache and touches no database; --out writes the
+// trained ensemble with its walk-forward record as JSON, which
+// scripts/quant-push.sh ships to the server and jobs/quant-import.js puts
+// under quant:model, where the daily report reads it. Without --dry it does
+// the same against Mongo directly (the held symbols come from the database).
 //
-// On the server this file is bundled with esbuild and run by a systemd timer
-// as its own process, because training is synchronous arithmetic and must
-// never run inside the web server.
+// Training is minutes of synchronous arithmetic and runs on Abdul's machine,
+// never inside the web server.
 
 import { join } from "node:path";
+import { writeFileSync, statSync } from "node:fs";
 import { buildPanel, walkForwardPanel, trainFinal, predictEnsemble, type PanelWalkResult } from "../lib/quant/panel";
 import { buildFeatures, readTrend, FEATURE_NAMES, TARGET_NAMES, DIP_PCT } from "../lib/quant/features";
 import { marketContext, macroContext, mergeContext } from "../lib/quant/context";
@@ -23,7 +24,6 @@ import { gbmFeatureUse } from "../lib/quant/gbm";
 import { kse100Symbols, loadBars, TRAIN_INDICES } from "../lib/quant/universe";
 import { loadMacro } from "../lib/timeseries/macro";
 import { diskBarsCache, mongoBarsCache, saveQuantModel, type StoredQuantModel } from "../lib/quant/store";
-
 import { has, argOf, num, printResult, optionsFromArgs } from "./quant-cli";
 
 const DRY = has("dry");
@@ -132,25 +132,30 @@ async function main() {
     console.log(`  ${pad(sym, 8)} up ${(p[0] * 100).toFixed(0).padStart(3)}%   beat ${(p[1] * 100).toFixed(0).padStart(3)}%   dip ${(p[2] * 100).toFixed(0).padStart(3)}%   ${trend?.label ?? "-"}   as of ${last.date}`);
   }
 
+  const { points: _drop, ...validationNoPoints } = (validation ?? ({} as PanelWalkResult)) as PanelWalkResult;
+  const stored: StoredQuantModel = {
+    version: 2,
+    trainedOn: new Date().toISOString(),
+    trainedTo: final.trainedTo,
+    horizon: opts.horizon,
+    dipPct: DIP_PCT,
+    featureNames,
+    contextNames: ctx?.names ?? [],
+    targetNames: [...TARGET_NAMES],
+    universe: panel.symbols,
+    universeSource,
+    rows: final.rows,
+    config: opts,
+    learners: final.learners,
+    validation: validation ? validationNoPoints : null,
+    runtimeSec: Math.round((Date.now() - t0) / 1000),
+  };
+  const outFile = argOf("out");
+  if (outFile) {
+    writeFileSync(outFile, JSON.stringify(stored));
+    console.log(`\nWrote ${outFile} (${(statSync(outFile).size / 1024).toFixed(0)} KiB). Push it with scripts/quant-push.sh, or jobs/quant-import.js on the server.`);
+  }
   if (!DRY) {
-    const { points: _drop, ...validationNoPoints } = (validation ?? ({} as PanelWalkResult)) as PanelWalkResult;
-    const stored: StoredQuantModel = {
-      version: 2,
-      trainedOn: new Date().toISOString(),
-      trainedTo: final.trainedTo,
-      horizon: opts.horizon,
-      dipPct: DIP_PCT,
-      featureNames,
-      contextNames: ctx?.names ?? [],
-      targetNames: [...TARGET_NAMES],
-      universe: panel.symbols,
-      universeSource,
-      rows: final.rows,
-      config: opts,
-      learners: final.learners,
-      validation: validation ? validationNoPoints : null,
-      runtimeSec: Math.round((Date.now() - t0) / 1000),
-    };
     await saveQuantModel(stored);
     console.log(`\nSaved quant:model (${JSON.stringify(stored).length.toLocaleString()} bytes).`);
   }
