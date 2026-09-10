@@ -1,7 +1,7 @@
 // Single source of truth for the app version + changelog.
 // Bump APP_VERSION and prepend a CHANGELOG entry on every release.
 
-export const APP_VERSION = "9.11.0";
+export const APP_VERSION = "9.12.0";
 
 export const BUILD_DATE =
   process.env.NEXT_PUBLIC_BUILD_DATE ?? "";
@@ -17,6 +17,21 @@ export type ChangelogEntry = {
 
 // Reverse-chronological. Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: "9.12.0",
+    date: "2026-09-10",
+    title: "The model reads the market and each name on its own, writes its own zones, is trained on the 24-year archive, and has an Analysis page",
+    changes: [
+      "Until now the verdicts leaned on your hand-written bands: BUY meant the price was inside your band and the trend agreed. That was your analysis with the model watching. Now the model does its own. Four readings, each one the 24-year test showed to hold up: how strong the market is (the equal-weight index against its 200-day average, and the share of names above theirs); where the name ranks among every name in the universe on the model's odds of beating the market (rank IC +0.08, t 7.4 over 24 years, the one durable signal); its own trend; and the dip odds, which decide whether a buy is taken or staged.",
+      "The verdicts that come out of that: BUY (strong name, trend intact, market strong or mixed), STAGE (the same, but a 5% lower price is likely first, so half now and half at the band low), WATCH (strong name still under its 50-day; buy on a close back above it), HOLD or WAIT (strong name in a weak market: add only at the band low and only once the index reclaims its 200-day), TRIM and SELL (bottom-fifth name: sell into strength, and out below the 20-day low regardless), AVOID and PASS for names not held. Your band is printed under each verdict as a note. It no longer decides anything.",
+      "Zones the model writes itself, for every name, every day: a buy zone one deviation to half a deviation under its centre, a sell zone half to one over, the level where the case fails (the 20-day low), and, for names that must reclaim their 50-day first, the trigger. The charts shade the model's zones now, not yours. Both sets are kept per user for the app.",
+      "The model is trained on the exchange's own 24-year archive instead of the five-year feed: 549,000 name-days, a universe that changes every year (the 120 most traded names of the year before, so nothing is chosen with hindsight and delisted names stay in), an equal-weight index because no free feed carries the KSE-100 back to 2002, and market breadth from every listed name. The walk-forward across those years is now the model's own record, printed beside its numbers, and the shipped model is the tested one. Weekly retraining first brings the archive up to date with one request per missing day.",
+      "The rule was tested as a rule, not just as a ranking. Every 20 sessions the universe is re-sorted by the model's odds and the top fifth is held, equal weight, with 0.3% charged per rebalance; a second leg holds it only while the market is strong and sits in cash at the fund rate otherwise; both against the universe held outright. Over 2007 to 2026, 241 non-overlapping periods, after 0.3% costs per rebalance: the equal-weight basket of each year's 120 most traded names, held outright, made -0.8% a year with a worst fall of 90% (no dividends, delisted names included, which is what an honest universe looks like); the model's top fifth, always in, +5.3% a year; the top fifth held only while the index sat above its 200-day, +17.1% a year with a worst fall of 24% and a worst year of -17%, in the market 58% of the time; the gate alone on the whole universe, +14.4% a year with a worst fall of 29%. So the gate is where most of the money is, and the model's ranking adds about three points a year on top of it and cuts the worst fall by a fifth. The walk-forward record behind it, out of sample throughout: ranking of names IC +0.10 (t 7.9), top fifth beating bottom fifth by 2.0% per 20 sessions (t 5.0); direction AUC 0.49, a coin toss; 5% dip AUC 0.57, slight.",
+      "Tried on the same walk-forward and not shipped: a 40-session horizon (ranking IC t 4.6 against 7.4 at 20 sessions), and each name's rank among the others as seven extra features (no change). And a finding that changed the numbers before they were believed: the archive's raw prices count bonus issues and splits as crashes (a 1:10 split as a 90% fall), which had the equal-weight universe losing 4.9% a year and the live five-year feed showing MARI down 88% in a day in September 2024. The sheets carry the exchange's own adjusted previous close; every series is now adjusted from it, 4,640 corporate actions over 24 years, and the report's own price series come from the same adjusted archive with the live close appended only when the feed's previous close matches.",
+      "A new page, Analysis, in the main navigation: the market's strength and the KSE-100 read with its levels, a table of your names by the model (verdict, percentile, odds, the model's buy and sell zones, where the case fails, your band beside), every chart with its caption, and the model's record and rule test in full. It shows the analysis built after each close and can rebuild it on demand.",
+      "The daily message stays six lines and now leads with the market's state and the model's verdicts: which of your names it would buy, stage, trim or sell today, and its order of them by the odds of beating the market. Direction odds are printed as what they are over twenty-four years: a coin toss.",
+    ],
+  },
   {
     version: "9.11.0",
     date: "2026-09-10",
