@@ -270,23 +270,36 @@ function randomWalk(n: number, drift = 0.0003, vol = 0.015, start = 100): EodBar
   check("on unrelated noise, skill is about zero", Math.abs(ww.targets[0].skill) < 5, ww.targets[0].skill.toFixed(2));
   check("per-name records exist for every name", ww.perSymbol.length === 32);
 
-  const noise = new Map<string, EodBar[]>();
+  // One synthetic world is a coin flip of its own: across seeds the rank IC
+  // on pure noise scatters about +-0.06 with |t| up to 2.6 on seventeen
+  // independent dates. So three worlds are averaged, and the averages are
+  // what must sit at zero.
   const nDates = weekdays(N);
-  for (let s = 0; s < 32; s++) {
-    let p = 100;
-    const bars: EodBar[] = [];
-    for (let i = 0; i < N; i++) {
-      const mkt = i > 0 ? Math.log(index[i].close / index[i - 1].close) : 0;
-      p *= Math.exp(mkt + 0.0001 + 0.018 * gauss());
-      bars.push({ date: nDates[i], close: p, volume: 1e6 * (0.5 + rnd()), vwap: p });
+  const beatAucs: number[] = [], ics: number[] = [], spreads: number[] = [];
+  for (const world of [1, 2, 3]) {
+    const wr = mulberry32(world * 7919);
+    const wg = () => { const u = wr() || 1e-9, v = wr(); return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v); };
+    const noise = new Map<string, EodBar[]>();
+    for (let s = 0; s < 32; s++) {
+      let p = 100;
+      const bars: EodBar[] = [];
+      for (let i = 0; i < N; i++) {
+        const mkt = i > 0 ? Math.log(index[i].close / index[i - 1].close) : 0;
+        p *= Math.exp(mkt + 0.0001 + 0.018 * wg());
+        bars.push({ date: nDates[i], close: p, volume: 1e6 * (0.5 + wr()), vwap: p });
+      }
+      noise.set("N" + s, bars);
     }
-    noise.set("N" + s, bars);
+    const pn = buildPanel(noise, index, 20, { context: marketContext(noise, index) });
+    const wn = walkForwardPanel(pn, popts)!;
+    beatAucs.push(wn.targets[1].auc);
+    ics.push(wn.icRel.mean);
+    spreads.push(wn.spread.mean);
   }
-  const pn = buildPanel(noise, index, 20, { context: marketContext(noise, index) });
-  const wn = walkForwardPanel(pn, popts)!;
-  check("on market-plus-noise, AUC(beat) is about a half", Math.abs(wn.targets[1].auc - 0.5) < 0.05, wn.targets[1].auc.toFixed(3));
-  check("on market-plus-noise, the rank IC is about zero", Math.abs(wn.icRel.mean) < 0.04, wn.icRel.mean.toFixed(3));
-  check("on market-plus-noise, the top fifth does not beat the bottom fifth", Math.abs(wn.spread.mean) < 1.5, wn.spread.mean.toFixed(2) + "%");
+  const mean = (a: number[]) => a.reduce((x, y) => x + y, 0) / a.length;
+  check("on market-plus-noise, AUC(beat) averages about a half over three worlds", Math.abs(mean(beatAucs) - 0.5) < 0.04, beatAucs.map((v) => v.toFixed(3)).join(" "));
+  check("on market-plus-noise, the rank IC averages about zero", Math.abs(mean(ics)) < 0.05, ics.map((v) => v.toFixed(3)).join(" "));
+  check("on market-plus-noise, the top fifth does not beat the bottom fifth", Math.abs(mean(spreads)) < 1.2, spreads.map((v) => v.toFixed(2)).join(" ") + "%");
 
   // A planted cross-sectional signal: each name carries a drift that flips
   // sign every sixty sessions, so its own recent relative return predicts its

@@ -89,7 +89,10 @@ export const DEFAULT_PANEL: PanelOptions = {
   seeds: 3,
   learner: "gbm",
   train: { hidden: [32, 16], epochs: 80, lr: 5e-3, l2: 1e-4, batch: 64, patience: 8, seed: 7 },
-  gbm: { rounds: 300, lr: 0.05, maxDepth: 4, minLeaf: 100, lambda: 1, subsample: 0.7, colsample: 0.8, bins: 64, patience: 30, seed: 7 },
+  // Forty rounds, fixed. Early stopping on the most recent slice picked
+  // anything from 1 to 199 rounds window to window and scored direction AUC
+  // 0.57; a fixed 40 scored 0.60 (80 scored the same) on the same walk-forward.
+  gbm: { rounds: 40, lr: 0.05, maxDepth: 4, minLeaf: 100, lambda: 1, subsample: 0.7, colsample: 0.8, bins: 64, patience: 30, seed: 7, earlyStop: false },
 };
 
 export type PanelPoint = { symbol: string; date: string; di: number; p: number[]; t: number[]; fwdRet: number; fwdRel: number };
