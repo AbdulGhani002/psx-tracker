@@ -2,19 +2,25 @@
 # Train the market model on this machine and push only the result to the
 # server. The server never trains; it reads quant:model from the feed store.
 #
-#   bash scripts/quant-push.sh                # three seeds, boosted trees, market context
-#   bash scripts/quant-push.sh --learner both # any quant-train.ts flag passes through
+#   bash scripts/quant-push.sh                 # refresh the archive, train on it, push
+#   bash scripts/quant-push.sh --learner both  # any quant-train.ts flag passes through
+#   ARCHIVE=/c/other/dir bash scripts/quant-push.sh
 #
-# Runs weekly from Task Scheduler ("PSX quant train"); the log is quant-push.log
-# in the project root.
+# The model is trained on the exchange's 24-year archive (scripts/psx-history.ts),
+# which is first brought up to date: one request per trading day since the
+# last pull. Runs weekly from Task Scheduler ("PSX quant train"); the log is
+# quant-push.log in the project root.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 TMPDIR_W=$(cygpath -m "${TEMP:-/tmp}" 2>/dev/null || echo "${TEMP:-/tmp}")
 OUT="$TMPDIR_W/psx-quant-model.json"
-CACHE="${QUANT_CACHE:-$TMPDIR_W/psx-quant-cache}"
+ARCHIVE="${ARCHIVE:-C:/CC/Data/psx-history}"
 
-echo "=== $(date -u +%Y-%m-%dT%H:%MZ) training"
-npx tsx scripts/quant-train.ts --dry --seeds 3 --learner gbm --cache "$CACHE" --out "$OUT" "$@"
+echo "=== $(date -u +%Y-%m-%dT%H:%MZ) archive"
+npx tsx scripts/psx-history.ts --out "$ARCHIVE" --from 2002-01-01 --concurrency 3
+
+echo "=== training on the archive"
+NODE_OPTIONS=--max-old-space-size=6144 npx tsx scripts/quant-train.ts --dry --archive "$ARCHIVE" --seeds 1 --finalSeeds 3 --learner gbm --step 250 --minTrain 750 --out "$OUT" "$@"
 
 echo "=== uploading"
 ssh -o BatchMode=yes apex-vps 'cat > /root/quant-model.json' < "$OUT"

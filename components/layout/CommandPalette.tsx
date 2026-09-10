@@ -29,6 +29,7 @@ const PAGES: Item[] = [
   { id: "p-funds", label: "Mutual funds & savings", hint: "iSave, cash discipline", group: "Pages", href: "/funds" },
   { id: "p-dividends", label: "Dividends", hint: "warrants and payouts", group: "Pages", href: "/dividends" },
   { id: "p-rebalance", label: "Rebalance", hint: "targets vs actual, deployment", group: "Pages", href: "/rebalance" },
+  { id: "p-analysis", label: "Analysis", hint: "the model's market read, verdicts and zones, charts", group: "Pages", href: "/analysis" },
   { id: "p-rotation", label: "Sector rotation", hint: "where money is moving", group: "Pages", href: "/rotation" },
   { id: "p-report", label: "Statement (PDF)", hint: "printable", group: "Pages", href: "/report" },
   { id: "p-changelog", label: "Changelog", hint: "what changed, and why", group: "Pages", href: "/changelog" },

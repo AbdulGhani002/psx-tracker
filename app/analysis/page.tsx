@@ -1,0 +1,184 @@
+import { PageHeader } from "@/components/layout/PageHeader";
+import { Section } from "@/components/layout/Section";
+import { Card } from "@/components/ui/Card";
+import { Stat, StatRow } from "@/components/ui/Stat";
+import { uid } from "@/lib/auth/uid";
+import { loadQuantSnapshot } from "@/lib/quant/store";
+import type { StoredReport, StoredReportItem } from "@/lib/quant/report";
+import { RefreshAnalysis } from "./RefreshAnalysis";
+
+export const dynamic = "force-dynamic";
+
+const money = (v: number) => (v >= 10000 ? Math.round(v).toLocaleString("en-US") : v >= 100 ? v.toFixed(0) : v >= 10 ? v.toFixed(1) : v.toFixed(2));
+const odds = (p: number) => `${Math.round(p * 100)}%`;
+const pct = (v: number, d = 1) => `${v >= 0 ? "+" : ""}${v.toFixed(d)}%`;
+
+// Captions carry Telegram's <b> and <i>, which are HTML too. They are built by
+// our own code from numbers and fixed words, never from user input.
+function Caption({ text }: { text: string }) {
+  return <div className="text-[13px] leading-relaxed whitespace-pre-line" dangerouslySetInnerHTML={{ __html: text.replace(/\n/g, "<br/>") }} />;
+}
+
+function Chart({ item }: { item: StoredReportItem }) {
+  return (
+    <div className="border border-[var(--rule)] p-3 bg-[var(--paper)]">
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img src={`data:image/png;base64,${item.png}`} alt={item.title} className="w-full h-auto" />
+      <div className="mt-3">
+        <Caption text={item.caption} />
+      </div>
+    </div>
+  );
+}
+
+const TONE: Record<string, "positive" | "negative" | "default"> = { BUY: "positive", STAGE: "positive", SELL: "negative", TRIM: "negative", WATCH: "default", WAIT: "default", HOLD: "default", AVOID: "negative", PASS: "default" };
+
+export default async function AnalysisPage() {
+  const userId = await uid();
+  const report = await loadQuantSnapshot<StoredReport>(`quant:report:${userId}`).catch(() => null);
+
+  return (
+    <>
+      <PageHeader
+        title="Analysis"
+        subtitle="The model's own reading: how strong the market is, where each name you hold ranks among every name on the exchange, the zones it would write down itself, and where it thinks the index is going. Your bands are shown beside its verdicts, not underneath them."
+      />
+
+      {!report && (
+        <Card>
+          <div className="label-cap mb-2">No analysis stored yet</div>
+          <p className="text-[15px] leading-relaxed mb-4">
+            The analysis is built after each close (14:45 CEST) and kept here. Build it now; it takes about a minute.
+          </p>
+          <RefreshAnalysis />
+        </Card>
+      )}
+
+      {report && (
+        <>
+          <Card>
+            <div className="flex items-baseline justify-between gap-4 flex-wrap">
+              <div className="label-cap">
+                {report.date} · built {new Date(report.builtAt).toUTCString().slice(5, 22)} UTC
+                {report.model ? ` · model trained ${report.model.trainedOn.slice(0, 10)} on ${report.model.names} names (${report.model.trainedFrom === "archive" ? "24-year archive" : "5-year feed"}), ${report.model.horizon} sessions ahead` : ""}
+              </div>
+              <RefreshAnalysis />
+            </div>
+            {report.market && (
+              <div className="mt-4 text-[20px] leading-snug" style={{ color: report.market.state === "STRONG" ? "var(--positive)" : report.market.state === "WEAK" ? "var(--negative)" : "inherit" }}>
+                {report.market.line}
+              </div>
+            )}
+            {report.indices[0]?.projection && (
+              <div className="mt-3 text-[15px] leading-relaxed">
+                <Caption text={report.indices[0].caption.split("\n").slice(1).join("\n")} />
+              </div>
+            )}
+            {report.market && (
+              <StatRow>
+                <Stat label="Market" value={report.market.state} tone={report.market.state === "STRONG" ? "positive" : report.market.state === "WEAK" ? "negative" : "default"} hint="Equal-weight index vs 200-day, and breadth" />
+                <Stat label="Above 200-day" value={`${report.market.breadth200Pct.toFixed(0)}%`} hint="Share of names" />
+                <Stat label="Above 50-day" value={`${report.market.breadth50Pct.toFixed(0)}%`} hint="Share of names" />
+                {report.indices[0]?.projection && <Stat label="KSE-100 centre" value={money(report.indices[0].projection.median)} hint={`${odds(report.indices[0].projection.pUp)} odds higher in ${report.indices[0].projection.horizon} sessions`} />}
+                {report.indices[0]?.projection && <Stat label="Likely range" value={`${money(report.indices[0].projection.low)} to ${money(report.indices[0].projection.high)}`} hint="One standard deviation" />}
+                {report.indices[0]?.projection && <Stat label="5% dip level" value={money(report.indices[0].projection.dipLevel)} hint={`${odds(report.indices[0].projection.pDip)} odds of touching it first`} />}
+              </StatRow>
+            )}
+          </Card>
+
+          <Section number="01" title="Your names, by the model" description="Sorted by what needs doing. Percentile is the name's place among every name in the universe on the model's odds of beating the market; the zones are the model's own, from the name's volatility around its centre.">
+            <div className="overflow-x-auto">
+              <table className="w-full text-[13px]">
+                <thead>
+                  <tr className="text-left label-cap border-b-2 border-ink">
+                    <th className="py-2 pr-3">Name</th>
+                    <th className="py-2 pr-3">Verdict</th>
+                    <th className="py-2 pr-3">Last</th>
+                    <th className="py-2 pr-3">Percentile</th>
+                    <th className="py-2 pr-3">Beats market</th>
+                    <th className="py-2 pr-3">Dip first</th>
+                    <th className="py-2 pr-3">Model buy</th>
+                    <th className="py-2 pr-3">Model sell</th>
+                    <th className="py-2 pr-3">Case fails</th>
+                    <th className="py-2 pr-3">Your band</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {report.holdings.map((h) => (
+                    <tr key={h.symbol} className="border-b border-[var(--rule)] align-top">
+                      <td className="py-2 pr-3 font-mono">{h.symbol}</td>
+                      <td className="py-2 pr-3 font-semibold" style={{ color: TONE[h.verdict] === "positive" ? "var(--positive)" : TONE[h.verdict] === "negative" ? "var(--negative)" : "inherit" }}>
+                        {h.verdict}
+                      </td>
+                      <td className="py-2 pr-3 font-mono">{money(h.last)} <span className="text-muted">({pct(h.dayChangePct)})</span></td>
+                      <td className="py-2 pr-3 font-mono">{h.pctile != null ? `${Math.round((1 - h.pctile) * 100)}th` : "–"}</td>
+                      <td className="py-2 pr-3 font-mono">{h.forecast ? odds(h.forecast.beat) : "–"}</td>
+                      <td className="py-2 pr-3 font-mono">{h.forecast ? odds(h.forecast.dip) : "–"}</td>
+                      <td className="py-2 pr-3 font-mono">{h.zone ? `${money(h.zone.buyLow)} to ${money(h.zone.buyHigh)}` : "–"}</td>
+                      <td className="py-2 pr-3 font-mono">{h.zone ? `${money(h.zone.sellLow)} to ${money(h.zone.sellHigh)}` : "–"}</td>
+                      <td className="py-2 pr-3 font-mono">{h.zone ? money(h.zone.fails) : "–"}</td>
+                      <td className="py-2 pr-3 text-muted">{h.yourZone || "none"}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <div className="mt-6 space-y-3">
+              {report.holdings.map((h) => (
+                <div key={h.symbol} className="text-[14px] leading-relaxed">
+                  <span className="font-mono font-semibold">{h.symbol}</span> <span className="font-semibold">{h.verdict}</span> — {h.verdictLine}
+                </div>
+              ))}
+            </div>
+          </Section>
+
+          <Section number="02" title="Charts" description="A year of closes, the 50- and 200-day averages, the model's buy and sell zones shaded, your average cost, and the model's projection as a fan to the right of the last bar.">
+            <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
+              {[...report.indices, ...report.holdings].map((it) => (
+                <Chart key={it.symbol} item={it} />
+              ))}
+            </div>
+          </Section>
+
+          <Section number="03" title="What the model is, and what it is worth" description="Every number the model produces is printed beside its out-of-sample record. Read this before trusting any of the above.">
+            <Card>
+              <Caption text={report.modelNote} />
+            </Card>
+            {report.strategy && (
+              <div className="overflow-x-auto mt-6">
+                <div className="label-cap mb-2">
+                  The rule as a rule, {report.strategy.from} to {report.strategy.to}: {report.strategy.rebalances} non-overlapping periods, after 0.3% costs per rebalance on the model legs
+                </div>
+                <table className="w-full text-[13px]">
+                  <thead>
+                    <tr className="text-left label-cap border-b-2 border-ink">
+                      <th className="py-2 pr-3">Leg</th>
+                      <th className="py-2 pr-3">A year</th>
+                      <th className="py-2 pr-3">Worst fall</th>
+                      <th className="py-2 pr-3">Worst year</th>
+                      <th className="py-2 pr-3">In market</th>
+                      <th className="py-2 pr-3">Periods up</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {report.strategy.legs.map((l) => (
+                      <tr key={l.name} className="border-b border-[var(--rule)]">
+                        <td className="py-2 pr-3">{l.name}</td>
+                        <td className="py-2 pr-3 font-mono">{pct(l.cagrPct)}</td>
+                        <td className="py-2 pr-3 font-mono">{pct(l.maxDrawdownPct, 0)}</td>
+                        <td className="py-2 pr-3 font-mono">{pct(l.worstYearPct, 0)}</td>
+                        <td className="py-2 pr-3 font-mono">{l.inMarketPct.toFixed(0)}%</td>
+                        <td className="py-2 pr-3 font-mono">{(l.positiveShare * 100).toFixed(0)}%</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+            <div className="mt-6 text-[14px] leading-relaxed whitespace-pre-line text-muted">{report.detail}</div>
+          </Section>
+        </>
+      )}
+    </>
+  );
+}

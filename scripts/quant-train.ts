@@ -5,6 +5,14 @@
 //        [--rounds 300] [--depth 4] [--minLeaf 100] [--gbmLr 0.05]
 //        [--no-context] [--macro] [--universe kse100|held] [--symbols A,B] [--held A,B]
 //        [--no-validate] [--windows N] [--cache DIR] [--out FILE] [--fixedRounds] [--no-median]
+//        [--archive DIR] [--top 120] [--finalSeeds 3]
+//
+// --archive trains on the exchange's 24-year archive (scripts/psx-history.ts)
+// exactly as scripts/quant-long.ts tests it: a universe that changes each
+// year, an equal-weight index, market breadth from every listed name. The
+// walk-forward then IS the 24-year record, the rule test rides along, and
+// the shipped model is the tested one. --finalSeeds sets the ensemble size
+// for the final model separately from the walk-forward's.
 //
 // With --dry it uses a disk cache and touches no database; --out writes the
 // trained ensemble with its walk-forward record as JSON, which
@@ -24,6 +32,10 @@ import { gbmFeatureUse } from "../lib/quant/gbm";
 import { kse100Symbols, loadBars, TRAIN_INDICES } from "../lib/quant/universe";
 import { loadMacro } from "../lib/timeseries/macro";
 import { diskBarsCache, mongoBarsCache, saveQuantModel, type StoredQuantModel } from "../lib/quant/store";
+import { buildArchivePanel } from "../lib/quant/archive";
+import { strategyBacktest, strategyTable, strategyYearTable, type StrategyResult } from "../lib/quant/strategy";
+import { MARKET_CONTEXT_NAMES } from "../lib/quant/context";
+import type { EodBar } from "../lib/timeseries/psx-eod";
 import { has, argOf, num, printResult, optionsFromArgs } from "./quant-cli";
 
 const DRY = has("dry");
@@ -52,49 +64,83 @@ async function main() {
   const useMacro = useContext && has("macro");
 
   const held = await heldSymbols();
-  const universeMode = argOf("universe") ?? "kse100";
-  let universe: string[] = [];
-  let universeSource = "held";
-  if (universeMode === "kse100") {
-    const u = await kse100Symbols();
-    universe = u.symbols;
-    universeSource = u.source;
-  }
-  const extra = (argOf("symbols") ?? "").split(",").map((s) => s.trim().toUpperCase()).filter(Boolean);
-  const symbols = [...new Set([...TRAIN_INDICES, ...universe, ...held, ...extra])];
-
-  const cacheDir = argOf("cache") || process.env.QUANT_CACHE || join(process.env.TEMP || process.env.TMP || ".", "psx-quant-cache");
-  const cache = DRY ? diskBarsCache(cacheDir) : mongoBarsCache();
-  console.log(`${DRY ? "DRY RUN. " : ""}Loading bars for ${symbols.length} symbols (universe ${universeMode}/${universeSource}, ${held.length} held)...`);
-  const bars = await loadBars(symbols, cache, 4);
-  const index = bars.get("KSE100");
-  if (!index || index.length < 400) {
-    console.error("No KSE-100 history; cannot build features.");
-    process.exit(1);
-  }
-  console.log(`Loaded ${bars.size} series in ${((Date.now() - t0) / 1000).toFixed(0)}s. Index ${index[0].date} to ${index[index.length - 1].date}, ${index.length} sessions.`);
-
-  // Market context comes from the stock names only, never the index rows.
-  const stockBars = new Map([...bars].filter(([s]) => !TRAIN_INDICES.includes(s)));
-  const dates = index.map((b) => b.date);
-  let ctx: { context: Map<string, number[]>; names: string[] } | null = null;
-  if (useContext) {
-    const market = marketContext(stockBars, index);
-    let macro: Map<string, number[]> | null = null;
-    if (useMacro) {
-      const m = await loadMacro(cache);
-      if (!m) {
-        console.error("Macro series unavailable; refusing to train with a half-empty context. Drop --macro to train without it.");
-        process.exit(1);
-      }
-      macro = macroContext(m, dates);
-    }
-    ctx = mergeContext(market, macro, dates);
-  }
-
+  const archiveDir = argOf("archive");
   const useRanks = has("ranks");
-  const panel = buildPanel(bars, index, opts.horizon, { context: ctx?.context ?? null, ranks: useRanks });
-  const featureNames = [...FEATURE_NAMES, ...(ctx?.names ?? []), ...(useRanks ? RANK_FEATURE_NAMES : [])];
+
+  let bars: Map<string, EodBar[]>;
+  let index: EodBar[];
+  let ctx: { context: Map<string, number[]>; names: string[] } | null = null;
+  let panel: ReturnType<typeof buildPanel>;
+  let featureNames: string[];
+  let universeSource: string;
+  let universeNames: string[];
+  let breadth200: Map<string, number> | null = null;
+  const trainedFrom: "eod" | "archive" = archiveDir ? "archive" : "eod";
+
+  if (archiveDir) {
+    if (useMacro) {
+      console.error("--macro is not wired for --archive here; run scripts/quant-long.ts --macro to test it.");
+      process.exit(1);
+    }
+    const arch = buildArchivePanel(archiveDir, opts.horizon, num("top", 120), useRanks, null);
+    bars = arch.bars;
+    index = arch.index;
+    ctx = { context: arch.context, names: arch.contextNames };
+    panel = arch.panel;
+    featureNames = arch.featureNames;
+    universeSource = `archive top ${num("top", 120)} by turnover, ${arch.years[0]} to ${arch.years[1]}`;
+    universeNames = arch.universe;
+    const brIdx = (MARKET_CONTEXT_NAMES as readonly string[]).indexOf("brAbove200");
+    breadth200 = new Map();
+    for (const [d, v] of arch.market) breadth200.set(d, v[brIdx] + 0.5);
+    console.log(`Archive: ${bars.size} names, universe ${universeNames.length} names ever members, equal-weight index ${index[0].date} to ${index[index.length - 1].date}.`);
+  } else {
+    const universeMode = argOf("universe") ?? "kse100";
+    let universe: string[] = [];
+    universeSource = "held";
+    if (universeMode === "kse100") {
+      const u = await kse100Symbols();
+      universe = u.symbols;
+      universeSource = u.source;
+    }
+    const extra = (argOf("symbols") ?? "").split(",").map((s) => s.trim().toUpperCase()).filter(Boolean);
+    const symbols = [...new Set([...TRAIN_INDICES, ...universe, ...held, ...extra])];
+
+    const cacheDir = argOf("cache") || process.env.QUANT_CACHE || join(process.env.TEMP || process.env.TMP || ".", "psx-quant-cache");
+    const cache = DRY ? diskBarsCache(cacheDir) : mongoBarsCache();
+    console.log(`${DRY ? "DRY RUN. " : ""}Loading bars for ${symbols.length} symbols (universe ${universeMode}/${universeSource}, ${held.length} held)...`);
+    bars = await loadBars(symbols, cache, 4);
+    const kse = bars.get("KSE100");
+    if (!kse || kse.length < 400) {
+      console.error("No KSE-100 history; cannot build features.");
+      process.exit(1);
+    }
+    index = kse;
+    console.log(`Loaded ${bars.size} series in ${((Date.now() - t0) / 1000).toFixed(0)}s. Index ${index[0].date} to ${index[index.length - 1].date}, ${index.length} sessions.`);
+
+    // Market context comes from the stock names only, never the index rows.
+    const stockBars = new Map([...bars].filter(([s]) => !TRAIN_INDICES.includes(s)));
+    const dates = index.map((b) => b.date);
+    if (useContext) {
+      const market = marketContext(stockBars, index);
+      let macro: Map<string, number[]> | null = null;
+      if (useMacro) {
+        const m = await loadMacro(cache);
+        if (!m) {
+          console.error("Macro series unavailable; refusing to train with a half-empty context. Drop --macro to train without it.");
+          process.exit(1);
+        }
+        macro = macroContext(m, dates);
+      }
+      ctx = mergeContext(market, macro, dates);
+      const brIdx = (MARKET_CONTEXT_NAMES as readonly string[]).indexOf("brAbove200");
+      breadth200 = new Map();
+      for (const [d, v] of market) breadth200.set(d, v[brIdx] + 0.5);
+    }
+    panel = buildPanel(bars, index, opts.horizon, { context: ctx?.context ?? null, ranks: useRanks });
+    featureNames = [...FEATURE_NAMES, ...(ctx?.names ?? []), ...(useRanks ? RANK_FEATURE_NAMES : [])];
+    universeNames = panel.symbols;
+  }
   console.log(`Panel: ${panel.rows.length.toLocaleString()} rows, ${panel.symbols.length} names, ${panel.dates.length} sessions with features, ${featureNames.length} features (${ctx?.names.length ?? 0} context), targets ${TARGET_NAMES.join("/")} (dip = ${DIP_PCT}%).`);
   console.log(`Config: ${JSON.stringify({ horizon: opts.horizon, seeds: opts.seeds, step: opts.step, minTrain: opts.minTrain, threshold: opts.threshold, learner: opts.learner, mlp: opts.train, gbm: opts.gbm })}`);
 
@@ -105,9 +151,14 @@ async function main() {
       seen++;
       console.log(`  window ${w.window}: trained on ${w.trainRows.toLocaleString()} rows, predicted ${w.testRows.toLocaleString()} (${w.from} to ${w.to}) in ${(w.ms / 1000).toFixed(1)}s${w.rounds ? `, rounds ${w.rounds.map((r) => r.toFixed(0)).join("/")}` : ""}`);
       if (maxWindows > 0 && seen >= maxWindows) throw new Error("__stop__");
-    });
+    }, true);
   }
   if (validation) printResult(validation, held);
+  let strategy: StrategyResult | null = null;
+  if (validation?.points) {
+    strategy = strategyBacktest(validation.points, index, breadth200, { horizon: opts.horizon, cashYieldPct: 10, costPct: 0.3 });
+    if (strategy) console.log("\n" + strategyTable(strategy) + "\n\n" + strategyYearTable(strategy));
+  }
 
   // The final boosters take the median round count the windows kept, so one
   // recent slice cannot shrink the shipped model to a stump when the market
@@ -115,7 +166,8 @@ async function main() {
   const finalRounds = !has("no-median") && validation?.medianRounds ? validation.medianRounds : null;
   console.log(`\nTraining the final ensemble on every row with a known outcome${finalRounds ? ` (boosters fixed at ${finalRounds.join("/")} rounds, the medians the windows kept)` : ""}...`);
   const t1 = Date.now();
-  const final = trainFinal(panel, opts, finalRounds ?? undefined);
+  const finalOpts = { ...opts, seeds: num("finalSeeds", opts.seeds) };
+  const final = trainFinal(panel, finalOpts, finalRounds ?? undefined);
   const desc = final.learners.map((l) => (l.kind === "mlp" ? `mlp ${l.model.epochs}ep val ${l.model.valLoss.toFixed(4)}` : `gbm ${l.models.map((m) => m.rounds).join("/")} rounds`)).join("; ");
   console.log(`Trained ${final.learners.length} learner(s) on ${final.rows.toLocaleString()} rows to ${final.trainedTo} in ${((Date.now() - t1) / 1000).toFixed(0)}s: ${desc}.`);
   const gbms = final.learners.filter((l) => l.kind === "gbm").flatMap((l) => (l.kind === "gbm" ? l.models : []));
@@ -149,10 +201,13 @@ async function main() {
     contextNames: ctx?.names ?? [],
     rankNames: useRanks ? [...RANK_FEATURE_NAMES] : [],
     targetNames: [...TARGET_NAMES],
-    universe: panel.symbols,
+    universe: universeNames,
     universeSource,
+    trainedFrom,
+    indexKind: archiveDir ? "equal-weight" : "kse100",
+    strategy,
     rows: final.rows,
-    config: opts,
+    config: finalOpts,
     finalRounds,
     learners: final.learners,
     validation: validation ? validationNoPoints : null,

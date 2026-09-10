@@ -18,11 +18,12 @@
 // With --save the summary (never the points) is written to the feed store
 // under quant:validation:long so the daily report can cite it.
 
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { buildPanel, walkForwardPanel, type PanelOptions, type PanelPoint, auc, spearman } from "../lib/quant/panel";
-import { FEATURE_NAMES, RANK_FEATURE_NAMES } from "../lib/quant/features";
-import { marketContext, macroContext, mergeContext } from "../lib/quant/context";
+import { buildArchivePanel } from "../lib/quant/archive";
+import { macroContext, MARKET_CONTEXT_NAMES } from "../lib/quant/context";
+import { strategyBacktest, strategyTable, strategyYearTable } from "../lib/quant/strategy";
 import { loadMacro } from "../lib/timeseries/macro";
 import { diskBarsCache } from "../lib/quant/store";
 import type { EodBar } from "../lib/timeseries/psx-eod";
@@ -30,81 +31,6 @@ import { has, argOf, num, printResult, optionsFromArgs } from "./quant-cli";
 
 const HIST = argOf("history") || join(process.env.TEMP || ".", "psx-history");
 const TOP = num("top", 120);
-const iso = (n: number) => String(n).replace(/(\d{4})(\d{2})(\d{2})/, "$1-$2-$3");
-
-function loadHistory(): Map<string, EodBar[]> {
-  const idx = JSON.parse(readFileSync(join(HIST, "index.json"), "utf8")) as { index: Array<{ symbol: string; bars: number }> };
-  const out = new Map<string, EodBar[]>();
-  for (const e of idx.index) {
-    const f = join(HIST, "symbols", e.symbol + ".json");
-    if (!existsSync(f)) continue;
-    const raw = JSON.parse(readFileSync(f, "utf8")) as number[][];
-    const bars: EodBar[] = [];
-    for (const [d, o, h, l, c, v] of raw) {
-      if (!(c > 0)) continue;
-      // Close against the day's typical price stands in for close against
-      // VWAP, which this archive does not carry.
-      const typical = h > 0 && l > 0 ? (h + l + c) / 3 : c;
-      bars.push({ date: iso(d), close: c, volume: v > 0 ? v : 0, vwap: typical });
-    }
-    if (bars.length >= 250) out.set(e.symbol, bars);
-  }
-  return out;
-}
-
-// Per calendar year, the `top` names by median traded value in the previous year.
-function membership(bars: Map<string, EodBar[]>, top: number): Map<number, Set<string>> {
-  const byYear = new Map<number, Map<string, number[]>>();
-  for (const [s, b] of bars) {
-    for (const bar of b) {
-      const y = Number(bar.date.slice(0, 4));
-      let m = byYear.get(y);
-      if (!m) byYear.set(y, (m = new Map()));
-      let arr = m.get(s);
-      if (!arr) m.set(s, (arr = []));
-      arr.push(bar.close * bar.volume);
-    }
-  }
-  const out = new Map<number, Set<string>>();
-  for (const [y, m] of byYear) {
-    const ranked = [...m]
-      .filter(([, v]) => v.length >= 200)
-      .map(([s, v]) => {
-        const sorted = [...v].sort((a, b) => a - b);
-        return { s, med: sorted[Math.floor(sorted.length / 2)] };
-      })
-      .filter((r) => r.med > 0)
-      .sort((a, b) => b.med - a.med)
-      .slice(0, top)
-      .map((r) => r.s);
-    out.set(y + 1, new Set(ranked));
-  }
-  return out;
-}
-
-// Equal-weight index of the current members, chained from mean daily log returns.
-function equalWeightIndex(bars: Map<string, EodBar[]>, members: Map<number, Set<string>>): EodBar[] {
-  const acc = new Map<string, { s: number; n: number }>();
-  for (const [sym, b] of bars) {
-    for (let i = 1; i < b.length; i++) {
-      const y = Number(b[i].date.slice(0, 4));
-      if (!members.get(y)?.has(sym)) continue;
-      const r = Math.max(-0.3, Math.min(0.3, Math.log(b[i].close / b[i - 1].close)));
-      const a = acc.get(b[i].date);
-      if (a) { a.s += r; a.n++; } else acc.set(b[i].date, { s: r, n: 1 });
-    }
-  }
-  const dates = [...acc.keys()].sort();
-  const out: EodBar[] = [];
-  let level = Math.log(100);
-  for (const d of dates) {
-    const a = acc.get(d)!;
-    if (a.n < 10) continue;
-    level += a.s / a.n;
-    out.push({ date: d, close: Math.exp(level), volume: 0, vwap: Math.exp(level) });
-  }
-  return out;
-}
 
 function byYear(points: PanelPoint[], horizon: number) {
   const groups = new Map<string, PanelPoint[]>();
@@ -143,32 +69,21 @@ function byYear(points: PanelPoint[], horizon: number) {
 async function main() {
   const t0 = Date.now();
   const opts: PanelOptions = { ...optionsFromArgs(), step: num("step", 250), minTrain: num("minTrain", 750) };
-  const bars = loadHistory();
-  const members = membership(bars, TOP);
-  const memberSymbols = new Set<string>();
-  for (const [, s] of members) for (const x of s) memberSymbols.add(x);
-  const years = [...members.keys()].sort();
-  console.log(`History: ${bars.size} names with 250+ bars. Universe: top ${TOP} by traded value, ${years[0]} to ${years[years.length - 1]}, ${memberSymbols.size} names ever members.`);
-
-  const index = equalWeightIndex(bars, members);
-  console.log(`Equal-weight index: ${index.length} sessions, ${index[0].date} to ${index[index.length - 1].date}, level ${index[index.length - 1].close.toFixed(0)}.`);
-
-  const dates = index.map((b) => b.date);
-  const market = marketContext(bars, index);
   let macro: Map<string, number[]> | null = null;
+  const useRanks = has("ranks");
   if (has("macro")) {
     const cacheDir = argOf("cache") || process.env.QUANT_CACHE || join(process.env.TEMP || ".", "psx-quant-cache");
     const m = await loadMacro(diskBarsCache(cacheDir, 24 * 7));
     if (!m) { console.error("Macro series unavailable; drop --macro to run without them."); process.exit(1); }
-    macro = macroContext(m, dates);
+    // The macro context needs the archive's dates; build once without it to get them.
+    const probe = buildArchivePanel(HIST, opts.horizon, TOP, false, null);
+    macro = macroContext(m, probe.index.map((b) => b.date));
   }
-  const ctx = mergeContext(market, macro, dates)!;
-
-  const memberBars = new Map([...bars].filter(([s]) => memberSymbols.has(s)));
-  const include = (symbol: string, date: string) => members.get(Number(date.slice(0, 4)))?.has(symbol) ?? false;
-  const useRanks = has("ranks");
-  const panel = buildPanel(memberBars, index, opts.horizon, { context: ctx.context, include, minRows: 60, ranks: useRanks });
-  const featureNames = [...FEATURE_NAMES, ...ctx.names, ...(useRanks ? RANK_FEATURE_NAMES : [])];
+  const arch = buildArchivePanel(HIST, opts.horizon, TOP, useRanks, macro);
+  const { panel, index, market, featureNames } = arch;
+  const years = arch.years;
+  console.log(`History: ${arch.bars.size} names with 250+ bars. Universe: top ${TOP} by traded value, ${years[0]} to ${years[1]}, ${arch.universe.length} names ever members.`);
+  console.log(`Equal-weight index: ${index.length} sessions, ${index[0].date} to ${index[index.length - 1].date}, level ${index[index.length - 1].close.toFixed(0)}.`);
   console.log(`Panel: ${panel.rows.length.toLocaleString()} rows, ${panel.symbols.length} names, ${panel.dates.length} sessions, ${featureNames.length} features. Built in ${((Date.now() - t0) / 1000).toFixed(0)}s.`);
   console.log(`Config: ${JSON.stringify({ horizon: opts.horizon, seeds: opts.seeds, step: opts.step, minTrain: opts.minTrain, learner: opts.learner, mlp: opts.train, gbm: opts.gbm })}`);
 
@@ -189,13 +104,24 @@ async function main() {
   console.log(`\nDown years (${bear.map((y) => y.year).join(", ")}): mean AUC up ${mean(bear.map((y) => y.aucUp)).toFixed(3)}, AUC dip ${mean(bear.map((y) => y.aucDip)).toFixed(3)}, IC rel ${mean(bear.map((y) => y.icRel)).toFixed(3)}.`);
   console.log(`Up years   (${bull.length}): mean AUC up ${mean(bull.map((y) => y.aucUp)).toFixed(3)}, AUC dip ${mean(bull.map((y) => y.aucDip)).toFixed(3)}, IC rel ${mean(bull.map((y) => y.icRel)).toFixed(3)}.`);
 
+  // The rule, as a rule: hold the model's top fifth, gated by the index and
+  // by breadth, against the universe held outright.
+  const brIdx = (MARKET_CONTEXT_NAMES as readonly string[]).indexOf("brAbove200");
+  const breadth200 = new Map<string, number>();
+  for (const [d, v] of market) breadth200.set(d, v[brIdx] + 0.5);
+  const strategy = strategyBacktest(result.points!, index, breadth200, { horizon: opts.horizon, cashYieldPct: 10, costPct: 0.3 });
+  if (strategy) {
+    console.log("\n" + strategyTable(strategy));
+    console.log("\n" + strategyYearTable(strategy));
+  }
+
   const { points: _p, ...summary } = result;
-  const doc = { ranOn: new Date().toISOString(), universeTop: TOP, years: `${years[0]}-${years[years.length - 1]}`, names: panel.symbols.length, rows: panel.rows.length, featureNames, config: opts, summary, yearly, runtimeSec: Math.round((Date.now() - t0) / 1000) };
+  const doc = { ranOn: new Date().toISOString(), universeTop: TOP, years: `${years[0]}-${years[1]}`, names: panel.symbols.length, rows: panel.rows.length, featureNames, config: opts, summary, yearly, strategy, runtimeSec: Math.round((Date.now() - t0) / 1000) };
   const outFile = argOf("out");
   if (outFile) { writeFileSync(outFile, JSON.stringify(doc)); console.log(`Wrote ${outFile}`); }
   if (has("save")) {
     const { saveQuantSnapshot } = await import("../lib/quant/store");
-    await saveQuantSnapshot("quant:validation:long", doc, `${years[0]}-${years[years.length - 1]}, ${panel.rows.length} rows`);
+    await saveQuantSnapshot("quant:validation:long", doc, `${years[0]}-${years[1]}, ${panel.rows.length} rows`);
     console.log("Saved quant:validation:long");
   }
   console.log(`\n${((Date.now() - t0) / 60000).toFixed(1)} min total`);

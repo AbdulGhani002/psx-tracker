@@ -19,6 +19,10 @@ import { marketContext, MARKET_CONTEXT_NAMES } from "../lib/quant/context";
 import { despike } from "../lib/timeseries/macro";
 import { probit, projectLevels, modelBands } from "../lib/quant/projection";
 import { RANK_FEATURE_NAMES, RANK_SOURCE } from "../lib/quant/features";
+import { readMarket, readName, standingOf } from "../lib/quant/analysis";
+import { membership, equalWeightIndex } from "../lib/quant/archive";
+import { strategyBacktest, indexGate } from "../lib/quant/strategy";
+import type { PanelPoint } from "../lib/quant/panel";
 import type { EodBar } from "../lib/timeseries/psx-eod";
 
 let pass = 0, fail = 0;
@@ -259,6 +263,81 @@ function randomWalk(n: number, drift = 0.0003, vol = 0.015, start = 100): EodBar
   const before = p.rows.filter((r) => r.date === cut).map((r) => r.x.slice(rk).join(","));
   const after = p2.rows.filter((r) => r.date === cut).map((r) => r.x.slice(rk).join(","));
   check("ranks at day k ignore everything after day k", before.length > 0 && before.join("|") === after.join("|"));
+}
+
+// ------------------------------------------------------------ analysis
+{
+  check("market is strong above the 200-day with broad breadth", readMarket(true, 100, 95, 55, 60).state === "STRONG");
+  check("market is mixed above the 200-day with thin breadth", readMarket(true, 100, 95, 30, 40).state === "MIXED");
+  check("market is weak below the 200-day whatever the breadth", readMarket(false, 90, 95, 70, 70).state === "WEAK");
+  check("standing splits the ranking into fifths", standingOf(0.9) === "STRONG" && standingOf(0.5) === "MIDDLE" && standingOf(0.1) === "WEAK" && standingOf(null) === "MIDDLE");
+
+  const bars = randomWalk(400, 0.0005, 0.012, 100);
+  const proj = projectLevels(bars, 20, 0.6, 0.3)!;
+  const bands = modelBands(proj);
+  const price = bars[bars.length - 1].close;
+  const up = { above50: true, above200: true, goldenCross: true, ma200Rising: true, offHighPct: -2, ret20Pct: 3, label: "UPTREND" as const, line: "", short: "" };
+  const down = { ...up, above50: false, above200: false, goldenCross: false, label: "DOWNTREND" as const };
+  const base = { held: true, market: "STRONG" as const, trend: up, price, projection: proj, bands, pDip: 0.3, dipUsable: true };
+
+  check("a strong name in a strong market with the trend intact is a BUY", readName({ ...base, pctile: 0.9 }).verdict === "BUY");
+  check("with high dip odds the buy is staged instead", readName({ ...base, pctile: 0.9, pDip: 0.6 }).verdict === "STAGE");
+  check("but not when the dip record is too weak to use", readName({ ...base, pctile: 0.9, pDip: 0.6, dipUsable: false }).verdict === "BUY");
+  check("a strong name still falling is a WATCH with a trigger", (() => { const r = readName({ ...base, pctile: 0.9, trend: down }); return r.verdict === "WATCH" && r.zone.trigger != null; })());
+  check("a strong name in a weak market is held, not bought", readName({ ...base, pctile: 0.9, market: "WEAK" }).verdict === "HOLD");
+  check("and not bought new either", readName({ ...base, pctile: 0.9, market: "WEAK", held: false }).verdict === "WAIT");
+  check("a weak name held in a weak market is a SELL", readName({ ...base, pctile: 0.1, market: "WEAK" }).verdict === "SELL");
+  check("a weak name held in a strong market is a TRIM", readName({ ...base, pctile: 0.1 }).verdict === "TRIM");
+  check("a weak name not held is AVOID", readName({ ...base, pctile: 0.1, held: false }).verdict === "AVOID");
+  check("a middling name held is HOLD, not held is PASS", readName({ ...base, pctile: 0.5 }).verdict === "HOLD" && readName({ ...base, pctile: 0.5, held: false }).verdict === "PASS");
+  const z = readName({ ...base, pctile: 0.9 }).zone;
+  check("the model zone sits in order around the price", z.buyLow < z.buyHigh && z.sellLow < z.sellHigh && z.buyHigh < z.sellLow && z.fails <= price);
+}
+
+// ------------------------------------------------------------ archive
+{
+  const dates = weekdays(520, "2020-01-06");
+  const mk = (level: number, vol: number, drift = 0) => dates.map((date, i) => ({ date, close: level * Math.exp(drift * i), volume: vol, vwap: level }));
+  const bars = new Map<string, EodBar[]>([
+    ["BIG", mk(100, 1e6)],
+    ["MID", mk(50, 5e5)],
+    ["SMALL", mk(10, 1e4)],
+  ]);
+  const m = membership(bars, 2);
+  check("membership takes the most traded names of the previous year", m.get(2021)?.has("BIG") === true && m.get(2021)?.has("MID") === true && m.get(2021)?.has("SMALL") === false);
+  check("the first year has no membership (nothing came before it)", !m.has(2020));
+  const rising = new Map<string, EodBar[]>([["A", mk(100, 1, 0.001)], ["B", mk(20, 1, 0.001)]]);
+  const ew = equalWeightIndex(rising, null, 2);
+  check("the equal-weight index chains the mean daily log return", ew.length === dates.length - 1 && Math.abs(Math.log(ew[ew.length - 1].close / ew[0].close) - 0.001 * (dates.length - 2)) < 1e-9);
+}
+
+// ------------------------------------------------------------ strategy
+{
+  // Thirty names, twenty rebalances; the model's odds are informative by
+  // construction: forward return = 0.02 * (p - 0.5) + noise.
+  const rnd2 = mulberry32(99);
+  const dates = weekdays(20 * 20 + 1, "2022-01-03");
+  const points: PanelPoint[] = [];
+  const index: EodBar[] = dates.map((date, i) => ({ date, close: 100 * Math.exp(0.0005 * i), volume: 0, vwap: 0 }));
+  for (let di = 0; di < dates.length; di++) {
+    for (let s = 0; s < 30; s++) {
+      const p = rnd2();
+      const fwd = 0.02 * (p - 0.5) + 0.01 * (rnd2() - 0.5);
+      points.push({ symbol: "S" + s, date: dates[di], di, p: [0.5, p, 0.3], t: [fwd > 0 ? 1 : 0, 1, 0], fwdRet: fwd, fwdRel: fwd });
+    }
+  }
+  const r = strategyBacktest(points, index, null, { horizon: 20, cashYieldPct: 10, costPct: 0 })!;
+  check("the rule test runs one period per horizon", r.rebalances === 21, r.rebalances);
+  const legs = Object.fromEntries(r.legs.map((l) => [l.name, l]));
+  check("the top fifth beats the universe when the odds are informative", legs["model top fifth, always in"].cagrPct > legs["universe, buy and hold"].cagrPct);
+  check("the bottom fifth trails it", legs["model bottom fifth (what it says to avoid)"].cagrPct < legs["universe, buy and hold"].cagrPct);
+  const costed = strategyBacktest(points, index, null, { horizon: 20, cashYieldPct: 10, costPct: 1 })!;
+  check("costs lower the model legs and leave buy-and-hold alone", costed.legs[1].cagrPct < r.legs[1].cagrPct && Math.abs(costed.legs[0].cagrPct - r.legs[0].cagrPct) < 1e-9);
+  const gate = indexGate(index);
+  check("a rising index is above its 200-day once it has one", gate.get(dates[250]) === true && !gate.has(dates[100]));
+  const falling: EodBar[] = dates.map((date, i) => ({ date, close: 100 * Math.exp(-0.002 * i), volume: 0, vwap: 0 }));
+  const shut = strategyBacktest(points, falling, null, { horizon: 20, cashYieldPct: 10, costPct: 0 })!;
+  check("with the gate shut the gated leg earns the cash rate", Math.abs(shut.legs[3].cagrPct - 10) < 0.5 && shut.legs[3].inMarketPct === 0, shut.legs[3].cagrPct.toFixed(2));
 }
 
 // ------------------------------------------------------------ walk-forward

@@ -1,17 +1,17 @@
-// The daily chart report: one picture per index and per holding, a trend read
-// under each, the model's odds turned into levels, and a verdict on whether
-// today is a day to add to a position you already own.
+// The daily analysis: the model's own reading of the market and of each name,
+// with the zones it would write down itself, one picture per index and per
+// holding, and a text short enough for a phone.
 //
-// The verdict is the useful part and it is deliberately simple. Your buy zone
-// says whether the PRICE is right; the trend says whether the price is still
-// falling. Both have to agree before it says buy. The model earns a voice in
-// the verdict only where its walk-forward record says it has one, which today
-// is the dip odds: when they are high, a buy is staged rather than taken.
+// The owner's own bands are shown as a note beside each verdict; they are
+// not what the verdict is built on. The verdict comes from what the 24-year
+// test showed to hold up: the market's strength (equal-weight index against
+// its 200-day, breadth), the name's rank among every name on the model's
+// odds of beating the market, its trend, and the dip odds (see analysis.ts).
 //
-// Two texts come out: `summary`, short enough for a phone, and `detail`, the
-// long form with the model's record, which goes into the weekly email. The
-// model itself is trained on Abdul's machine and read here from the feed
-// store. Nothing in this file trains anything.
+// Two texts come out: `summary` for Telegram, `detail` for the weekly email.
+// The whole report is also stored per user so the Analysis page can show it
+// without rebuilding it. The model itself is trained on Abdul's machine and
+// read here from the feed store; nothing in this file trains anything.
 
 import "server-only";
 import type { EodBar } from "@/lib/timeseries/psx-eod";
@@ -23,9 +23,12 @@ import { readTrend, relativeReturn, realisedVolPct, volPercentile, DIP_PCT, type
 import { buildPanel, predictEnsemble, describeAuc, type TargetMetrics, type SymbolMetrics, type PanelRow } from "@/lib/quant/panel";
 import { marketContext, macroContext, mergeContext, breadthNow, MARKET_CONTEXT_NAMES, MACRO_CONTEXT_NAMES } from "@/lib/quant/context";
 import { loadMacro, macroRead, type MacroKey } from "@/lib/timeseries/macro";
-import { loadBars, TRAIN_INDICES } from "@/lib/quant/universe";
+import { kse100Symbols, loadBars, TRAIN_INDICES } from "@/lib/quant/universe";
 import { loadQuantModel, loadQuantSnapshot, saveQuantSnapshot, mongoBarsCache, type StoredQuantModel } from "@/lib/quant/store";
-import { projectLevels, projectionLine, levelsLine, modelBands, bandsLine, type Projection, type ModelBands } from "@/lib/quant/projection";
+import { projectLevels, projectionLine, levelsLine, modelBands, type Projection, type ModelBands } from "@/lib/quant/projection";
+import { equalWeightIndex } from "@/lib/quant/archive";
+import { readMarket, readName, VERDICT_RANK, type MarketRead, type ModelVerdict, type ModelZone, type NameStanding } from "@/lib/quant/analysis";
+import type { StrategyResult } from "@/lib/quant/strategy";
 
 export const INDICES: Array<{ symbol: string; title: string }> = [
   { symbol: "KSE100", title: "KSE-100" },
@@ -33,7 +36,7 @@ export const INDICES: Array<{ symbol: string; title: string }> = [
   { symbol: "KSE30", title: "KSE-30" },
 ];
 
-export type Verdict = "BUY" | "WAIT" | "HOLD" | "TRIM" | "SET ZONE" | "INDEX";
+export type Verdict = ModelVerdict | "INDEX";
 
 export type Forecast = { up: number; beat: number; dip: number; horizon: number };
 
@@ -41,10 +44,10 @@ export type ModelRecord = {
   up: TargetMetrics;
   beat: TargetMetrics;
   dip: TargetMetrics;
-  own: SymbolMetrics | null;
   from: string;
   to: string;
   names: number;
+  icRel: { mean: number; tStat: number } | null;
 };
 
 export type ReportItem = {
@@ -55,6 +58,10 @@ export type ReportItem = {
   trend: TrendRead | null;
   verdict: Verdict;
   verdictLine: string;
+  standing: NameStanding | null;
+  pctile: number | null;
+  zone: ModelZone | null;
+  yourZone: string;
   forecast: Forecast | null;
   projection: Projection | null;
   bands: ModelBands | null;
@@ -68,61 +75,27 @@ export type QuantReport = {
   date: string;
   indices: ReportItem[];
   holdings: ReportItem[];
+  market: MarketRead | null;
   summary: string; // short, for the phone
   detail: string; // long, for the weekly email
   modelNote: string;
-  model: { trainedOn: string; horizon: number; names: number; learners: string } | null;
+  record: ModelRecord | null;
+  strategy: StrategyResult | null;
+  model: { trainedOn: string; trainedFrom: string; horizon: number; names: number; learners: string } | null;
 };
 
-type LongValidation = { years: string; names: number; rows: number; summary: { targets: TargetMetrics[]; ic: { mean: number }; icRel: { mean: number; tStat: number } } };
+// What the Analysis page reads back: the report without the buffers.
+export type StoredReportItem = Omit<ReportItem, "png"> & { png: string };
+export type StoredReport = Omit<QuantReport, "indices" | "holdings"> & { builtAt: string; indices: StoredReportItem[]; holdings: StoredReportItem[] };
+
+type LongValidation = { years: string; names: number; rows: number; summary: { targets: TargetMetrics[]; ic: { mean: number }; icRel: { mean: number; tStat: number } }; strategy?: StrategyResult };
 
 const pct = (v: number, d = 1) => `${v >= 0 ? "+" : ""}${v.toFixed(d)}%`;
 const odds = (p: number) => `${Math.round(p * 100)}%`;
 const money = (v: number) => (v >= 10000 ? Math.round(v).toLocaleString("en-US") : v >= 100 ? v.toFixed(0) : v >= 10 ? v.toFixed(1) : v.toFixed(2));
 
-// The model gets a say in the verdict only through a target whose record is
-// at least "real but modest".
+// The dip odds get a say only when their record is at least "real but modest".
 const RECORD_FLOOR = 0.58;
-
-function verdictFor(
-  zone: { status: string; buyZoneLow: number | null; buyZoneHigh: number | null; price: number | null } | undefined,
-  trend: TrendRead | null,
-  held: boolean,
-  dip: { p: number; auc: number; horizon: number } | null,
-  bands: ModelBands | null
-): { verdict: Verdict; line: string } {
-  if (!held) return { verdict: "INDEX", line: "" };
-  if (!zone || zone.status === "no_zone") {
-    return {
-      verdict: "SET ZONE",
-      line: `No buy band written down for this name.${bands ? ` The model's bands are ${bandsLine(bands)}; write yours on the Plan page, or take these.` : ""}`,
-    };
-  }
-  const t = trend?.label ?? "SIDEWAYS";
-  const falling = t === "DOWNTREND" || t === "WEAKENING";
-  const stage = (): string => {
-    if (!dip || dip.auc < RECORD_FLOOR) return "";
-    if (dip.p >= 0.55) return ` Stage it: ${odds(dip.p)} odds of a ${DIP_PCT}% lower price within ${dip.horizon} sessions, so half now and half on the dip.`;
-    if (dip.p <= 0.35) return ` Take it in one go: dip odds are only ${odds(dip.p)}.`;
-    return "";
-  };
-  if (zone.status === "sell") {
-    return { verdict: "TRIM", line: "In your sell band. Not a day to add; the sell rules on the Plan page take it from here." };
-  }
-  if (zone.status === "buy") {
-    if (falling) {
-      return { verdict: "WAIT", line: `At your price, but ${t.toLowerCase()}: under its ${t === "DOWNTREND" ? "50 and 200" : "50"}-day average. Let it close back above the 50-day first.` };
-    }
-    return { verdict: "BUY", line: `At your price and not falling (${t.toLowerCase()}). The Plan page sizes it.${stage()}` };
-  }
-  if (zone.price != null && zone.buyZoneLow != null && zone.price < zone.buyZoneLow) {
-    return {
-      verdict: falling ? "WAIT" : "BUY",
-      line: falling ? "Below your whole buy band and still falling. Cheaper than planned is not a reason to catch it mid-fall." : `Below your whole buy band and the fall has stopped.${stage()}`,
-    };
-  }
-  return { verdict: "HOLD", line: `Above your buy band${trend ? `, ${t.toLowerCase()}` : ""}. Nothing to add at this price.` };
-}
 
 const recordWords = (m: TargetMetrics) => `AUC ${m.auc.toFixed(2)}, ${describeAuc(m.auc)}`;
 
@@ -133,34 +106,37 @@ function yourBands(zone: { buyZoneLow: number | null; buyZoneHigh: number | null
   return [b, s].filter(Boolean).join(", ");
 }
 
-// Short captions: what it is, where it is going, what to do.
-function captionFor(item: Omit<ReportItem, "png" | "caption">, rec: ModelRecord | null, yours: string): string {
-  const head = `<b>${item.title}</b>  ${money(item.last)}  (${pct(item.dayChangePct, 2)})${item.trend ? ` · ${item.trend.label.toLowerCase()}` : ""}${item.relative ? ` · rank ${item.relative.rank} of ${item.relative.of} on 20d strength` : ""}`;
+function zoneLine(z: ModelZone): string {
+  return `Model zone: buy ${money(z.buyLow)} to ${money(z.buyHigh)} · sell ${money(z.sellLow)} to ${money(z.sellHigh)} · case fails below ${money(z.fails)}${z.trigger ? ` · trigger: a close above ${money(z.trigger)}` : ""}.`;
+}
+
+// Short captions: what it is, where the model puts it, what to do.
+function captionFor(item: Omit<ReportItem, "png" | "caption">, rec: ModelRecord | null): string {
+  const head = `<b>${item.title}</b>  ${money(item.last)}  (${pct(item.dayChangePct, 2)})${item.trend ? ` · ${item.trend.label.toLowerCase()}` : ""}${item.pctile != null ? ` · ${Math.round((1 - item.pctile) * 100) <= 20 ? "top" : Math.round((1 - item.pctile) * 100) >= 80 ? "bottom" : "middle"} of the model's ranking (${Math.round((1 - item.pctile) * 100)}th percentile)` : ""}`;
   const lines = [head];
   if (item.verdict === "INDEX") {
     if (item.projection) lines.push(projectionLine(item.projection), levelsLine(item.projection));
-    if (rec) lines.push(`Record: direction ${recordWords(rec.up)}; dip ${recordWords(rec.dip)}.`);
+    if (rec) lines.push(`Record: direction ${recordWords(rec.up)}; dip ${recordWords(rec.dip)}${rec.icRel ? `; ranking IC ${rec.icRel.mean >= 0 ? "+" : ""}${rec.icRel.mean.toFixed(2)} (t ${rec.icRel.tStat.toFixed(1)})` : ""}.`);
   } else {
     if (item.forecast && item.projection) {
       const f = item.forecast;
-      lines.push(`Odds, ${f.horizon} sessions: higher ${odds(f.up)} · beats index ${odds(f.beat)} · ${DIP_PCT}% dip first ${odds(f.dip)}. Centre ${money(item.projection.median)}, range ${money(item.projection.low)} to ${money(item.projection.high)}.`);
+      lines.push(`Odds, ${f.horizon} sessions: beats the market ${odds(f.beat)} · higher ${odds(f.up)} · ${DIP_PCT}% dip first ${odds(f.dip)}. Centre ${money(item.projection.median)}, range ${money(item.projection.low)} to ${money(item.projection.high)}.`);
     }
-    if (item.bands) lines.push(`Model bands: ${bandsLine(item.bands)}${yours ? ` (yours: ${yours})` : ""}.`);
+    if (item.zone) lines.push(zoneLine(item.zone));
     lines.push(`<b>${item.verdict}</b> — ${item.verdictLine}`);
+    if (item.yourZone) lines.push(`<i>Your band: ${item.yourZone}.</i>`);
   }
   return lines.filter(Boolean).join("\n").slice(0, 1024);
 }
 
 // Rebuild today's context in exactly the layout the stored model was trained
-// on. If that cannot be done (a macro feed down, a changed feature list) the
-// report goes out without forecasts rather than with forecasts on the wrong
-// inputs.
-async function contextFor(model: StoredQuantModel, bars: Map<string, EodBar[]>, index: EodBar[]): Promise<{ context: Map<string, number[]> | null; reason: string }> {
+// on. If that cannot be done, the report goes out without forecasts rather
+// than with forecasts on the wrong inputs.
+async function contextFor(model: StoredQuantModel, stockBars: Map<string, EodBar[]>, index: EodBar[]): Promise<{ context: Map<string, number[]> | null; reason: string }> {
   const wantMarket = model.contextNames.some((n) => (MARKET_CONTEXT_NAMES as readonly string[]).includes(n));
   const wantMacro = model.contextNames.some((n) => (MACRO_CONTEXT_NAMES as readonly string[]).includes(n));
   if (!wantMarket && !wantMacro) return { context: new Map(), reason: "" };
   const dates = index.map((b) => b.date);
-  const stockBars = new Map([...bars].filter(([s]) => !TRAIN_INDICES.includes(s) && model.universe.includes(s)));
   const market = wantMarket ? marketContext(stockBars, index) : null;
   let macro: Map<string, number[]> | null = null;
   if (wantMacro) {
@@ -178,7 +154,7 @@ async function contextFor(model: StoredQuantModel, bars: Map<string, EodBar[]>, 
 
 export async function buildQuantReport(): Promise<QuantReport> {
   const today = new Date().toISOString().slice(0, 10);
-  const [board, portfolio, model, plan, inflation, sbp, long, userId] = await Promise.all([
+  const [board, portfolio, model, plan, inflation, sbp, long, userId, uni] = await Promise.all([
     getZoneBoard().catch(() => null),
     getPortfolioSummary().catch(() => null),
     loadQuantModel().catch(() => null),
@@ -187,54 +163,78 @@ export async function buildQuantReport(): Promise<QuantReport> {
     getSbpLive().catch(() => null),
     loadQuantSnapshot<LongValidation>("quant:validation:long").catch(() => null),
     uid().catch(() => ""),
+    kse100Symbols().catch(() => ({ symbols: [] as string[], source: "none" })),
   ]);
   const zoneBySymbol = new Map((board?.rows ?? []).map((r) => [r.symbol, r]));
   const posBySymbol = new Map((portfolio?.positions ?? []).filter((p) => p.shares > 0).map((p) => [p.symbol, p]));
   const held = [...posBySymbol.keys()];
 
-  const symbols = [...new Set([...TRAIN_INDICES, ...(model?.universe ?? []), ...held])];
+  // The production universe is today's KSE-100 plus whatever is held. The
+  // model is scale-free and was trained on a wider, older universe; any name
+  // with a year of history can be scored.
+  const symbols = [...new Set([...TRAIN_INDICES, ...uni.symbols, ...held])];
   const bars = await loadBars(symbols, mongoBarsCache(6), 4);
-  const index = bars.get("KSE100") ?? [];
+  const kse = bars.get("KSE100") ?? [];
+  const stockBars = new Map([...bars].filter(([s]) => !TRAIN_INDICES.includes(s)));
+  const ew = equalWeightIndex(stockBars);
+  // Features are built on the index the model was trained against.
+  const featureIndex = model?.indexKind === "equal-weight" ? ew : kse;
 
-  // The model's inputs for today come out of the same panel builder that
-  // trained it, so the features (ranks included) are the trained layout.
   const lastRows = new Map<string, PanelRow>();
   let noModelReason = "";
   if (!model) noModelReason = "no trained model in the store yet";
-  else if (index.length < 300) noModelReason = "not enough index history to build features";
+  else if (featureIndex.length < 300) noModelReason = "not enough index history to build features";
   else {
-    const c = await contextFor(model, bars, index);
+    const c = await contextFor(model, stockBars, featureIndex);
     noModelReason = c.reason;
     if (c.context) {
-      const panel = buildPanel(bars, index, model.horizon, { context: c.context, ranks: (model.rankNames ?? []).length > 0, minRows: 1 });
+      const panel = buildPanel(bars, featureIndex, model.horizon, { context: c.context, ranks: (model.rankNames ?? []).length > 0, minRows: 1 });
       for (const r of panel.rows) lastRows.set(r.symbol, r);
     }
   }
+
+  const v = model?.validation;
   const rec: ModelRecord | null =
-    model?.validation && model.validation.targets.length >= 3
-      ? { up: model.validation.targets[0], beat: model.validation.targets[1], dip: model.validation.targets[2], own: null, from: model.validation.from, to: model.validation.to, names: model.validation.symbols }
-      : null;
-  const ownRecord = (symbol: string): SymbolMetrics | null => model?.validation?.perSymbol.find((p) => p.symbol === symbol) ?? null;
+    v && v.targets.length >= 3 ? { up: v.targets[0], beat: v.targets[1], dip: v.targets[2], from: v.from, to: v.to, names: v.symbols, icRel: v.icRel ? { mean: v.icRel.mean, tStat: v.icRel.tStat } : null } : null;
+  const dipUsable = !!rec && rec.dip.auc >= RECORD_FLOOR;
+  const strategy = model?.strategy ?? long?.strategy ?? null;
+
+  // Forecasts and the cross-sectional rank on the odds of beating the market.
+  const forecasts = new Map<string, Forecast>();
+  if (model && !noModelReason) {
+    for (const [symbol, row] of lastRows) {
+      if (row.x.length !== model.featureNames.length) continue;
+      try {
+        const p = predictEnsemble(model.learners, row.x);
+        forecasts.set(symbol, { up: p[0], beat: p[1], dip: p[2], horizon: model.horizon });
+      } catch {
+        /* a name that cannot be scored is left without odds */
+      }
+    }
+  }
+  const beatValues = [...forecasts].filter(([s]) => !TRAIN_INDICES.includes(s)).map(([, f]) => f.beat);
+  const pctileOf = (symbol: string): number | null => {
+    const f = forecasts.get(symbol);
+    if (!f || beatValues.length < 8) return null;
+    const below = beatValues.filter((b) => b < f.beat).length;
+    return below / (beatValues.length - 1);
+  };
+
+  // Market strength, from the names themselves.
+  const br = breadthNow(stockBars);
+  let market: MarketRead | null = null;
+  if (ew.length >= 200 && br.names >= 20) {
+    const level = ew[ew.length - 1].close;
+    const ma200 = ew.slice(-200).reduce((s, b) => s + b.close, 0) / 200;
+    market = readMarket(level > ma200, level, ma200, br.above200Pct, br.above50Pct);
+  }
 
   const relTable: Array<{ symbol: string; rel: number }> = [];
-  for (const [s, b] of bars) {
-    if (TRAIN_INDICES.includes(s)) continue;
-    const r = relativeReturn(b, index, 20);
+  for (const [s, b] of stockBars) {
+    const r = relativeReturn(b, kse, 20);
     if (r != null) relTable.push({ symbol: s, rel: r });
   }
   relTable.sort((a, b) => b.rel - a.rel);
-
-  const forecastFor = (symbol: string): Forecast | null => {
-    if (!model || noModelReason) return null;
-    const last = lastRows.get(symbol);
-    if (!last || last.x.length !== model.featureNames.length) return null;
-    try {
-      const p = predictEnsemble(model.learners, last.x);
-      return { up: p[0], beat: p[1], dip: p[2], horizon: model.horizon };
-    } catch {
-      return null;
-    }
-  };
 
   const make = (symbol: string, title: string, heldName: boolean): ReportItem | null => {
     const b = bars.get(symbol);
@@ -250,24 +250,32 @@ export async function buildQuantReport(): Promise<QuantReport> {
     const trend = readTrend(b);
     const zone = zoneBySymbol.get(symbol);
     const pos = posBySymbol.get(symbol);
-    const forecast = forecastFor(symbol);
+    const forecast = forecasts.get(symbol) ?? null;
     const projection = forecast ? projectLevels(b, forecast.horizon, forecast.up, forecast.dip, DIP_PCT) : null;
-    const bands = heldName && projection ? modelBands(projection) : null;
-    const ownRec = ownRecord(symbol);
-    const itemRec: ModelRecord | null = rec ? { ...rec, own: ownRec } : null;
+    const bands = projection ? modelBands(projection) : null;
+    const pctile = heldName ? pctileOf(symbol) : null;
+
+    let verdict: Verdict = "INDEX";
+    let verdictLine = "";
+    let standing: NameStanding | null = null;
+    let modelZone: ModelZone | null = null;
+    if (heldName) {
+      if (projection && bands && market) {
+        const read = readName({ held: true, market: market.state, pctile, trend, price: last.close, projection, bands, pDip: forecast?.dip ?? 0.5, dipUsable });
+        verdict = read.verdict;
+        verdictLine = read.line;
+        standing = read.standing;
+        modelZone = read.zone;
+      } else {
+        verdict = "HOLD";
+        verdictLine = noModelReason ? `No model reading today (${noModelReason}); the position stands.` : "No model reading for this name today; the position stands.";
+      }
+    }
 
     const relIdx = relTable.findIndex((r) => r.symbol === symbol);
     const relative = heldName && relIdx >= 0 ? { rel20Pct: relTable[relIdx].rel * 100, rank: relIdx + 1, of: relTable.length } : null;
     const volPct = heldName ? realisedVolPct(b, 20) : null;
     const vol = volPct != null ? { pct: volPct, percentile: volPercentile(b, 20, 250) } : null;
-
-    const { verdict, line: verdictLine } = verdictFor(
-      zone ? { status: zone.status, buyZoneLow: zone.buyZoneLow, buyZoneHigh: zone.buyZoneHigh, price: zone.price } : undefined,
-      trend,
-      heldName,
-      forecast && rec ? { p: forecast.dip, auc: rec.dip.auc, horizon: forecast.horizon } : null,
-      bands
-    );
 
     const png = renderPriceChart({
       title,
@@ -275,15 +283,16 @@ export async function buildQuantReport(): Promise<QuantReport> {
       bars: window,
       ma50: m50.slice(from),
       ma200: m200.slice(from),
-      buyZone: zone ? { low: zone.buyZoneLow, high: zone.buyZoneHigh } : undefined,
-      sellZone: zone ? { low: zone.sellZoneLow, high: zone.sellZoneHigh } : undefined,
+      // The model's own zones on the chart; the owner's are in the note.
+      buyZone: modelZone ? { low: modelZone.buyLow, high: modelZone.buyHigh } : undefined,
+      sellZone: modelZone ? { low: modelZone.sellLow, high: modelZone.sellHigh } : undefined,
       avgCost: pos?.avgCost ?? null,
       projection: projection ? { horizon: projection.horizon, median: projection.median, low: projection.low, high: projection.high, dipLevel: projection.dipLevel } : null,
-      footer: `LAST ${last.close.toFixed(2)}  ${pct(dayChangePct, 2)} ON THE DAY${heldName && verdict !== "INDEX" ? `   ${verdict}` : ""}${projection ? `   MODEL ${odds(projection.pUp)} HIGHER IN ${projection.horizon}D` : ""}`,
+      footer: `LAST ${last.close.toFixed(2)}  ${pct(dayChangePct, 2)} ON THE DAY${heldName ? `   ${verdict}` : ""}${projection ? `   MODEL ${odds(projection.pUp)} HIGHER IN ${projection.horizon}D` : ""}`,
     });
 
-    const base = { symbol, title, trend, verdict, verdictLine, forecast, projection, bands, last: last.close, dayChangePct, relative, vol };
-    return { ...base, png, caption: captionFor(base, itemRec, yourBands(zone)) };
+    const base = { symbol, title, trend, verdict, verdictLine, standing, pctile, zone: modelZone, yourZone: yourBands(zone), forecast, projection, bands, last: last.close, dayChangePct, relative, vol };
+    return { ...base, png, caption: captionFor(base, rec) };
   };
 
   const indices: ReportItem[] = [];
@@ -296,29 +305,16 @@ export async function buildQuantReport(): Promise<QuantReport> {
     const item = make(symbol, `${symbol} ${pos.name ?? ""}`.trim(), true);
     if (item) holdings.push(item);
   }
-  const rank: Record<Verdict, number> = { BUY: 0, WAIT: 1, TRIM: 2, HOLD: 3, "SET ZONE": 4, INDEX: 5 };
-  holdings.sort((a, b) => rank[a.verdict] - rank[b.verdict] || a.symbol.localeCompare(b.symbol));
+  const rankOf = (vv: Verdict) => (vv === "INDEX" ? 99 : VERDICT_RANK[vv]);
+  holdings.sort((a, b) => rankOf(a.verdict) - rankOf(b.verdict) || (b.pctile ?? 0) - (a.pctile ?? 0) || a.symbol.localeCompare(b.symbol));
 
-  // The model's bands, kept where the app can show them later.
-  if (userId && holdings.some((h) => h.bands)) {
-    await saveQuantSnapshot(
-      `quant:zones:${userId}`,
-      { at: today, horizon: model?.horizon ?? null, bands: holdings.filter((h) => h.bands).map((h) => ({ symbol: h.symbol, ...h.bands!, centre: h.projection!.median, low: h.projection!.low, high: h.projection!.high })) },
-      `${holdings.filter((h) => h.bands).length} names`
-    ).catch(() => {});
-  }
-
-  // --- the market, in words ---------------------------------------------------
-  const kse = indices.find((i) => i.symbol === "KSE100");
+  // --- the market and the model, in words ------------------------------------
+  const kseItem = indices.find((i) => i.symbol === "KSE100");
   const idxShort = indices.map((i, k) => (k === 0 ? `${i.title} ${money(i.last)} (${pct(i.dayChangePct)})${i.trend ? " " + i.trend.label.toLowerCase() : ""}` : `${i.title} ${pct(i.dayChangePct)}`)).join(" · ");
   const idxLong = indices.map((i) => `${i.title} ${money(i.last)} (${pct(i.dayChangePct, 2)})${i.trend ? ", " + i.trend.line : ""}`).join("\n");
-  const universeBars = new Map([...bars].filter(([s]) => !TRAIN_INDICES.includes(s) && (model?.universe.includes(s) ?? true)));
-  const br = breadthNow(universeBars);
-  const breadthShort = br.names >= 20 ? `Breadth: ${br.above50Pct.toFixed(0)}% above 50d, ${br.above200Pct.toFixed(0)}% above 200d.` : "";
-  const breadthLong = br.names >= 20 ? `Breadth across ${br.names} names: ${br.above50Pct.toFixed(0)}% above their 50-day, ${br.above200Pct.toFixed(0)}% above their 200-day, ${br.adv20Pct.toFixed(0)}% up over 20 sessions.` : "";
+  const marketShort = market ? `Market ${market.state}: equal-weight index ${market.indexAbove200 ? "above" : "below"} its 200d, ${market.breadth200Pct.toFixed(0)}% of names above theirs, ${market.breadth50Pct.toFixed(0)}% above their 50d.` : "";
   const regime = plan?.regime;
-  const regimeShort = regime ? `Regime ${regime.label}, cash floor ${regime.cashFloorPct}%.` : "";
-  const regimeLong = regime ? `Regime: ${regime.label} (score ${regime.rawScore >= 0 ? "+" : ""}${regime.rawScore} of ${regime.maxScore}); the playbook's cash floor for it is ${regime.cashFloorPct}%.` : "";
+  const regimeLong = regime ? `Your playbook's regime: ${regime.label} (score ${regime.rawScore >= 0 ? "+" : ""}${regime.rawScore} of ${regime.maxScore}), cash floor ${regime.cashFloorPct}%.` : "";
 
   const macroBars = await loadMacro(mongoBarsCache(24)).catch(() => null);
   const m = (k: MacroKey, days: number) => (macroBars ? macroRead(macroBars.get(k) ?? [], days) : null);
@@ -335,117 +331,102 @@ export async function buildQuantReport(): Promise<QuantReport> {
     tb != null ? `12M T-bill ${Number(tb).toFixed(2)}%` : "",
   ].filter(Boolean);
 
-  // --- the model, in words ------------------------------------------------------
   let modelNote: string;
   let modelShort = "";
   if (!model) {
-    modelNote = "Model: none trained yet. Until then the bands and the trend are the signal.";
+    modelNote = "Model: none trained yet.";
   } else if (noModelReason) {
-    modelNote = `Model: no forecasts today, ${noModelReason}. The bands and the trend still stand.`;
+    modelNote = `Model: no forecasts today, ${noModelReason}.`;
   } else if (!rec) {
     modelNote = "Model: trained, but without a walk-forward record; treat its odds as decoration.";
   } else {
     const learners = model.learners.map((l) => l.kind).reduce<Record<string, number>>((a, k) => ({ ...a, [k]: (a[k] ?? 0) + 1 }), {});
     const what = Object.entries(learners).map(([k, n]) => `${n} ${k === "gbm" ? "boosted-tree" : "network"} model${n > 1 ? "s" : ""}`).join(" and ");
-    const kseRec = ownRecord("KSE100");
+    const span = model.trainedFrom === "archive" ? `the exchange's archive, ${model.universe.length} names that were each among the most traded of their year, to ${model.trainedTo}` : `${model.universe.length} names to ${model.trainedTo}`;
     const parts = [
-      `<b>Model</b>: ${what}, trained on ${model.universe.length} names to ${model.trainedTo}, ${model.horizon} sessions ahead, with market breadth${model.contextNames.some((n) => n.startsWith("pkr")) ? ", the rupee, oil and global risk" : ""} as context${(model.rankNames ?? []).length ? " and each name's rank among the others" : ""}.`,
-      `Walk-forward record ${rec.from} to ${rec.to}: direction ${recordWords(rec.up)} (skill ${pct(rec.up.skill)} against always-up); relative ranking ${recordWords(rec.beat)}; ${DIP_PCT}% dip ${recordWords(rec.dip)}.`,
+      `<b>Model</b>: ${what}, trained on ${span}, ${model.horizon} sessions ahead, with market breadth as context.`,
+      `Walk-forward record ${rec.from} to ${rec.to}${model.trainedFrom === "archive" ? " (out of sample throughout, no survivorship bias)" : ""}: ranking of names IC ${rec.icRel ? `${rec.icRel.mean >= 0 ? "+" : ""}${rec.icRel.mean.toFixed(3)} (t ${rec.icRel.tStat.toFixed(1)})` : "n/a"}; direction ${recordWords(rec.up)}; ${DIP_PCT}% dip ${recordWords(rec.dip)}.`,
     ];
-    if (kse?.projection) {
-      parts.push(`KSE-100: ${projectionLine(kse.projection)} ${levelsLine(kse.projection)}${kseRec ? ` On the index alone the record is direction AUC ${kseRec.auc.toFixed(2)}, dip AUC ${kseRec.aucDip.toFixed(2)} over ${kseRec.n} sessions.` : ""}`);
-      const longT = long?.summary?.targets;
-      const recordShort = longT?.length
-        ? `5y record ${rec.up.auc.toFixed(2)} direction / ${rec.dip.auc.toFixed(2)} dip, 24y ${longT[0].auc.toFixed(2)} / ${longT[2].auc.toFixed(2)}`
-        : `record ${rec.up.auc.toFixed(2)} direction / ${rec.dip.auc.toFixed(2)} dip`;
-      modelShort = `Model (${recordShort}): KSE-100 ${projectionLine(kse.projection).replace(/^Next \d+ sessions: /, "")}`;
+    if (strategy) {
+      const uni = strategy.legs[0], gated = strategy.legs[4], topLeg = strategy.legs[1];
+      parts.push(`The rule as a rule, ${strategy.from} to ${strategy.to}: universe held outright ${pct(uni.cagrPct)} a year with a worst fall of ${pct(uni.maxDrawdownPct, 0)}; the model's top fifth ${pct(topLeg.cagrPct)} a year (${pct(topLeg.maxDrawdownPct, 0)}); the top fifth only while the market is strong ${pct(gated.cagrPct)} a year with a worst fall of ${pct(gated.maxDrawdownPct, 0)}, in the market ${gated.inMarketPct.toFixed(0)}% of the time, after 0.3% costs per rebalance.`);
     }
-    if (long?.summary?.targets?.length) {
-      const t = long.summary.targets;
-      parts.push(`Long test, ${long.years}, ${long.names} names, no survivorship bias: direction AUC ${t[0].auc.toFixed(2)}, relative ${t[1].auc.toFixed(2)}, dip ${t[2].auc.toFixed(2)}, rank IC ${long.summary.icRel.mean >= 0 ? "+" : ""}${long.summary.icRel.mean.toFixed(3)} (t ${long.summary.icRel.tStat.toFixed(1)}).`);
+    if (market) parts.push(market.line);
+    if (kseItem?.projection) {
+      parts.push(`KSE-100: ${projectionLine(kseItem.projection)} ${levelsLine(kseItem.projection)}`);
+      modelShort = `KSE-100 model read: ${projectionLine(kseItem.projection).replace(/^Next \d+ sessions: /, "")}`;
     }
-    const ups = holdings.map((h) => h.forecast?.up).filter((v): v is number => v != null);
-    if (ups.length >= 3 && Math.max(...ups) - Math.min(...ups) < 0.03) {
-      parts.push(`The direction odds barely differ from name to name today (${odds(Math.min(...ups))} to ${odds(Math.max(...ups))}): the model is saying the market, not the name, decides the next ${model.horizon} sessions.`);
-    }
-    // Twenty-four years outrank five. When the long test says coin toss, the
-    // recent record is called what it is: unproven.
-    const longUp = long?.summary?.targets?.[0]?.auc ?? null;
-    const longDip = long?.summary?.targets?.[2]?.auc ?? null;
-    const dirWords =
-      longUp != null && longUp < 0.53
-        ? `unproven: a modest tilt over the last five years (AUC ${rec.up.auc.toFixed(2)}) but a coin toss over twenty-four (${longUp.toFixed(2)})`
-        : rec.up.auc >= RECORD_FLOOR
-        ? "a modest tilt worth reading"
-        : "a coin toss: read them as noise";
-    const dipWords =
-      rec.dip.auc >= RECORD_FLOOR
-        ? `carry real information over the last five years and are used to stage buys${longDip != null && longDip < 0.56 ? ` (over twenty-four years the edge is slighter, ${longDip.toFixed(2)})` : ""}`
-        : "are too weak to act on";
-    parts.push(`<i>Read the direction odds as ${dirWords}; the dip odds ${dipWords}. The bands and the trend remain the signal.</i>`);
+    const dirWords = rec.up.auc < 0.53 ? "a coin toss over the long run: printed, not acted on" : "a modest tilt";
+    parts.push(`<i>What to trust: the ranking of names (the one signal that held for twenty-four years); the dip odds ${dipUsable ? "are used to stage buys" : "are slight"}; the direction odds are ${dirWords}.</i>`);
     modelNote = parts.join("\n");
   }
 
-  const buys = holdings.filter((h) => h.verdict === "BUY").map((h) => h.symbol);
-  const waits = holdings.filter((h) => h.verdict === "WAIT").map((h) => h.symbol);
-  const trims = holdings.filter((h) => h.verdict === "TRIM").map((h) => h.symbol);
-  const unset = holdings.filter((h) => h.verdict === "SET ZONE").map((h) => h.symbol);
-  const actionShort = [
-    buys.length ? `Add today: ${buys.join(", ")}.` : "Add today: nothing.",
-    waits.length ? `At your price but falling: ${waits.join(", ")}.` : "",
-    trims.length ? `In a sell band: ${trims.join(", ")}.` : "",
-    unset.length ? `No band written for ${unset.join(", ")} (model bands in the caption).` : "",
-  ]
-    .filter(Boolean)
-    .join(" ");
+  const byVerdict = (vv: ModelVerdict) => holdings.filter((h) => h.verdict === vv).map((h) => h.symbol);
+  const says: string[] = [];
+  for (const vv of ["BUY", "STAGE", "SELL", "TRIM", "WATCH", "WAIT", "HOLD"] as ModelVerdict[]) {
+    const names = byVerdict(vv);
+    if (names.length) says.push(`${vv} ${names.join(", ")}`);
+  }
+  const saysShort = says.length ? `Model says: ${says.join(" · ")}.` : "";
+  const ranked = holdings.filter((h) => h.forecast).sort((a, b) => b.forecast!.beat - a.forecast!.beat);
+  const rankShort = ranked.length >= 2 ? `Order (odds of beating the market): ${ranked.map((h) => `${h.symbol} ${odds(h.forecast!.beat)}`).join(" · ")}.` : "";
 
-  // Over twenty-four years the one durable thing the model does is rank
-  // names against each other. When the long test says so (rank IC with a
-  // t-statistic of at least 3), that order goes in the short message.
-  const longIc = long?.summary?.icRel ?? null;
-  const rankedNames = holdings.filter((h) => h.forecast).sort((a, b) => b.forecast!.beat - a.forecast!.beat);
-  const rankShort =
-    longIc && longIc.tStat >= 3 && rankedNames.length >= 2
-      ? `Model's order (24y rank IC ${longIc.mean >= 0 ? "+" : ""}${longIc.mean.toFixed(2)}, t ${longIc.tStat.toFixed(1)}): ${rankedNames.map((h) => `${h.symbol} ${odds(h.forecast!.beat)}`).join(" · ")}.`
-      : "";
-
-  const summary = [`<b>Charts ${today}</b>`, idxShort, [breadthShort, regimeShort].filter(Boolean).join(" "), modelShort, actionShort, rankShort, macroShort]
+  const summary = [`<b>Analysis ${today}</b>`, idxShort, marketShort, modelShort, saysShort, rankShort, macroShort]
     .filter((l) => l !== "")
     .join("\n")
     .slice(0, 4096);
 
   const holdingLines = holdings.map((h) => {
-    const bits = [`${h.symbol} ${money(h.last)} (${pct(h.dayChangePct)})${h.trend ? `, ${h.trend.label.toLowerCase()}` : ""}`];
-    if (h.forecast) bits.push(`odds higher ${odds(h.forecast.up)}, beats index ${odds(h.forecast.beat)}, dip first ${odds(h.forecast.dip)}`);
-    if (h.bands) bits.push(`model bands ${bandsLine(h.bands)}`);
+    const bits = [`${h.symbol} ${money(h.last)} (${pct(h.dayChangePct)})${h.trend ? `, ${h.trend.label.toLowerCase()}` : ""}${h.pctile != null ? `, ${Math.round((1 - h.pctile) * 100)}th percentile` : ""}`];
+    if (h.forecast) bits.push(`odds: beats market ${odds(h.forecast.beat)}, higher ${odds(h.forecast.up)}, dip first ${odds(h.forecast.dip)}`);
+    if (h.zone) bits.push(zoneLine(h.zone).replace(/\.$/, ""));
     bits.push(`${h.verdict}: ${h.verdictLine}`);
+    if (h.yourZone) bits.push(`your band: ${h.yourZone}`);
     return bits.join(". ");
   });
   const detail = [
-    `Charts for ${today}`,
+    `Analysis for ${today}`,
     idxLong,
-    breadthLong,
+    market ? market.line : "",
+    `Breadth across ${br.names} names: ${br.above50Pct.toFixed(0)}% above their 50-day, ${br.above200Pct.toFixed(0)}% above their 200-day, ${br.adv20Pct.toFixed(0)}% up over 20 sessions.`,
     regimeLong,
     macroLong.length ? `Pakistan: ${macroLong.join("; ")}.` : "",
     "",
     modelNote.replace(/<\/?[bi]>/g, ""),
     "",
-    buys.length ? `Add today: ${buys.join(", ")} — at your price and not falling.` : "Add today: nothing. No held name is both at your price and out of its fall.",
-    waits.length ? `At your price but still falling: ${waits.join(", ")}. Wait for a close back above the 50-day.` : "",
-    trims.length ? `In a sell band: ${trims.join(", ")}.` : "",
+    saysShort,
+    rankShort,
     "",
     ...holdingLines,
   ]
     .filter((l) => l !== "")
     .join("\n");
 
-  return {
+  const report: QuantReport = {
     date: today,
     indices,
     holdings,
+    market,
     summary,
     detail,
     modelNote,
-    model: model ? { trainedOn: model.trainedOn, horizon: model.horizon, names: model.universe.length, learners: model.learners.map((l) => l.kind).join("+") } : null,
+    record: rec,
+    strategy,
+    model: model ? { trainedOn: model.trainedOn, trainedFrom: model.trainedFrom ?? "eod", horizon: model.horizon, names: model.universe.length, learners: model.learners.map((l) => l.kind).join("+") } : null,
   };
+
+  // Kept per user for the Analysis page and for the app's zone views.
+  if (userId) {
+    const strip = (it: ReportItem): StoredReportItem => ({ ...it, png: it.png.toString("base64") });
+    const stored: StoredReport = { ...report, builtAt: new Date().toISOString(), indices: indices.map(strip), holdings: holdings.map(strip) };
+    await saveQuantSnapshot(`quant:report:${userId}`, stored, `${holdings.length} names, ${today}`).catch(() => {});
+    if (holdings.some((h) => h.zone)) {
+      await saveQuantSnapshot(
+        `quant:zones:${userId}`,
+        { at: today, horizon: model?.horizon ?? null, bands: holdings.filter((h) => h.zone).map((h) => ({ symbol: h.symbol, verdict: h.verdict, ...h.zone!, centre: h.projection?.median ?? null })) },
+        `${holdings.filter((h) => h.zone).length} names`
+      ).catch(() => {});
+    }
+  }
+  return report;
 }

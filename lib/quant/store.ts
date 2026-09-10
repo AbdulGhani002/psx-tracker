@@ -14,6 +14,7 @@ import { connectDb } from "@/lib/db";
 import { FeedSnapshotModel } from "@/lib/models/FeedSnapshot";
 import type { EodBar } from "@/lib/timeseries/psx-eod";
 import type { Learner, PanelOptions, PanelWalkResult } from "./panel";
+import type { StrategyResult } from "./strategy";
 import type { BarsCache } from "./universe";
 
 export const QUANT_MODEL_KEY = "quant:model";
@@ -30,6 +31,9 @@ export type StoredQuantModel = {
   targetNames: string[];
   universe: string[];
   universeSource: string;
+  trainedFrom: "eod" | "archive"; // the five-year feed, or the 24-year archive
+  indexKind: "kse100" | "equal-weight"; // what the idx* features were built on
+  strategy: StrategyResult | null; // the rule test on the walk-forward points
   rows: number;
   config: PanelOptions;
   finalRounds: number[] | null; // per target, when the final boosters used fixed rounds

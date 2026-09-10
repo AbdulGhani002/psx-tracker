@@ -9,6 +9,7 @@ import { ThemeToggle } from "./ThemeToggle";
 const PRIMARY = [
   { href: "/", label: "Overview" },
   { href: "/plan", label: "Plan" },
+  { href: "/analysis", label: "Analysis" },
   { href: "/holdings", label: "Holdings" },
   { href: "/decisions", label: "Decisions" },
   { href: "/wealth", label: "Wealth" },
