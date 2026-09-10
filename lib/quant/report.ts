@@ -347,9 +347,10 @@ export async function buildQuantReport(): Promise<QuantReport> {
   const buys = holdings.filter((h) => h.verdict === "BUY").map((h) => h.symbol);
   const waits = holdings.filter((h) => h.verdict === "WAIT").map((h) => h.symbol);
   const trims = holdings.filter((h) => h.verdict === "TRIM").map((h) => h.symbol);
+  // The ranking line is only worth the space when the ranking has a record.
   const ranked = holdings.filter((h) => h.forecast).sort((a, b) => b.forecast!.beat - a.forecast!.beat);
   const bestLine =
-    ranked.length && rec
+    ranked.length && rec && rec.beat.auc >= 0.53
       ? `<b>Model's order among your names</b> (odds of beating the index, ${ranked[0].forecast!.horizon} sessions; record ${recordWords(rec.beat)}): ${ranked.map((h) => `${h.symbol} ${odds(h.forecast!.beat)}`).join(", ")}.`
       : "";
 

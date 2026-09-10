@@ -1,7 +1,7 @@
 // Single source of truth for the app version + changelog.
 // Bump APP_VERSION and prepend a CHANGELOG entry on every release.
 
-export const APP_VERSION = "9.9.0";
+export const APP_VERSION = "9.10.0";
 
 export const BUILD_DATE =
   process.env.NEXT_PUBLIC_BUILD_DATE ?? "";
@@ -17,6 +17,24 @@ export type ChangelogEntry = {
 
 // Reverse-chronological. Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: "9.10.0",
+    date: "2026-09-10",
+    title: "The market model rebuilt: one model for the whole KSE-100, boosted trees tested against the network, a record printed next to every number",
+    changes: [
+      "Yesterday's model trained one small network per name on about a thousand days each, and a thousand days of daily returns is not enough to learn anything but noise. The model is now trained on every KSE-100 name at once: ninety-one names, eighty-eight thousand name-days, one panel. The features are scale-free (returns, ratios, positions within a range), so a Rs 13 stock and a Rs 7,000 stock teach the same model.",
+      "Two learners were built and raced. Gradient-boosted decision trees, written out in full (histogram splits, Newton leaves, row and feature subsampling, early stopping on a time-ordered slice), because on tabular data like this they are what wins. And the network, rebuilt on typed arrays with Adam and three outputs sharing its hidden layers, ten times faster than before. On the same walk-forward, three seeds each, the trees scored direction AUC 0.58; the network scored 0.51 to 0.57 depending on its learning rate, and adding it to the ensemble pulled the pair down to 0.57. So the shipped model is the trees alone. The network stays in the code and in the harness, and the weekly job switches to the pair with one flag if it ever earns its place.",
+      "Three questions instead of one, each with its own record: will the name be higher in 20 sessions; will it beat the KSE-100 over those sessions; will there be a close 5% below today's before they are up. The third is the one that matters for adding to a position you already own.",
+      "The measures are the ones a desk would use, not a headline accuracy. AUC, where 0.5 is a coin toss no matter how lopsided the base rate (the KSE-100 was higher 20 sessions later 57% of the time, so 57% accuracy is worth nothing). Rank IC: each day, how the model ordered the names against how they then finished. The top fifth of names by model score against the bottom fifth. Every t-statistic on non-overlapping dates only, because twenty-day windows that overlap are not separate evidence.",
+      "What it measured, walked forward from 2024-09-24 to 2026-08-10 with an embargo so no training target overlaps a test day, three seeds: direction AUC 0.58, skill +0.7 points against always-up, rank IC +0.07 (t 2.0); beating the index AUC 0.53, a ranking not to be traded; a 5% dip within 20 sessions AUC 0.58, skill +1.0. Modest, real, and printed beside every number it produces.",
+      "PSX-specific context. Every row also carries what the market was doing that day: how many names sat above their 50- and 200-day averages, how many were up over 20 sessions, how dispersed their returns were, the equal-weight market against the cap-weighted index. The rupee, oil, the S&P 500 and the emerging-market basket were built in too, forward-filled from their last print, and tested the same way: on five years of data the macro block cost direction skill (AUC 0.58 to 0.52 across three seeds), because five years hold one rate cycle and one devaluation, while market breadth helped. So breadth is in, the macro block is off by default, and the 24-year test decides whether it comes back. The macro figures still appear in the summary as facts: USD/PKR and its four-week move, WTI, CPI, the policy rate and the real rate, the 12-month T-bill.",
+      "The model has a say in the verdict only through a target whose record clears a fixed bar, AUC 0.58, and only in one way: a name that is BUY by band and trend but carries 55% or better odds of a 5% lower price within 20 sessions is staged, half now and half on the dip; under 35% it is taken in one go. This week's dip record is 0.577, a hair under the bar, so the odds are printed and not yet acted on. The bar does not move; the record is remeasured every Saturday.",
+      "Training moved out of the web server. Retraining is minutes of synchronous arithmetic, so it runs as its own process every Saturday at 06:30 (a systemd timer, the script bundled with esbuild), writes the ensemble and its walk-forward record to the feed store, and the daily report only reads. A report never trains, and a training run never blocks a page.",
+      "The charts stay as they were, ink on paper. The summary gained market breadth across the ninety-one names, the regime score, the Pakistan line and the model's own record; each holding's caption gained its relative-strength rank among those names, its volatility against its own year, and the three odds with their records.",
+      "The harness was tested before any number was believed: 73 checks. Features and market context at day k do not move by a bit when every later bar is altered; on pooled noise both learners score a coin toss on every measure; on a planted cross-sectional signal they find it (AUC above 0.6, rank IC above 0.15); a booster and a network survive a JSON round trip unchanged.",
+      "The exchange's own archive. The PSX data portal serves a closing sheet for any date back to 2002, with open, high, low, close and volume for every listed name, including the ones since delisted. A resumable puller collected all 6,108 sessions (1,751 names, 897 with a year or more of history). A 24-year walk-forward on a universe that changes each year (the 120 most traded names of the year before, so nothing is picked with hindsight, and no survivorship bias) is running; its result will be saved to the feed store and cited in the report when it lands.",
+    ],
+  },
   {
     version: "9.9.0",
     date: "2026-09-09",

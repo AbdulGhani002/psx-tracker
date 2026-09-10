@@ -9,6 +9,6 @@ WorkingDirectory=/root/psx-tracker-v2
 EnvironmentFile=/root/psx-tracker-v2/.env.local
 Nice=10
 TimeoutStartSec=5400
-ExecStart=/usr/bin/node --max-old-space-size=1536 /root/psx-tracker-v2/jobs/quant-train.js --seeds 3
+ExecStart=/usr/bin/node --max-old-space-size=1536 /root/psx-tracker-v2/jobs/quant-train.js --seeds 3 --learner gbm
 StandardOutput=append:/var/log/psx-quant-train.log
 StandardError=append:/var/log/psx-quant-train.log

@@ -3,7 +3,7 @@
 //   npx tsx scripts/quant-train.ts [--dry] [--horizon 20] [--seeds 3] [--step 60] [--minTrain 500]
 //        [--learner both|mlp|gbm] [--hidden 32,16] [--l2 1e-4] [--lr 5e-3] [--epochs 80] [--batch 64] [--patience 8]
 //        [--rounds 300] [--depth 4] [--minLeaf 100] [--gbmLr 0.05]
-//        [--no-context] [--no-macro] [--universe kse100|held] [--symbols A,B] [--held A,B]
+//        [--no-context] [--macro] [--universe kse100|held] [--symbols A,B] [--held A,B]
 //        [--no-validate] [--windows N] [--cache DIR]
 //
 // Without --dry it connects to Mongo, reads the held symbols, caches bars in
@@ -46,7 +46,10 @@ async function main() {
   const opts = optionsFromArgs();
   const maxWindows = num("windows", 0);
   const useContext = !has("no-context");
-  const useMacro = useContext && !has("no-macro");
+  // The rupee, oil and global-risk block is opt-in: on five years of data it
+  // cost direction skill (AUC 0.58 to 0.52 across three seeds) because five
+  // years hold one rate cycle and one devaluation. Market breadth stays.
+  const useMacro = useContext && has("macro");
 
   const held = await heldSymbols();
   const universeMode = argOf("universe") ?? "kse100";
@@ -81,7 +84,7 @@ async function main() {
     if (useMacro) {
       const m = await loadMacro(cache);
       if (!m) {
-        console.error("Macro series unavailable; refusing to train with a half-empty context. Use --no-macro to train without it.");
+        console.error("Macro series unavailable; refusing to train with a half-empty context. Drop --macro to train without it.");
         process.exit(1);
       }
       macro = macroContext(m, dates);

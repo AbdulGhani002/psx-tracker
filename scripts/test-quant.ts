@@ -246,7 +246,7 @@ function randomWalk(n: number, drift = 0.0003, vol = 0.015, start = 100): EodBar
 
 // ---------------------------------------------------------------- panel
 {
-  const popts: PanelOptions = { ...DEFAULT_PANEL, minTrain: 400, step: 150, horizon: 20, seeds: 1, train: { ...DEFAULT_PANEL.train, epochs: 40 }, gbm: { ...DEFAULT_PANEL.gbm, rounds: 120, minLeaf: 30 } };
+  const popts: PanelOptions = { ...DEFAULT_PANEL, learner: "both", minTrain: 400, step: 150, horizon: 20, seeds: 1, train: { ...DEFAULT_PANEL.train, epochs: 40 }, gbm: { ...DEFAULT_PANEL.gbm, rounds: 120, minLeaf: 30 } };
   const N = 1000;
   const index = randomWalk(N, 0.0003, 0.01, 40000);
 

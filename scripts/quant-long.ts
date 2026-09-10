@@ -2,7 +2,7 @@
 // published, 2002 to today, on a universe that changes with the market.
 //
 //   npx tsx scripts/quant-long.ts --history DIR [--horizon 20] [--step 250] [--minTrain 750] [--top 120]
-//        [--learner both|mlp|gbm] [--seeds 1] [--no-macro] [--cache DIR] [--save] [--out FILE]
+//        [--learner both|mlp|gbm] [--seeds 1] [--macro] [--cache DIR] [--save] [--out FILE]
 //
 // DIR is what scripts/psx-history.ts wrote. Each calendar year's universe is
 // the `top` names by median daily traded value over the PREVIOUS year, so a
@@ -156,10 +156,10 @@ async function main() {
   const dates = index.map((b) => b.date);
   const market = marketContext(bars, index);
   let macro: Map<string, number[]> | null = null;
-  if (!has("no-macro")) {
+  if (has("macro")) {
     const cacheDir = argOf("cache") || process.env.QUANT_CACHE || join(process.env.TEMP || ".", "psx-quant-cache");
     const m = await loadMacro(diskBarsCache(cacheDir, 24 * 7));
-    if (!m) { console.error("Macro series unavailable; pass --no-macro to run without them."); process.exit(1); }
+    if (!m) { console.error("Macro series unavailable; drop --macro to run without them."); process.exit(1); }
     macro = macroContext(m, dates);
   }
   const ctx = mergeContext(market, macro, dates)!;

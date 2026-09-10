@@ -87,7 +87,7 @@ export const DEFAULT_PANEL: PanelOptions = {
   threshold: 0.6,
   cashYieldPct: 11,
   seeds: 3,
-  learner: "both",
+  learner: "gbm",
   train: { hidden: [32, 16], epochs: 80, lr: 5e-3, l2: 1e-4, batch: 64, patience: 8, seed: 7 },
   gbm: { rounds: 300, lr: 0.05, maxDepth: 4, minLeaf: 100, lambda: 1, subsample: 0.7, colsample: 0.8, bins: 64, patience: 30, seed: 7 },
 };
