@@ -5,7 +5,7 @@
 //        [--rounds 300] [--depth 4] [--minLeaf 100] [--gbmLr 0.05]
 //        [--no-context] [--macro] [--universe kse100|held] [--symbols A,B] [--held A,B]
 //        [--no-validate] [--windows N] [--cache DIR] [--out FILE] [--fixedRounds] [--no-median]
-//        [--archive DIR] [--top 120] [--finalSeeds 3]
+//        [--archive DIR] [--top 120] [--finalSeeds 3] [--no-outlook]
 //
 // --archive trains on the exchange's 24-year archive (scripts/psx-history.ts)
 // exactly as scripts/quant-long.ts tests it: a universe that changes each
@@ -31,7 +31,9 @@ import { marketContext, macroContext, mergeContext } from "../lib/quant/context"
 import { gbmFeatureUse } from "../lib/quant/gbm";
 import { kse100Symbols, loadBars, TRAIN_INDICES } from "../lib/quant/universe";
 import { loadMacro } from "../lib/timeseries/macro";
-import { diskBarsCache, mongoBarsCache, saveQuantModel, type StoredQuantModel } from "../lib/quant/store";
+import { diskBarsCache, mongoBarsCache, saveQuantModel, type StoredQuantModel, type StoredIndexOutlook } from "../lib/quant/store";
+import { loadLongIndex } from "../lib/quant/index-history";
+import { indexStates, fitCells, evaluateCells, cellOutlook } from "../lib/quant/outlook";
 import { buildArchivePanel } from "../lib/quant/archive";
 import { strategyBacktest, strategyTable, strategyYearTable, type StrategyResult } from "../lib/quant/strategy";
 import { MARKET_CONTEXT_NAMES } from "../lib/quant/context";
@@ -160,6 +162,25 @@ async function main() {
     if (strategy) console.log("\n" + strategyTable(strategy) + "\n\n" + strategyYearTable(strategy));
   }
 
+  // The KSE-100 state table: what the index did after past days in each
+  // state since 1997, tested walk-forward against the plain base rate.
+  let indexOutlook: StoredIndexOutlook | null = null;
+  if (!has("no-outlook")) {
+    const cacheDir = argOf("cache") || process.env.QUANT_CACHE || join(process.env.TEMP || process.env.TMP || ".", "psx-quant-cache");
+    const longIdx = await loadLongIndex(diskBarsCache(cacheDir, 24 * 7), bars.get("KSE100")).catch(() => null);
+    if (!longIdx) console.log("\nKSE-100 long series unavailable (Yahoo ^KSE or the feed); the report will fall back to the model's odds for the index.");
+    else {
+      const states = indexStates(longIdx.bars, opts.horizon, breadth200);
+      const { record, years: yearly } = evaluateCells(states, { horizon: opts.horizon, level: 1, shrink: 20, fromYear: 2005 });
+      const cellModel = fitCells(states, opts.horizon, 20);
+      indexOutlook = { model: cellModel, record, yearly, seriesFrom: longIdx.bars[0].date, seriesTo: longIdx.bars[longIdx.bars.length - 1].date, joinedAt: longIdx.joinedAt };
+      const last = states[states.length - 1];
+      const o = cellOutlook(cellModel, last, 1);
+      console.log(`\nKSE-100 state table on ${longIdx.bars.length} sessions ${longIdx.bars[0].date} to ${longIdx.bars[longIdx.bars.length - 1].date} (joined at ${longIdx.joinedAt}, ${longIdx.maxJoinDiffPct.toFixed(3)}% apart). Walk-forward ${record.from.slice(0, 4)} to ${record.to.slice(0, 4)}, ${record.n} periods: Brier ${record.brier.toFixed(4)} vs base ${record.brierBase.toFixed(4)} (skill ${record.brierSkillPct >= 0 ? "+" : ""}${record.brierSkillPct.toFixed(1)}%), AUC ${record.auc.toFixed(3)}, dip skill ${record.dipSkillPct >= 0 ? "+" : ""}${record.dipSkillPct.toFixed(1)}%, 80% band covered ${(record.cover80 * 100).toFixed(0)}%.`);
+      console.log(`Today (${last.date}): ${o.label}, ${Math.round(o.periods)} periods; up ${(o.pUp * 100).toFixed(0)}% (base ${(o.base.pUp * 100).toFixed(0)}%), median ${o.medianPct >= 0 ? "+" : ""}${o.medianPct.toFixed(1)}%, dip ${(o.pDip * 100).toFixed(0)}%, levels ${o.levels.map((l) => l.toFixed(0)).join(" / ")}.`);
+    }
+  }
+
   // The final boosters take the median round count the windows kept, so one
   // recent slice cannot shrink the shipped model to a stump when the market
   // has just changed character. --no-median keeps per-slice early stopping.
@@ -209,6 +230,7 @@ async function main() {
     rows: final.rows,
     config: finalOpts,
     finalRounds,
+    indexOutlook,
     learners: final.learners,
     validation: validation ? validationNoPoints : null,
     runtimeSec: Math.round((Date.now() - t0) / 1000),

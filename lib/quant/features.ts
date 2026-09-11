@@ -22,6 +22,8 @@ export type FeatureRow = {
   fwdRet: number | null; // forward log return over the horizon, null at the tail
   fwdRel: number | null; // forward log return minus the index's, null at the tail
   targets: number[] | null; // TARGET_NAMES order, null at the tail
+  lowZ?: number; // the path's lowest close as a log return over the horizon's sigma (<= 0)
+  highZ?: number; // and its highest (>= 0)
 };
 
 export const FEATURE_NAMES = [
@@ -60,6 +62,16 @@ export const FEATURE_NAMES = [
   "idxMa50_200",
   "idxVol20",
   "idxDd250",
+  // added for the 24-year panel: where the price sits against its own
+  // averages, how it moves with the market, how liquid it has been lately
+  "gap50",
+  "gap200",
+  "beta60",
+  "idioVol20",
+  "maxRet20",
+  "turnTrend",
+  "zeroVol20",
+  "ret120",
 ] as const;
 
 // Cross-sectional ranks, added by the panel (they need every name on the
@@ -69,11 +81,32 @@ export const FEATURE_NAMES = [
 export const RANK_FEATURE_NAMES = ["rkRet20", "rkRet60", "rkMom12", "rkVol20", "rkVolRatio", "rkRel20", "rkRel60"] as const;
 export const RANK_SOURCE: number[] = [3, 4, 5, 16, 18, 21, 22];
 
-// up:   the close `horizon` sessions on is above today's
-// beat: the name's forward return beats the index's over the same sessions
-// dip:  some close within the next `horizon` sessions is DIP_PCT below today's
-export const TARGET_NAMES = ["up", "beat", "dip"] as const;
+// up:     the close `horizon` sessions on is above today's
+// beat:   the name's forward return beats the index's over the same sessions
+// dip:    some close within the next `horizon` sessions is DIP_PCT below today's
+// rel:    where the name's forward relative return ranks among every name on
+//         the same date, 0 (worst) to 1 (best); a soft label the same logistic
+//         learners fit, and a richer one than beat/miss. It is filled in by the
+//         panel, which sees every name; here it starts as a copy of beat.
+// lowA:   the lowest close on the path is at least A of the name's own
+//         volatility (60-session daily vol times root horizon) under today's;
+// highA:  the highest close on the path is at least A over it. Three depths
+//         each. Read together they are the model's curve of where the path
+//         stalls, from which the buy zone, the fail level and the sell zone
+//         are taken as quantiles (see projection.ts).
+export const TARGET_NAMES = ["up", "beat", "dip", "rel", "low05", "low10", "low15", "high05", "high10", "high15"] as const;
+export const REL_TARGET = 3;
+export const PATH_DEPTHS = [0.5, 1, 1.5];
+export const LOW_TARGETS = [4, 5, 6];
+export const HIGH_TARGETS = [7, 8, 9];
 export const DIP_PCT = 5;
+// A name that barely trades has a volatility of nothing and every level on
+// top of the price; this is the floor under the daily figure (about 6% a year).
+export const SIGMA_FLOOR = 0.004;
+
+export function sigmaOverHorizon(sigmaDaily: number, horizon: number): number {
+  return Math.max(SIGMA_FLOOR, sigmaDaily) * Math.sqrt(horizon);
+}
 
 const clip = (v: number, lim: number) => (v > lim ? lim : v < -lim ? -lim : v);
 const ln = Math.log;
@@ -166,6 +199,35 @@ export function buildFeatures(bars: EodBar[], index: EodBar[], horizon = 5, cont
     const ivol20 = stdLogRet(idx, i, 20)!;
     const ir250 = rangeAt(idx, i, 250);
 
+    // Beta to the market over 60 sessions, and the volatility of what is
+    // left after the market's move is taken out (20 sessions). Daily steps
+    // are clipped so one adjustment artefact cannot own the estimate.
+    let sx = 0, sy = 0, sxy = 0, sxx = 0;
+    for (let k = i - 59; k <= i; k++) {
+      const rx = clip(ln(idx[k] / idx[k - 1]), 0.2), ry = clip(ln(closes[k] / closes[k - 1]), 0.2);
+      sx += rx; sy += ry; sxy += rx * ry; sxx += rx * rx;
+    }
+    const mx = sx / 60, my = sy / 60;
+    const varx = sxx / 60 - mx * mx;
+    const beta = varx > 1e-9 ? (sxy / 60 - mx * my) / varx : 1;
+    let se = 0, se2 = 0, maxRet = -1, zero = 0;
+    for (let k = i - 19; k <= i; k++) {
+      const ry = clip(ln(closes[k] / closes[k - 1]), 0.2);
+      const e = ry - beta * clip(ln(idx[k] / idx[k - 1]), 0.2);
+      se += e; se2 += e * e;
+      if (ry > maxRet) maxRet = ry;
+      if (!(vols[k] > 0)) zero++;
+    }
+    const idio = Math.sqrt(Math.max(0, se2 / 20 - (se / 20) ** 2)) * Math.sqrt(252);
+    // Traded value lately against the last half year of it.
+    let v20 = 0, v120 = 0;
+    for (let k = i - 119; k <= i; k++) {
+      const val = closes[k] * vols[k];
+      v120 += val;
+      if (k > i - 20) v20 += val;
+    }
+    const turnTrend = v20 > 0 && v120 > 0 ? ln(v20 / 20 / (v120 / 120)) : 0;
+
     const x = [
       clip(ln(c / closes[i - 1]), 0.15) * 10,
       clip(ln(c / closes[i - 5]), 0.3) * 5,
@@ -196,20 +258,44 @@ export function buildFeatures(bars: EodBar[], index: EodBar[], horizon = 5, cont
       clip(ima50 / ima200 - 1, 0.4) * 5,
       clip(ivol20 * Math.sqrt(252), 1),
       clip(idx[i] / ir250.hi - 1, 0.5) * 3,
+      clip(ln(c / ma50), 0.3) * 5,
+      clip(ln(c / ma200), 0.5) * 3,
+      (Math.max(-0.5, Math.min(2.5, beta)) - 1) / 2,
+      clip(idio, 1.5),
+      clip(maxRet, 0.15) * 5,
+      clip(turnTrend, 2) / 2,
+      zero / 20 - 0.5,
+      clip(ln(c / closes[i - 120]), 1.0) * 1.5,
     ];
 
     if (ctxWidth > 0) x.push(...(context!.get(rows[i].date) ?? ctxZero));
 
     const hasFuture = i + horizon < n;
     let fwdRet: number | null = null, fwdRel: number | null = null, targets: number[] | null = null;
+    let lowZ: number | undefined, highZ: number | undefined;
     if (hasFuture) {
       fwdRet = ln(closes[i + horizon] / c);
       fwdRel = fwdRet - ln(idx[i + horizon] / idx[i]);
-      let low = Infinity;
-      for (let k = i + 1; k <= i + horizon; k++) if (closes[k] < low) low = closes[k];
-      targets = [fwdRet > 0 ? 1 : 0, fwdRel > 0 ? 1 : 0, low <= c * (1 - DIP_PCT / 100) ? 1 : 0];
+      let low = Infinity, high = 0;
+      for (let k = i + 1; k <= i + horizon; k++) {
+        if (closes[k] < low) low = closes[k];
+        if (closes[k] > high) high = closes[k];
+      }
+      const beat = fwdRel > 0 ? 1 : 0;
+      const sH = sigmaOverHorizon(vol60, horizon);
+      const lowRet = ln(low / c), highRet = ln(high / c);
+      lowZ = lowRet / sH;
+      highZ = highRet / sH;
+      targets = [
+        fwdRet > 0 ? 1 : 0,
+        beat,
+        low <= c * (1 - DIP_PCT / 100) ? 1 : 0,
+        beat,
+        ...PATH_DEPTHS.map((a) => (lowRet <= -a * sH ? 1 : 0)),
+        ...PATH_DEPTHS.map((a) => (highRet >= a * sH ? 1 : 0)),
+      ];
     }
-    out.push({ date: rows[i].date, close: c, x, y: targets ? targets[0] : null, fwdRet, fwdRel, targets });
+    out.push({ date: rows[i].date, close: c, x, y: targets ? targets[0] : null, fwdRet, fwdRel, targets, lowZ, highZ });
   }
   return out;
 }

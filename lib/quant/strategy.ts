@@ -13,7 +13,7 @@
 // buy-and-hold leg pays nothing. Returns are non-overlapping, so a year of
 // results is a year of evidence and not the same month counted twenty times.
 
-import type { PanelPoint } from "./panel";
+import { rankScore, type PanelPoint } from "./panel";
 import type { EodBar } from "@/lib/timeseries/psx-eod";
 
 export type StrategyOptions = {
@@ -134,7 +134,7 @@ export function strategyBacktest(
     if (!from) from = date;
     to = date;
     rebalances++;
-    const sorted = [...g].sort((a, b) => b.p[1] - a.p[1]);
+    const sorted = [...g].sort((a, b) => rankScore(b.p) - rankScore(a.p));
     const n = Math.max(1, Math.round(sorted.length * topShare));
     const mean = (arr: PanelPoint[]) => arr.reduce((s, q) => s + q.fwdRet, 0) / arr.length;
     const uRet = mean(g);

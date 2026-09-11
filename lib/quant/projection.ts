@@ -14,6 +14,86 @@
 // whichever model is in fashion.
 
 import type { EodBar } from "@/lib/timeseries/psx-eod";
+import { PATH_DEPTHS, sigmaOverHorizon } from "./features";
+
+// The model's curve of where a path stalls: P(low at least a sigma under) at
+// the three depths it was trained on, made monotone, joined log-linearly, and
+// carried past the last depth with the slope a random walk has there (the
+// ratio of 2*Phi(-2) to 2*Phi(-1.5)). `depthAt(q)` is the depth, in sigmas,
+// that only a share q of paths go past. The same for highs.
+export type PathCurve = { depths: number[]; p: number[] };
+
+const TAIL_SLOPE = -Math.log(0.0455 / 0.1336) / 0.5; // per sigma beyond the last knot
+
+export function pathCurve(probs: number[]): PathCurve {
+  const p: number[] = [];
+  let last = 1;
+  for (let i = 0; i < PATH_DEPTHS.length; i++) {
+    const v = Math.min(last, Math.max(1e-4, probs[i] ?? 0));
+    p.push(v);
+    last = v;
+  }
+  return { depths: [0, ...PATH_DEPTHS], p: [1, ...p] };
+}
+
+export function depthAt(curve: PathCurve, q: number): number {
+  const { depths, p } = curve;
+  if (q >= 1) return 0;
+  for (let i = 1; i < depths.length; i++) {
+    if (p[i] <= q) {
+      const l0 = Math.log(p[i - 1]), l1 = Math.log(p[i]);
+      const frac = l1 < l0 ? (Math.log(q) - l0) / (l1 - l0) : 1;
+      return depths[i - 1] + frac * (depths[i] - depths[i - 1]);
+    }
+  }
+  const lastP = p[p.length - 1], lastD = depths[depths.length - 1];
+  return lastD + Math.log(lastP / q) / TAIL_SLOPE;
+}
+
+// The zones as quantiles of the path: the buy zone runs from the median low
+// (half of paths like this one dip at least that far) down to the quarter
+// low; the case fails at the tenth-of-paths low; the sell zone runs from the
+// median high up to the quarter high. Rounded to a broker's tick.
+export type PathLevels = {
+  sigmaH: number;
+  buyLow: number;
+  buyHigh: number;
+  fails: number;
+  sellLow: number;
+  sellHigh: number;
+  medianLowPct: number; // the median low, as a percent under the price
+  medianHighPct: number;
+  pLow: number[]; // the curve's knots, for the record
+  pHigh: number[];
+};
+
+export function tickFor(level: number): number {
+  return level >= 1000 ? 5 : level >= 100 ? 1 : level >= 10 ? 0.25 : 0.05;
+}
+
+export function pathLevels(price: number, sigmaH: number, pLow: number[], pHigh: number[]): PathLevels {
+  const lo = pathCurve(pLow), hi = pathCurve(pHigh);
+  const tick = tickFor(price);
+  const r = (v: number) => Math.round(v / tick) * tick;
+  const under = (q: number) => price * Math.exp(-depthAt(lo, q) * sigmaH);
+  const over = (q: number) => price * Math.exp(depthAt(hi, q) * sigmaH);
+  return {
+    sigmaH,
+    buyHigh: r(under(0.5)),
+    buyLow: r(under(0.25)),
+    fails: r(under(0.1)),
+    sellLow: r(over(0.5)),
+    sellHigh: r(over(0.25)),
+    medianLowPct: (1 - under(0.5) / price) * 100,
+    medianHighPct: (over(0.5) / price - 1) * 100,
+    pLow: lo.p.slice(1),
+    pHigh: hi.p.slice(1),
+  };
+}
+
+// What a driftless walk gives at the three depths: the curve the model is
+// measured against, and the one used when no model is at hand.
+export const WALK_CURVE = [0.617, 0.317, 0.134];
 
 export type Projection = {
   horizon: number;
@@ -53,7 +133,10 @@ export function probit(p: number): number {
   return ((((((a[0] * r + a[1]) * r + a[2]) * r + a[3]) * r + a[4]) * r + a[5]) * t) / (((((b[0] * r + b[1]) * r + b[2]) * r + b[3]) * r + b[4]) * r + 1);
 }
 
-export function projectLevels(bars: EodBar[], horizon: number, pUp: number, pDip: number, dipPct = 5): Projection | null {
+// `centreLogMove`, when given, places the centre directly (the market's
+// median move in its state plus the name's expected edge) instead of reading
+// it off the direction odds, which are a coin toss over the long run.
+export function projectLevels(bars: EodBar[], horizon: number, pUp: number, pDip: number, dipPct = 5, centreLogMove?: number): Projection | null {
   const c = bars.map((b) => b.close);
   const i = c.length - 1;
   if (i < 250) return null;
@@ -63,11 +146,11 @@ export function projectLevels(bars: EodBar[], horizon: number, pUp: number, pDip
   for (let k = i - n + 1; k <= i; k++) rets.push(Math.log(c[k] / c[k - 1]));
   const m = rets.reduce((s, v) => s + v, 0) / n;
   const sigmaDaily = Math.sqrt(rets.reduce((s, v) => s + (v - m) ** 2, 0) / n);
-  const sigmaH = sigmaDaily * Math.sqrt(horizon);
+  const sigmaH = sigmaOverHorizon(sigmaDaily, horizon);
   // The model's tilt is capped at half a standard deviation either way: its
   // record is modest, and a range should not pretend otherwise.
   const z = Math.max(-0.5, Math.min(0.5, probit(Math.min(0.9, Math.max(0.1, pUp)))));
-  const mu = z * sigmaH;
+  const mu = centreLogMove != null ? Math.max(-sigmaH, Math.min(sigmaH, centreLogMove)) : z * sigmaH;
   const sma = (k: number) => (i + 1 >= k ? c.slice(i - k + 1).reduce((s, v) => s + v, 0) / k : null);
   let high250 = 0;
   for (let k = i - 249; k <= i; k++) if (c[k] > high250) high250 = c[k];

@@ -20,7 +20,7 @@
 
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { buildPanel, walkForwardPanel, type PanelOptions, type PanelPoint, auc, spearman } from "../lib/quant/panel";
+import { buildPanel, walkForwardPanel, rankScore, type PanelOptions, type PanelPoint, auc, spearman } from "../lib/quant/panel";
 import { buildArchivePanel } from "../lib/quant/archive";
 import { macroContext, MARKET_CONTEXT_NAMES } from "../lib/quant/context";
 import { strategyBacktest, strategyTable, strategyYearTable } from "../lib/quant/strategy";
@@ -44,7 +44,7 @@ function byYear(points: PanelPoint[], horizon: number) {
     const dates = new Map<number, PanelPoint[]>();
     for (const q of g) { const a = dates.get(q.di); if (a) a.push(q); else dates.set(q.di, [q]); }
     const ics: number[] = [];
-    for (const [, dg] of dates) if (dg.length >= 8) ics.push(spearman(dg.map((q) => q.p[1]), dg.map((q) => q.fwdRel)));
+    for (const [, dg] of dates) if (dg.length >= 8) ics.push(spearman(dg.map((q) => rankScore(q.p)), dg.map((q) => q.fwdRel)));
     // Market return that year, from the names themselves, non-overlapping.
     let mkt = 0, cnt = 0;
     const sortedDi = [...dates.keys()].sort((a, b) => a - b);

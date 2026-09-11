@@ -15,9 +15,21 @@ import { FeedSnapshotModel } from "@/lib/models/FeedSnapshot";
 import type { EodBar } from "@/lib/timeseries/psx-eod";
 import type { Learner, PanelOptions, PanelWalkResult } from "./panel";
 import type { StrategyResult } from "./strategy";
+import type { IndexOutlookModel, OutlookRecord } from "./outlook";
 import type { BarsCache } from "./universe";
 
 export const QUANT_MODEL_KEY = "quant:model";
+
+// The KSE-100 state table (outlook.ts) fitted on the 1997-to-date series,
+// with its walk-forward record against the unconditional table.
+export type StoredIndexOutlook = {
+  model: IndexOutlookModel;
+  record: OutlookRecord;
+  yearly: Array<{ year: string; n: number; brierSkillPct: number; cover80: number }>;
+  seriesFrom: string;
+  seriesTo: string;
+  joinedAt: string;
+};
 
 export type StoredQuantModel = {
   version: 2;
@@ -37,6 +49,7 @@ export type StoredQuantModel = {
   rows: number;
   config: PanelOptions;
   finalRounds: number[] | null; // per target, when the final boosters used fixed rounds
+  indexOutlook?: StoredIndexOutlook | null;
   learners: Learner[];
   validation: Omit<PanelWalkResult, "points"> | null;
   runtimeSec: number;

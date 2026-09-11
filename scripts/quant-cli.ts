@@ -35,8 +35,19 @@ export function printResult(v: PanelWalkResult, held: string[]) {
   const s = (x: typeof v.ic, unit = "") =>
     `mean ${x.mean >= 0 ? "+" : ""}${x.mean.toFixed(3)}${unit}  sd ${x.std.toFixed(3)}  IR ${x.ir.toFixed(2)}  t ${x.tStat.toFixed(2)} on ${x.independent} independent dates (${x.dates} total)`;
   console.log(`\nIC   p(up)   vs forward return:          ${s(v.ic)}`);
-  console.log(`IC   p(beat) vs forward relative return: ${s(v.icRel)}`);
-  console.log(`Top fifth minus bottom fifth by p(beat), relative to the index, per ${v.horizon} sessions: ${s(v.spread, "%")}`);
+  console.log(`IC   rank score vs forward relative return: ${s(v.icRel)}`);
+  if (v.icBeat) console.log(`IC   p(beat) vs forward relative return:    ${s(v.icBeat)}`);
+  console.log(`Top fifth minus bottom fifth by rank score, relative to the index, per ${v.horizon} sessions: ${s(v.spread, "%")}`);
+  if (v.zones) {
+    const z = v.zones, w = z.walk;
+    const f = (x: number) => (x * 100).toFixed(0) + "%";
+    console.log(`\nZones read off the path curve, share of paths that reached them (model / plain walk; the targets are 50, 25, 10, 50, 25):`);
+    console.log(`  buy top ${f(z.buyHigh)} / ${f(w.buyHigh)}   buy bottom ${f(z.buyLow)} / ${f(w.buyLow)}   fail ${f(z.fails)} / ${f(w.fails)}   sell bottom ${f(z.sellLow)} / ${f(w.sellLow)}   sell top ${f(z.sellHigh)} / ${f(w.sellHigh)}   on ${z.n.toLocaleString()} paths`);
+  }
+  if (v.calibration) {
+    console.log(`\nWhat each tenth of the ranking then did (1 = bottom, 10 = top), relative return per ${v.horizon} sessions and share beating the market:`);
+    console.log("  " + v.calibration.map((c) => `${c.decile}: ${c.meanRelPct >= 0 ? "+" : ""}${c.meanRelPct.toFixed(2)}% (${(c.beatRate * 100).toFixed(0)}%)`).join("  "));
+  }
 
   const rows = v.perSymbol.filter((p) => held.includes(p.symbol) || TRAIN_INDICES.includes(p.symbol));
   if (rows.length) {

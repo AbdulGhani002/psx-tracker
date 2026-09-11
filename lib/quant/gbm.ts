@@ -13,6 +13,10 @@
 // objective, features are quantised into histogram bins on the training rows
 // only, rows and features are subsampled per tree, and early stopping watches
 // a time-ordered validation slice. Everything is deterministic given the seed.
+// The histograms of a node are filled in one pass over its rows for every
+// feature at once, and a node's larger child takes the parent's histograms
+// minus the smaller child's, which is what makes ten boosters on six hundred
+// thousand rows a matter of minutes.
 
 import { mulberry32 } from "./mlp";
 
@@ -83,7 +87,26 @@ function binOf(cuts: number[], v: number): number {
   return lo; // 0..cuts.length
 }
 
-export function trainGbm(Xraw: number[][], y: number[], opts: GbmOptions = {}): GbmModel {
+// The rows binned once, shared by every booster trained on the same matrix
+// (one per target): the quantile cuts and the bin of every cell.
+export type GbmBinned = { cuts: number[][]; nbins: number[]; binned: Uint8Array; n: number; d: number; nTr: number };
+
+export function binRows(Xraw: number[][], opts: GbmOptions = {}): GbmBinned {
+  const bins = Math.min(255, opts.bins ?? 64);
+  const valFrac = opts.valFrac ?? 0.15;
+  const n = Xraw.length;
+  const d = Xraw[0].length;
+  let nVal = Math.max(20, Math.floor(n * valFrac));
+  if (nVal >= n) nVal = Math.max(1, Math.floor(n * 0.2));
+  const nTr = n - nVal;
+  const cuts = makeCuts(Xraw, nTr, d, bins);
+  const nbins = cuts.map((c) => c.length + 1);
+  const binned = new Uint8Array(n * d);
+  for (let i = 0; i < n; i++) for (let j = 0; j < d; j++) binned[i * d + j] = binOf(cuts[j], Xraw[i][j]);
+  return { cuts, nbins, binned, n, d, nTr };
+}
+
+export function trainGbm(Xraw: number[][], y: number[], opts: GbmOptions = {}, pre?: GbmBinned): GbmModel {
   const rounds = opts.rounds ?? 300;
   const lr = opts.lr ?? 0.05;
   const maxDepth = opts.maxDepth ?? 4;
@@ -92,22 +115,11 @@ export function trainGbm(Xraw: number[][], y: number[], opts: GbmOptions = {}): 
   const gamma = opts.gamma ?? 0;
   const subsample = opts.subsample ?? 0.7;
   const colsample = opts.colsample ?? 0.8;
-  const bins = Math.min(255, opts.bins ?? 64);
-  const valFrac = opts.valFrac ?? 0.15;
   const patience = opts.patience ?? 30;
   const earlyStop = opts.earlyStop ?? true;
   const rnd = mulberry32(opts.seed ?? 7);
 
-  const n = Xraw.length;
-  const d = Xraw[0].length;
-  let nVal = Math.max(20, Math.floor(n * valFrac));
-  if (nVal >= n) nVal = Math.max(1, Math.floor(n * 0.2));
-  const nTr = n - nVal;
-
-  const cuts = makeCuts(Xraw, nTr, d, bins);
-  const nbins = cuts.map((c) => c.length + 1);
-  const binned = new Uint8Array(n * d);
-  for (let i = 0; i < n; i++) for (let j = 0; j < d; j++) binned[i * d + j] = binOf(cuts[j], Xraw[i][j]);
+  const { cuts, nbins, binned, n, d, nTr } = pre ?? binRows(Xraw, opts);
 
   let pos = 0;
   for (let i = 0; i < nTr; i++) pos += y[i];
@@ -117,11 +129,18 @@ export function trainGbm(Xraw: number[][], y: number[], opts: GbmOptions = {}): 
   const g = new Float64Array(n);
   const h = new Float64Array(n);
 
-  const maxB = Math.max(...nbins);
-  const G = new Float64Array(maxB), H = new Float64Array(maxB), C = new Int32Array(maxB);
+  // Histograms for every feature of one node, laid out feature-major with a
+  // fixed stride, one set per depth plus a spare per depth for the sibling
+  // whose histogram is the parent's minus the other child's.
+  const HB = Math.max(...nbins);
+  const lvlG: Float64Array[] = [], lvlH: Float64Array[] = [], lvlC: Int32Array[] = [];
+  const sibG: Float64Array[] = [], sibH: Float64Array[] = [], sibC: Int32Array[] = [];
+  for (let l = 0; l <= maxDepth + 1; l++) {
+    lvlG.push(new Float64Array(d * HB)); lvlH.push(new Float64Array(d * HB)); lvlC.push(new Int32Array(d * HB));
+    sibG.push(new Float64Array(d * HB)); sibH.push(new Float64Array(d * HB)); sibC.push(new Int32Array(d * HB));
+  }
 
   const trees: GbmTree[] = [];
-  const treeBins: number[][] = []; // split bins per tree, for the fast update of F
   let best = { val: Infinity, rounds: 0, train: Infinity };
   let stale = 0;
 
@@ -143,14 +162,38 @@ export function trainGbm(Xraw: number[][], y: number[], opts: GbmOptions = {}): 
     const feats: number[] = [];
     for (let j = 0; j < d; j++) if (rnd() < colsample) feats.push(j);
     if (feats.length === 0) feats.push(Math.floor(rnd() * d));
+    const nf = feats.length;
 
     const tree: GbmTree = { feat: [], thr: [], left: [], right: [], value: [] };
     const tbins: number[] = [];
     const rows = Int32Array.from(rowsArr);
 
+    // One pass over the node's rows fills the histograms of every sampled
+    // feature at once; the row's bins sit next to each other in memory.
+    const buildHist = (from: number, to: number, G: Float64Array, H: Float64Array, C: Int32Array) => {
+      G.fill(0); H.fill(0); C.fill(0);
+      for (let q = from; q < to; q++) {
+        const row = rows[q];
+        const base0 = row * d;
+        const gr = g[row], hr = h[row];
+        for (let k = 0; k < nf; k++) {
+          const f = feats[k];
+          const idx = f * HB + binned[base0 + f];
+          G[idx] += gr; H[idx] += hr; C[idx]++;
+        }
+      }
+    };
+    const subtractInto = (pG: Float64Array, pH: Float64Array, pC: Int32Array, sG: Float64Array, sH: Float64Array, sC: Int32Array, oG: Float64Array, oH: Float64Array, oC: Int32Array) => {
+      for (let k = 0; k < nf; k++) {
+        const b0 = feats[k] * HB, b1 = b0 + nbins[feats[k]];
+        for (let i = b0; i < b1; i++) { oG[i] = pG[i] - sG[i]; oH[i] = pH[i] - sH[i]; oC[i] = pC[i] - sC[i]; }
+      }
+    };
+
     // Grow depth-first. Each node owns a contiguous slice of `rows`, which is
-    // partitioned in place when the node splits.
-    const grow = (from: number, to: number, depth: number): number => {
+    // partitioned in place when the node splits. `histReady` says the node's
+    // histograms are already in the arrays for its depth.
+    const grow = (from: number, to: number, depth: number, histReady: boolean): number => {
       const id = tree.feat.length;
       tree.feat.push(-1); tree.thr.push(0); tree.left.push(-1); tree.right.push(-1); tree.value.push(0); tbins.push(0);
       let Gn = 0, Hn = 0;
@@ -159,19 +202,17 @@ export function trainGbm(Xraw: number[][], y: number[], opts: GbmOptions = {}): 
       const leaf = () => { tree.value[id] = (-Gn / (Hn + lambda)) * lr; return id; };
       if (depth >= maxDepth || cnt < 2 * minLeaf) return leaf();
 
+      const G = lvlG[depth], H = lvlH[depth], C = lvlC[depth];
+      if (!histReady) buildHist(from, to, G, H, C);
       let bestGain = 0, bestF = -1, bestB = -1;
       const parentScore = (Gn * Gn) / (Hn + lambda);
-      for (const f of feats) {
+      for (let k = 0; k < nf; k++) {
+        const f = feats[k];
         const nb = nbins[f];
-        G.fill(0, 0, nb); H.fill(0, 0, nb); C.fill(0, 0, nb);
-        for (let q = from; q < to; q++) {
-          const row = rows[q];
-          const b = binned[row * d + f];
-          G[b] += g[row]; H[b] += h[row]; C[b]++;
-        }
+        const b0 = f * HB;
         let GL = 0, HL = 0, CL = 0;
         for (let b = 0; b < nb - 1; b++) {
-          GL += G[b]; HL += H[b]; CL += C[b];
+          GL += G[b0 + b]; HL += H[b0 + b]; CL += C[b0 + b];
           if (CL < minLeaf) continue;
           if (cnt - CL < minLeaf) break;
           const GR = Gn - GL, HR = Hn - HL;
@@ -192,13 +233,26 @@ export function trainGbm(Xraw: number[][], y: number[], opts: GbmOptions = {}): 
       tree.feat[id] = bestF;
       tree.thr[id] = cuts[bestF][bestB];
       tbins[id] = bestB;
-      tree.left[id] = grow(from, mid, depth + 1);
-      tree.right[id] = grow(mid, to, depth + 1);
+
+      // The smaller child's histograms are built; the larger child's are the
+      // parent's minus them. Children that will be leaves need neither.
+      const canSplit = (a: number, b: number) => depth + 1 < maxDepth && b - a >= 2 * minLeaf;
+      const leftSmall = mid - from <= to - mid;
+      const sFrom = leftSmall ? from : mid, sTo = leftSmall ? mid : to;
+      const bFrom = leftSmall ? mid : from, bTo = leftSmall ? to : mid;
+      const smallReady = canSplit(sFrom, sTo) || canSplit(bFrom, bTo);
+      if (smallReady) buildHist(sFrom, sTo, lvlG[depth + 1], lvlH[depth + 1], lvlC[depth + 1]);
+      const bigReady = canSplit(bFrom, bTo);
+      if (bigReady) subtractInto(G, H, C, lvlG[depth + 1], lvlH[depth + 1], lvlC[depth + 1], sibG[depth + 1], sibH[depth + 1], sibC[depth + 1]);
+      const smallId = grow(sFrom, sTo, depth + 1, smallReady);
+      if (bigReady) { lvlG[depth + 1].set(sibG[depth + 1]); lvlH[depth + 1].set(sibH[depth + 1]); lvlC[depth + 1].set(sibC[depth + 1]); }
+      const bigId = grow(bFrom, bTo, depth + 1, bigReady);
+      tree.left[id] = leftSmall ? smallId : bigId;
+      tree.right[id] = leftSmall ? bigId : smallId;
       return id;
     };
-    grow(0, rows.length, 0);
+    grow(0, rows.length, 0, false);
     trees.push(tree);
-    treeBins.push(tbins);
 
     // Update every row's score with the new tree, walking on bins.
     for (let i = 0; i < n; i++) {
@@ -238,10 +292,11 @@ export function predictGbm(m: GbmModel, x: number[]): number {
 export function trainGbmMulti(X: number[][], Y: number[][], opts: GbmOptions = {}, roundsPerTarget?: number[]): GbmModel[] {
   const k = Y[0].length;
   const out: GbmModel[] = [];
+  const pre = binRows(X, opts);
   for (let o = 0; o < k; o++) {
     const fixed = roundsPerTarget?.[o];
     const o2: GbmOptions = fixed != null ? { ...opts, rounds: fixed, earlyStop: false } : opts;
-    out.push(trainGbm(X, Y.map((r) => r[o]), { ...o2, seed: (opts.seed ?? 7) + o * 17 }));
+    out.push(trainGbm(X, Y.map((r) => r[o]), { ...o2, seed: (opts.seed ?? 7) + o * 17 }, pre));
   }
   return out;
 }

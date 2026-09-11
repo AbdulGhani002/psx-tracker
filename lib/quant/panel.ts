@@ -27,7 +27,8 @@
 // are computed on every `horizon`-th date only.
 
 import type { EodBar } from "@/lib/timeseries/psx-eod";
-import { buildFeatures, TARGET_NAMES, RANK_FEATURE_NAMES, RANK_SOURCE, type FeatureRow } from "./features";
+import { buildFeatures, TARGET_NAMES, REL_TARGET, LOW_TARGETS, HIGH_TARGETS, RANK_FEATURE_NAMES, RANK_SOURCE, type FeatureRow } from "./features";
+import { pathCurve, depthAt, WALK_CURVE } from "./projection";
 import { trainMlp, predictMlpAll, type MlpModel, type TrainOptions } from "./mlp";
 import { trainGbmMulti, predictGbm, type GbmModel, type GbmOptions } from "./gbm";
 
@@ -58,8 +59,33 @@ export function buildPanel(bars: Map<string, EodBar[]>, index: EodBar[], horizon
   for (const [symbol, rs] of per) for (const r of rs) rows.push({ ...r, symbol, di: di.get(r.date)! });
   rows.sort((a, b) => a.di - b.di || (a.symbol < b.symbol ? -1 : a.symbol > b.symbol ? 1 : 0));
   if (o.ranks) appendRanks(rows);
+  assignRelTarget(rows);
   return { rows, dates, symbols: per.map((p) => p[0]).sort(), horizon };
 }
+
+// The soft label: each name's forward relative return as a percentile among
+// the names with an outcome on the same date. Dates with fewer than five
+// names keep the binary beat/miss the feature builder put there.
+function assignRelTarget(rows: PanelRow[]) {
+  let i = 0;
+  while (i < rows.length) {
+    let j = i;
+    while (j < rows.length && rows[j].di === rows[i].di) j++;
+    const idx: number[] = [];
+    for (let k = i; k < j; k++) if (rows[k].targets && rows[k].fwdRel != null) idx.push(k);
+    if (idx.length >= 5) {
+      idx.sort((a, b) => rows[a].fwdRel! - rows[b].fwdRel!);
+      const n = idx.length;
+      for (let r = 0; r < n; r++) rows[idx[r]].targets![REL_TARGET] = r / (n - 1);
+    }
+    i = j;
+  }
+}
+
+// The column the names are ranked on: the soft label when the learners
+// carry it, the odds of beating the market otherwise (older models).
+export const RANK_COL = REL_TARGET;
+export const rankScore = (p: number[]) => (p.length > RANK_COL ? p[RANK_COL] : p[1]);
 
 // Percentile rank of each RANK_SOURCE column within the date, appended to x.
 // A date with fewer than eight names gets neutral zeros: a rank among three
@@ -122,7 +148,7 @@ export const DEFAULT_PANEL: PanelOptions = {
   gbm: { rounds: 40, lr: 0.05, maxDepth: 4, minLeaf: 100, lambda: 1, subsample: 0.7, colsample: 0.8, bins: 64, patience: 30, seed: 7, earlyStop: false },
 };
 
-export type PanelPoint = { symbol: string; date: string; di: number; p: number[]; t: number[]; fwdRet: number; fwdRel: number };
+export type PanelPoint = { symbol: string; date: string; di: number; p: number[]; t: number[]; fwdRet: number; fwdRel: number; lowZ?: number; highZ?: number };
 
 export type TargetMetrics = {
   target: string;
@@ -153,6 +179,17 @@ export type SymbolMetrics = {
 
 export type SeriesStat = { mean: number; std: number; ir: number; tStat: number; dates: number; independent: number };
 
+// What each tenth of the model's ranking then did, per date, pooled: the
+// table that turns a rank into an expected return against the market.
+export type CalibrationRow = { decile: number; n: number; meanRelPct: number; meanRetPct: number; beatRate: number };
+
+// How the zones read off the model's path curve behaved out of sample: the
+// share of paths whose low reached the top of the buy zone (should be about
+// a half), its bottom (a quarter), the fail level (a tenth), and the same for
+// the sell zone; beside each, what the plain random-walk curve would have
+// given, so the model's contribution is visible.
+export type ZoneCoverage = { n: number; buyHigh: number; buyLow: number; fails: number; sellLow: number; sellHigh: number; walk: { buyHigh: number; buyLow: number; fails: number; sellLow: number; sellHigh: number } };
+
 export type PanelWalkResult = {
   n: number;
   windows: number;
@@ -162,8 +199,11 @@ export type PanelWalkResult = {
   symbols: number;
   targets: TargetMetrics[];
   ic: SeriesStat; // p(up) against forward return, across names, per date
-  icRel: SeriesStat; // p(beat) against forward relative return
-  spread: SeriesStat; // top fifth minus bottom fifth by p(beat), relative return per horizon, in %
+  icRel: SeriesStat; // the rank score against forward relative return
+  icBeat?: SeriesStat; // the odds of beating the market against the same, for comparing the two labels
+  spread: SeriesStat; // top fifth minus bottom fifth by rank score, relative return per horizon, in %
+  calibration?: CalibrationRow[];
+  zones?: ZoneCoverage;
   perSymbol: SymbolMetrics[];
   roundsPerWindow?: number[][]; // per window, per target: rounds the boosters kept
   medianRounds?: number[]; // per target, across windows
@@ -333,7 +373,7 @@ export function walkForwardPanel(panel: Panel, opts: PanelOptions, onWindow?: (w
     windows++;
     const rounds = roundsKept(learners);
     if (rounds) roundsPerWindow.push(rounds);
-    for (const r of test) points.push({ symbol: r.symbol, date: r.date, di: r.di, p: predictEnsemble(learners, r.x), t: r.targets!, fwdRet: r.fwdRet!, fwdRel: r.fwdRel! });
+    for (const r of test) points.push({ symbol: r.symbol, date: r.date, di: r.di, p: predictEnsemble(learners, r.x), t: r.targets!, fwdRet: r.fwdRet!, fwdRel: r.fwdRel!, lowZ: r.lowZ, highZ: r.highZ });
     onWindow?.({ window: windows, trainRows: train.length, testRows: test.length, from: test[0].date, to: test[test.length - 1].date, ms: Date.now() - t0, rounds });
   }
   if (points.length === 0) return null;
@@ -350,7 +390,8 @@ export function walkForwardPanel(panel: Panel, opts: PanelOptions, onWindow?: (w
 }
 
 export function scorePanel(points: PanelPoint[], opts: PanelOptions, windows: number, symbols: number, keepPoints = false): PanelWalkResult {
-  const targets = TARGET_NAMES.map((name, j) => targetMetrics(name, points.map((q) => ({ p: q.p[j], y: q.t[j] })), opts.threshold));
+  // The soft label is scored against beat/miss, the only binary reading of it.
+  const targets = TARGET_NAMES.map((name, j) => targetMetrics(name, points.map((q) => ({ p: q.p[j] ?? q.p[1], y: j === REL_TARGET ? q.t[1] : q.t[j] })), opts.threshold));
 
   // Per date: the model's ordering of the names against how they then did.
   const byDate = new Map<number, PanelPoint[]>();
@@ -361,17 +402,27 @@ export function scorePanel(points: PanelPoint[], opts: PanelOptions, windows: nu
   }
   const ic: Array<{ di: number; v: number }> = [];
   const icRel: Array<{ di: number; v: number }> = [];
+  const icBeat: Array<{ di: number; v: number }> = [];
   const spread: Array<{ di: number; v: number }> = [];
+  const cal = Array.from({ length: 10 }, (_, d) => ({ decile: d + 1, n: 0, rel: 0, ret: 0, beat: 0 }));
   for (const [di, g] of [...byDate.entries()].sort((a, b) => a[0] - b[0])) {
     if (g.length < 8) continue;
     ic.push({ di, v: spearman(g.map((q) => q.p[0]), g.map((q) => q.fwdRet)) });
-    icRel.push({ di, v: spearman(g.map((q) => q.p[1]), g.map((q) => q.fwdRel)) });
-    const sorted = [...g].sort((a, b) => a.p[1] - b.p[1]);
+    icRel.push({ di, v: spearman(g.map((q) => rankScore(q.p)), g.map((q) => q.fwdRel)) });
+    icBeat.push({ di, v: spearman(g.map((q) => q.p[1]), g.map((q) => q.fwdRel)) });
+    const sorted = [...g].sort((a, b) => rankScore(a.p) - rankScore(b.p));
     const k = Math.max(1, Math.floor(g.length / 5));
     const bottom = sorted.slice(0, k).reduce((s, q) => s + q.fwdRel, 0) / k;
     const top = sorted.slice(-k).reduce((s, q) => s + q.fwdRel, 0) / k;
     spread.push({ di, v: (top - bottom) * 100 });
+    // Tenths from the bottom of the day's ranking (1) to the top (10).
+    for (let r = 0; r < sorted.length; r++) {
+      const c = cal[Math.min(9, Math.floor((r / sorted.length) * 10))];
+      c.n++; c.rel += sorted[r].fwdRel; c.ret += sorted[r].fwdRet; c.beat += sorted[r].t[1];
+    }
   }
+  const calibration: CalibrationRow[] = cal.map((c) => ({ decile: c.decile, n: c.n, meanRelPct: c.n ? (c.rel / c.n) * 100 : 0, meanRetPct: c.n ? (c.ret / c.n) * 100 : 0, beatRate: c.n ? c.beat / c.n : 0 }));
+  const zones = zoneCoverage(points);
 
   // Per name: the old single-name view, so a holding can be judged on its own.
   const bySymbol = new Map<string, PanelPoint[]>();
@@ -426,10 +477,39 @@ export function scorePanel(points: PanelPoint[], opts: PanelOptions, windows: nu
     targets,
     ic: seriesStat(ic, opts.horizon),
     icRel: seriesStat(icRel, opts.horizon),
+    icBeat: seriesStat(icBeat, opts.horizon),
     spread: seriesStat(spread, opts.horizon),
+    calibration,
+    zones: zones ?? undefined,
     perSymbol,
     points: keepPoints ? points : undefined,
   };
+}
+
+// The zones' out-of-sample coverage, model curve against the walk's curve.
+export function zoneCoverage(points: PanelPoint[]): ZoneCoverage | null {
+  const pts = points.filter((q) => q.lowZ != null && q.highZ != null && q.p.length > HIGH_TARGETS[2]);
+  if (pts.length === 0) return null;
+  const walkLo = pathCurve(WALK_CURVE), walkHi = pathCurve(WALK_CURVE);
+  const dLo = { h: depthAt(walkLo, 0.5), l: depthAt(walkLo, 0.25), f: depthAt(walkLo, 0.1) };
+  const dHi = { l: depthAt(walkHi, 0.5), h: depthAt(walkHi, 0.25) };
+  let bh = 0, bl = 0, f = 0, sl = 0, sh = 0, wbh = 0, wbl = 0, wf = 0, wsl = 0, wsh = 0;
+  for (const q of pts) {
+    const lo = pathCurve(LOW_TARGETS.map((i) => q.p[i])), hi = pathCurve(HIGH_TARGETS.map((i) => q.p[i]));
+    const lz = -q.lowZ!, hz = q.highZ!; // depths reached, in sigmas
+    if (lz >= depthAt(lo, 0.5)) bh++;
+    if (lz >= depthAt(lo, 0.25)) bl++;
+    if (lz >= depthAt(lo, 0.1)) f++;
+    if (hz >= depthAt(hi, 0.5)) sl++;
+    if (hz >= depthAt(hi, 0.25)) sh++;
+    if (lz >= dLo.h) wbh++;
+    if (lz >= dLo.l) wbl++;
+    if (lz >= dLo.f) wf++;
+    if (hz >= dHi.l) wsl++;
+    if (hz >= dHi.h) wsh++;
+  }
+  const n = pts.length;
+  return { n, buyHigh: bh / n, buyLow: bl / n, fails: f / n, sellLow: sl / n, sellHigh: sh / n, walk: { buyHigh: wbh / n, buyLow: wbl / n, fails: wf / n, sellLow: wsl / n, sellHigh: wsh / n } };
 }
 
 // Train on every row with a known outcome, for the forecasts that go out.

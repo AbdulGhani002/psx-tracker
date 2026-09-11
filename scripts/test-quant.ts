@@ -17,9 +17,10 @@ import { walkForward, describeForecast, DEFAULT_WALK } from "../lib/quant/walkfo
 import { buildPanel, walkForwardPanel, auc, spearman, describeAuc, predictEnsemble, trainEnsemble, DEFAULT_PANEL, type PanelOptions } from "../lib/quant/panel";
 import { marketContext, MARKET_CONTEXT_NAMES } from "../lib/quant/context";
 import { despike } from "../lib/timeseries/macro";
-import { probit, projectLevels, modelBands } from "../lib/quant/projection";
-import { RANK_FEATURE_NAMES, RANK_SOURCE } from "../lib/quant/features";
-import { readMarket, readName, standingOf } from "../lib/quant/analysis";
+import { probit, projectLevels, modelBands, pathCurve, depthAt, pathLevels, WALK_CURVE } from "../lib/quant/projection";
+import { RANK_FEATURE_NAMES, RANK_SOURCE, LOW_TARGETS, HIGH_TARGETS, REL_TARGET, PATH_DEPTHS } from "../lib/quant/features";
+import { readMarket, readName, standingOf, triggerFor } from "../lib/quant/analysis";
+import { indexStates, fitCells, cellOutlook, cellKey, evaluateCells, strengthTests } from "../lib/quant/outlook";
 import { membership, equalWeightIndex, adjustedSeries, appendLive, type RawRow } from "../lib/quant/archive";
 import { strategyBacktest, indexGate } from "../lib/quant/strategy";
 import type { PanelPoint } from "../lib/quant/panel";
@@ -91,7 +92,7 @@ function randomWalk(n: number, drift = 0.0003, vol = 0.015, start = 100): EodBar
   check("features start after the 250-day warm-up", rows.length === 700 - 250, rows.length);
   check("every row has the full feature vector", rows.every((r) => r.x.length === FEATURE_NAMES.length), FEATURE_NAMES.length);
   check("the last five rows have no target", rows.slice(-5).every((r) => r.y === null && r.fwdRet === null && r.targets === null));
-  check("earlier rows have all three targets", rows.slice(0, -5).every((r) => r.targets?.length === TARGET_NAMES.length && r.fwdRel != null));
+  check("earlier rows have every target", rows.slice(0, -5).every((r) => r.targets?.length === TARGET_NAMES.length && r.fwdRel != null));
   check("no feature is NaN", rows.every((r) => r.x.every((v) => Number.isFinite(v))));
 
   // The lookahead test. Change every bar AFTER row k and the features of row k
@@ -265,23 +266,68 @@ function randomWalk(n: number, drift = 0.0003, vol = 0.015, start = 100): EodBar
   check("ranks at day k ignore everything after day k", before.length > 0 && before.join("|") === after.join("|"));
 }
 
+// ------------------------------------------------------------ path curve
+{
+  const walk = pathCurve(WALK_CURVE);
+  check("the walk's median low sits near two thirds of a sigma", Math.abs(depthAt(walk, 0.5) - 0.66) < 0.05, depthAt(walk, 0.5).toFixed(3));
+  check("deeper quantiles are deeper", depthAt(walk, 0.5) < depthAt(walk, 0.25) && depthAt(walk, 0.25) < depthAt(walk, 0.1));
+  check("a curve that promises more dips gives a deeper zone", depthAt(pathCurve([0.8, 0.5, 0.25]), 0.5) > depthAt(walk, 0.5));
+  check("a curve that is not monotone is made so", (() => { const c = pathCurve([0.3, 0.6, 0.1]); return c.p[1] >= c.p[2] && c.p[2] >= c.p[3]; })());
+  const lv = pathLevels(100, 0.08, WALK_CURVE, WALK_CURVE);
+  check("the zones sit in order: fail under buy under price under sell", lv.fails < lv.buyLow && lv.buyLow < lv.buyHigh && lv.buyHigh < 100 && 100 < lv.sellLow && lv.sellLow < lv.sellHigh, JSON.stringify(lv));
+  check("the fail level is clearly under the buy zone, not equal to it", lv.buyLow - lv.fails > 0.5);
+  const wide = pathLevels(100, 0.16, WALK_CURVE, WALK_CURVE);
+  check("a more volatile name gets a wider zone", wide.buyLow < lv.buyLow && wide.sellHigh > lv.sellHigh);
+  const skewed = pathLevels(100, 0.08, [0.8, 0.5, 0.25], [0.4, 0.15, 0.05]);
+  check("the model's curve shifts the zones, down when dips are likelier", skewed.buyHigh < lv.buyHigh && skewed.sellLow < lv.sellLow);
+  check("levels land on the broker's tick", Math.abs(lv.buyLow / 1 - Math.round(lv.buyLow / 1)) < 1e-9);
+}
+
+// ------------------------------------------------------------ path targets
+{
+  // A name that always dips a sigma and never rallies half of one inside the
+  // horizon: the low heads must fire and the high heads must not.
+  const dates = weekdays(400);
+  const bars: EodBar[] = [];
+  let p = 100;
+  for (let i = 0; i < dates.length; i++) {
+    // Twenty-session sawtooth: down 12% over ten sessions, back up over ten.
+    const phase = i % 20;
+    p = phase < 10 ? p * Math.exp(-0.0125) : p * Math.exp(0.0125);
+    bars.push({ date: dates[i], close: p, volume: 1e6, vwap: p });
+  }
+  const idx = bars.map((b) => ({ ...b, close: 1000 }));
+  const rows = buildFeatures(bars, idx, 20);
+  const withT = rows.filter((r) => r.targets);
+  check("every row carries a target for each head", withT.every((r) => r.targets!.length === TARGET_NAMES.length), TARGET_NAMES.length);
+  // From three quarters of the phases the next twenty sessions carry a dip
+  // of at least half a sigma; from a session near the trough they do not.
+  const dipShare = withT.filter((r) => r.targets![LOW_TARGETS[0]] === 1).length / withT.length;
+  check("the low heads see the sawtooth's dip from most phases", dipShare > 0.65 && dipShare < 0.9, dipShare.toFixed(2));
+  check("and the half-sigma high head fires from the troughs but not the peaks", (() => { const hi = withT.filter((r) => r.targets![HIGH_TARGETS[0]] === 1).length / withT.length; return hi > 0.5 && hi < 0.9; })());
+  check("the path's low never sits above its high, in sigma units", withT.every((r) => r.lowZ! <= r.highZ!));
+  check("a low head at depth a agrees with lowZ", withT.every((r) => (r.targets![LOW_TARGETS[1]] === 1) === (r.lowZ! <= -1)));
+  check("the rel column starts as the beat label before the panel ranks it", withT.every((r) => r.targets![REL_TARGET] === r.targets![1]));
+  check("the path depths are the three the curve is read at", PATH_DEPTHS.length === 3 && LOW_TARGETS.length === 3 && HIGH_TARGETS.length === 3);
+}
+
 // ------------------------------------------------------------ analysis
 {
-  check("market is strong above the 200-day with broad breadth", readMarket(true, 100, 95, 55, 60).state === "STRONG");
-  check("market is mixed above the 200-day with thin breadth", readMarket(true, 100, 95, 30, 40).state === "MIXED");
-  check("market is weak below the 200-day whatever the breadth", readMarket(false, 90, 95, 70, 70).state === "WEAK");
+  check("market is strong above the 200-day with broad breadth", readMarket({ indexAbove200: true, ewLevel: 100, ewMa200: 95, breadth200Pct: 55, breadth50Pct: 60 }).state === "STRONG");
+  check("market is mixed above the 200-day with thin breadth", readMarket({ indexAbove200: true, ewLevel: 100, ewMa200: 95, breadth200Pct: 30, breadth50Pct: 40 }).state === "MIXED");
+  check("market is weak below the 200-day whatever the breadth", readMarket({ indexAbove200: false, ewLevel: 90, ewMa200: 95, breadth200Pct: 70, breadth50Pct: 70 }).state === "WEAK");
   check("standing splits the ranking into fifths", standingOf(0.9) === "STRONG" && standingOf(0.5) === "MIDDLE" && standingOf(0.1) === "WEAK" && standingOf(null) === "MIDDLE");
+  check("the trigger is the nearest average or high at least 1% up", triggerFor(100, 103, 110, 105) === 103 && triggerFor(100, 100.5, 110, 105) === 105 && triggerFor(100, 99, 98, 97) === null);
 
   const bars = randomWalk(400, 0.0005, 0.012, 100);
-  const proj = projectLevels(bars, 20, 0.6, 0.3)!;
-  const bands = modelBands(proj);
   const price = bars[bars.length - 1].close;
+  const levels = pathLevels(price, 0.06, WALK_CURVE, WALK_CURVE);
   const up = { above50: true, above200: true, goldenCross: true, ma200Rising: true, offHighPct: -2, ret20Pct: 3, label: "UPTREND" as const, line: "", short: "" };
   const down = { ...up, above50: false, above200: false, goldenCross: false, label: "DOWNTREND" as const };
-  const base = { held: true, market: "STRONG" as const, trend: up, price, projection: proj, bands, pDip: 0.3, dipUsable: true };
+  const base = { held: true, market: "STRONG" as const, trend: up, price, levels, trigger: price * 1.04, ma200: price * 0.9, pDip: 0.3, dipUsable: true, horizon: 20, edge: { decile: 10, meanRelPct: 1.5, beatRate: 0.58 } };
 
   check("a strong name in a strong market with the trend intact is a BUY", readName({ ...base, pctile: 0.9 }).verdict === "BUY");
-  check("with high dip odds the buy is staged instead", readName({ ...base, pctile: 0.9, pDip: 0.6 }).verdict === "STAGE");
+  check("with high dip odds the buy is worked in the zone instead", readName({ ...base, pctile: 0.9, pDip: 0.6 }).verdict === "STAGE");
   check("but not when the dip record is too weak to use", readName({ ...base, pctile: 0.9, pDip: 0.6, dipUsable: false }).verdict === "BUY");
   check("a strong name still falling is a WATCH with a trigger", (() => { const r = readName({ ...base, pctile: 0.9, trend: down }); return r.verdict === "WATCH" && r.zone.trigger != null; })());
   check("a strong name in a weak market is held, not bought", readName({ ...base, pctile: 0.9, market: "WEAK" }).verdict === "HOLD");
@@ -290,8 +336,45 @@ function randomWalk(n: number, drift = 0.0003, vol = 0.015, start = 100): EodBar
   check("a weak name held in a strong market is a TRIM", readName({ ...base, pctile: 0.1 }).verdict === "TRIM");
   check("a weak name not held is AVOID", readName({ ...base, pctile: 0.1, held: false }).verdict === "AVOID");
   check("a middling name held is HOLD, not held is PASS", readName({ ...base, pctile: 0.5 }).verdict === "HOLD" && readName({ ...base, pctile: 0.5, held: false }).verdict === "PASS");
-  const z = readName({ ...base, pctile: 0.9 }).zone;
-  check("the model zone sits in order around the price", z.buyLow < z.buyHigh && z.sellLow < z.sellHigh && z.buyHigh < z.sellLow && z.fails <= price);
+  const r = readName({ ...base, pctile: 0.9 });
+  check("the model zone sits in order around the price with the fail level under the buy zone", r.zone.fails < r.zone.buyLow && r.zone.buyLow < r.zone.buyHigh && r.zone.buyHigh < price && price < r.zone.sellLow && r.zone.sellLow < r.zone.sellHigh);
+  check("the verdict line names the zone and the fail level without contradiction", r.line.includes("fails below") && !r.line.includes("add only at the band low"));
+  check("the edge line says what names ranked here did", r.edge.includes("top tenth") && r.edge.includes("1.5%"));
+  check("a rising name has no trigger", readName({ ...base, pctile: 0.9 }).zone.trigger === null);
+}
+
+// ------------------------------------------------------------ state table
+{
+  // Thirty years of a walk whose drift depends on the state: above the
+  // 200-day it drifts up, below it drifts down. The table must find that, and
+  // the walk-forward must score it above the base rate.
+  const dates = weekdays(7500, "1996-01-01");
+  const closes: number[] = [];
+  let p = 1000;
+  const r2 = mulberry32(11);
+  const g2 = () => { const u = r2() || 1e-9, v = r2(); return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v); };
+  for (let i = 0; i < dates.length; i++) {
+    let ma = p;
+    if (i >= 200) { let s2 = 0; for (let k = i - 200; k < i; k++) s2 += closes[k]; ma = s2 / 200; }
+    const drift = p > ma ? 0.0012 : -0.0012;
+    p *= Math.exp(drift + 0.012 * g2());
+    closes.push(p);
+  }
+  const bars = dates.map((date, i) => ({ date, close: closes[i] }));
+  const st = indexStates(bars, 20, null);
+  check("states start after a year of history and carry the horizon's outcome", st.length === bars.length - 250 && st[0].fwd != null && st[st.length - 1].fwd == null);
+  check("the cell key reads the state", cellKey({ gap200: 0.02, slope200: 0.01, breadth200: null }, 1) === "above|rising" && cellKey({ gap200: -0.02, slope200: 0.01, breadth200: null }, 2) === null);
+  const m = fitCells(st, 20, 20);
+  const above = m.cells["above"], below = m.cells["below"];
+  check("the table finds the planted drift", above.pUp > 0.6 && below.pUp < 0.45, `${above.pUp.toFixed(2)} / ${below.pUp.toFixed(2)}`);
+  const o = cellOutlook(m, st[st.length - 1], 1);
+  check("the outlook names its cell and counts its periods", o.key.startsWith(st[st.length - 1].gap200 > 0 ? "above" : "below") && o.periods > 5);
+  check("the levels are in order around the close", o.levels[0] < o.levels[2] && o.levels[2] < o.levels[4]);
+  const { record } = evaluateCells(st, { horizon: 20, level: 1, shrink: 20, fromYear: 2003 });
+  check("walk-forward, the table beats the base rate on the planted world", record.brierSkillPct > 3 && record.auc > 0.58, `${record.brierSkillPct.toFixed(1)}% / ${record.auc.toFixed(3)}`);
+  check("the 80% band covers about 80%", Math.abs(record.cover80 - 0.8) < 0.08, record.cover80.toFixed(3));
+  const tests = strengthTests(st[st.length - 1], 0.6);
+  check("eight strength tests, each with a reading", tests.length === 8 && tests.every((t) => t.detail.length > 0));
 }
 
 // ------------------------------------------------------------ archive
