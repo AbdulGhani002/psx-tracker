@@ -146,7 +146,7 @@ function captionFor(item: Omit<ReportItem, "png" | "caption">, rec: ModelRecord 
   const head = `<b>${item.title}</b>  ${money(item.last)}  (${pct(item.dayChangePct, 2)})${item.trend ? ` · ${item.trend.label.toLowerCase()}` : ""}${item.rank ? ` · rank ${item.rank.pos} of ${item.rank.of} by the model` : ""}`;
   const lines = [head];
   if (item.verdict === "INDEX") {
-    if (item.outlook && item.projection) lines.push(outlookLine(item.outlook, item.projection.dipLevel));
+    if (item.outlook && item.projection) lines.push(outlookLine(item.outlook, item.projection.dipLevel) + (item.symbol === "KSE100" ? "" : " (the KSE-100's table, read with this index's state.)"));
     if (item.strength) lines.push(strengthLine(item.strength));
     if (item.projection) lines.push(levelsLine(item.projection));
   } else {
@@ -214,6 +214,9 @@ export async function buildQuantReport(): Promise<QuantReport> {
   const featureIndex = model?.indexKind === "equal-weight" ? ew : kse;
 
   const lastRows = new Map<string, PanelRow>();
+  // The last five sessions' rows too: a name's standing (its fifth) is taken
+  // over them, so one session at a boundary does not flip a verdict.
+  const recentRows = new Map<string, PanelRow[]>();
   let noModelReason = "";
   if (!model) noModelReason = "no trained model in the store yet";
   else if (featureIndex.length < 300) noModelReason = "not enough index history to build features";
@@ -222,7 +225,15 @@ export async function buildQuantReport(): Promise<QuantReport> {
     noModelReason = c.reason;
     if (c.context) {
       const panel = buildPanel(stockBars, featureIndex, model.horizon, { context: c.context, ranks: (model.rankNames ?? []).length > 0, minRows: 1 });
-      for (const r of panel.rows) lastRows.set(r.symbol, r);
+      const firstRecent = panel.dates[Math.max(0, panel.dates.length - 5)];
+      for (const r of panel.rows) {
+        lastRows.set(r.symbol, r);
+        if (r.date >= firstRecent) {
+          const g = recentRows.get(r.date);
+          if (g) g.push(r);
+          else recentRows.set(r.date, [r]);
+        }
+      }
     }
   }
 
@@ -279,6 +290,38 @@ export async function buildQuantReport(): Promise<QuantReport> {
     if (!f || relValues.length < 8) return null;
     return { pos: relValues.filter((b) => b > f.rel).length + 1, of: relValues.length };
   };
+  // Standing over the last five sessions: each day's percentile, averaged.
+  const recentPctile = new Map<string, number[]>();
+  const recentPos = new Map<string, number[]>();
+  if (model && !noModelReason) {
+    for (const [, rows] of recentRows) {
+      const scored: Array<{ symbol: string; rel: number }> = [];
+      for (const r of rows) {
+        if (r.x.length !== model.featureNames.length) continue;
+        try {
+          scored.push({ symbol: r.symbol, rel: rankScore(predictEnsemble(model.learners, r.x)) });
+        } catch {
+          /* skipped */
+        }
+      }
+      if (scored.length < 8) continue;
+      for (const s of scored) {
+        const below = scored.filter((o) => o.rel < s.rel).length;
+        const above = scored.filter((o) => o.rel > s.rel).length;
+        (recentPctile.get(s.symbol) ?? recentPctile.set(s.symbol, []).get(s.symbol)!).push(below / (scored.length - 1));
+        (recentPos.get(s.symbol) ?? recentPos.set(s.symbol, []).get(s.symbol)!).push(above + 1);
+      }
+    }
+  }
+  const pctile5Of = (symbol: string): number | null => {
+    const v = recentPctile.get(symbol);
+    return v && v.length ? v.reduce((a, b) => a + b, 0) / v.length : pctileOf(symbol);
+  };
+  const rank5Of = (symbol: string): { pos: number; of: number } | null => {
+    const v = recentPos.get(symbol);
+    const today = rankOf(symbol);
+    return v && v.length && today ? { pos: Math.round(v.reduce((a, b) => a + b, 0) / v.length), of: today.of } : null;
+  };
   const edgeOf = (pctile: number | null): DecileEdge => {
     if (pctile == null || !rec?.calibration || rec.calibration.length !== 10) return null;
     const c = rec.calibration[Math.min(9, Math.floor(pctile * 10))];
@@ -329,8 +372,9 @@ export async function buildQuantReport(): Promise<QuantReport> {
     const zone = zoneBySymbol.get(symbol);
     const pos = posBySymbol.get(symbol);
     const forecast = heldName ? forecasts.get(symbol) ?? null : null;
-    const pctile = heldName ? pctileOf(symbol) : null;
+    const pctile = heldName ? pctile5Of(symbol) : null;
     const rank = heldName ? rankOf(symbol) : null;
+    const rank5 = heldName ? rank5Of(symbol) : null;
     const edge = edgeOf(pctile);
 
     let verdict: Verdict = "INDEX";
@@ -369,6 +413,7 @@ export async function buildQuantReport(): Promise<QuantReport> {
           market: market.state,
           pctile,
           rank,
+          rank5,
           edge,
           trend,
           price: last.close,

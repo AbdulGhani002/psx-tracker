@@ -98,7 +98,7 @@ export default async function AnalysisPage() {
             )}
           </Card>
 
-          <Section number="01" title="Your names, by the model" description="Sorted by what needs doing. Rank is the name's place among every name in the universe on the model's rank score; edge is what names ranked there went on to do against the market per 20 sessions, out of sample since 2007. The zones are quantiles of the model's path curve for the name: half of paths like this one reach the top of the buy zone, a quarter its bottom, a tenth the fail level; the same for the sell zone.">
+          <Section number="01" title="Your names, by the model" description="Sorted by what needs doing. Rank is the name's place today among every name in the universe on the model's rank score (its fifth is taken over the last five sessions, so one session at a boundary does not flip a verdict); edge is what names ranked there went on to do against the market per 20 sessions, out of sample since 2007. The zones are quantiles of the model's path curve for the name: half of paths like this one reach the top of the buy zone, a quarter its bottom, a tenth the fail level; the same for the sell zone.">
             <div className="overflow-x-auto">
               <table className="w-full text-[13px]">
                 <thead>

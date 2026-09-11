@@ -22,7 +22,7 @@
 //                     whether a buy is taken now or worked in the zone
 
 import type { TrendRead } from "./features";
-import type { PathLevels } from "./projection";
+import { tickFor, type PathLevels } from "./projection";
 import type { CellOutlook, OutlookRecord, StrengthTest } from "./outlook";
 
 export type MarketState = "STRONG" | "MIXED" | "WEAK";
@@ -111,22 +111,24 @@ export type NameRead = {
 export function triggerFor(price: number, ma50: number | null, ma200: number | null, high20: number): number | null {
   const cands = [ma50, high20, ma200].filter((v): v is number => v != null && v > price * 1.01);
   if (cands.length === 0) return null;
-  return Math.min(...cands);
+  const tick = tickFor(price);
+  return Math.round(Math.min(...cands) / tick) * tick;
 }
 
 export type DecileEdge = { decile: number; meanRelPct: number; beatRate: number } | null;
 
 export function edgeLine(edge: DecileEdge, horizon: number): string {
   if (!edge) return "";
-  const where = edge.decile >= 10 ? "top tenth" : edge.decile >= 9 ? "second tenth" : edge.decile <= 1 ? "bottom tenth" : edge.decile <= 2 ? "second-lowest tenth" : `tenth ${edge.decile} of 10`;
-  return `names ranked in the ${where} went on to ${edge.meanRelPct >= 0 ? "beat" : "trail"} the market by ${Math.abs(edge.meanRelPct).toFixed(1)}% per ${horizon} sessions on average, out of sample since 2007`;
+  const where = edge.decile >= 10 ? "the top tenth" : edge.decile >= 9 ? "the second tenth" : edge.decile <= 1 ? "the bottom tenth" : edge.decile <= 2 ? "the second-lowest tenth" : `tenth ${edge.decile} of 10 (10 is the top)`;
+  return `names ranked in ${where} went on to ${edge.meanRelPct >= 0 ? "beat" : "trail"} the market by ${Math.abs(edge.meanRelPct).toFixed(1)}% per ${horizon} sessions on average, out of sample since 2007`;
 }
 
 export function readName(args: {
   held: boolean;
   market: MarketState;
-  pctile: number | null; // rank of the rank score among the universe, 0..1, 1 = strongest
-  rank?: { pos: number; of: number } | null;
+  pctile: number | null; // standing among the universe on the rank score, 0..1, 1 = strongest (averaged over recent sessions)
+  rank?: { pos: number; of: number } | null; // today's place
+  rank5?: { pos: number; of: number } | null; // the average place over the last five sessions, when it differs
   edge?: DecileEdge;
   trend: TrendRead | null;
   price: number;
@@ -143,7 +145,8 @@ export function readName(args: {
   const falling = t === "DOWNTREND" || t === "WEAKENING";
   const zone: ModelZone = { buyLow: levels.buyLow, buyHigh: levels.buyHigh, sellLow: levels.sellLow, sellHigh: levels.sellHigh, fails: levels.fails, trigger: falling ? args.trigger : null };
   const inSell = price >= levels.sellLow;
-  const rankText = rank ? `rank ${rank.pos} of ${rank.of}` : pctile != null ? `${standing.toLowerCase()} rank` : "unranked";
+  const r5 = args.rank5;
+  const rankText = rank ? `rank ${rank.pos} of ${rank.of}${r5 && Math.abs(r5.pos - rank.pos) >= 5 ? `, ${r5.pos} on average over the last five sessions` : ""}` : pctile != null ? `${standing.toLowerCase()} rank` : "unranked";
   const buyZone = `${fmt(levels.buyHigh)} down to ${fmt(levels.buyLow)}`;
   const sellZone = `${fmt(levels.sellLow)} to ${fmt(levels.sellHigh)}`;
   const failsAt = `The case fails below ${fmt(levels.fails)}`;
