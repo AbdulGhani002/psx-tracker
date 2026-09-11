@@ -339,7 +339,7 @@ export function strengthTests(s: Pick<IndexState, "gap200" | "gap50" | "slope200
     { name: "above its 200-day", pass: s.gap200 > 0, detail: `${pct(s.gap200)} from it` },
     { name: "200-day rising", pass: s.slope200 > 0, detail: `${pct(s.slope200)} in a month` },
     { name: "above its 50-day", pass: s.gap50 > 0, detail: `${pct(s.gap50)} from it` },
-    { name: "50-day over 200-day", pass: s.goldenCross, detail: s.goldenCross ? "yes" : "no" },
+    { name: "50-day over 200-day", pass: s.goldenCross, detail: `${pct(s.gap200 - s.gap50)} apart` },
     { name: "up over 20 sessions", pass: s.ret20 > 0, detail: pct(s.ret20) },
     { name: "within 5% of its 250-day high", pass: s.dd250 > ln(0.95), detail: `${pct(s.dd250)} off it` },
     { name: "half the names above their 200-day", pass: s.breadth200 != null && s.breadth200 >= 0.5, detail: s.breadth200 == null ? "unknown" : `${(s.breadth200 * 100).toFixed(0)}%` },

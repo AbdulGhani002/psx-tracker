@@ -40,6 +40,8 @@ export default async function AnalysisPage() {
   const outlook = kse?.outlook ?? null;
   const market = report?.market ?? null;
   const rec = report?.record ?? null;
+  // A report stored by an older build may lack the newer fields.
+  const tests = market?.tests ?? [];
 
   return (
     <>
@@ -74,9 +76,9 @@ export default async function AnalysisPage() {
               </div>
             )}
             {market?.outlookLine && <div className="mt-3 text-[15px] leading-relaxed">{market.outlookLine}</div>}
-            {market && market.tests.length > 0 && (
+            {tests.length > 0 && (
               <div className="mt-4 flex flex-wrap gap-2">
-                {market.tests.map((t) => (
+                {tests.map((t) => (
                   <span key={t.name} className="text-[12px] border px-2 py-1" style={{ borderColor: "var(--rule)", color: t.pass ? "var(--positive)" : "var(--negative)" }} title={t.detail}>
                     {t.pass ? "✓" : "✗"} {t.name} <span className="text-muted">({t.detail})</span>
                   </span>
@@ -86,7 +88,7 @@ export default async function AnalysisPage() {
             {market && (
               <StatRow>
                 <Stat label="Market" value={market.state} tone={market.state === "STRONG" ? "positive" : market.state === "WEAK" ? "negative" : "default"} hint="Equal-weight index vs 200-day, and breadth" />
-                {market.tests.length > 0 && <Stat label="Strength" value={`${market.score} of ${market.tests.length}`} hint="Chart tests the KSE-100 passes" />}
+                {tests.length > 0 && <Stat label="Strength" value={`${market.score ?? 0} of ${tests.length}`} hint="Chart tests the KSE-100 passes" />}
                 <Stat label="Above 200-day" value={`${market.breadth200Pct.toFixed(0)}%`} hint="Share of names" />
                 <Stat label="Above 50-day" value={`${market.breadth50Pct.toFixed(0)}%`} hint="Share of names" />
                 {outlook && <Stat label="Higher in 20 sessions" value={odds(outlook.pUp)} hint={`${Math.round(outlook.periods)} past states like this; all states ${odds(outlook.base.pUp)}`} />}
@@ -94,6 +96,7 @@ export default async function AnalysisPage() {
                 {outlook && <Stat label="Middle range" value={`${money(outlook.levels[1])} to ${money(outlook.levels[3])}`} hint="Half of past outcomes" />}
                 {outlook && <Stat label="Wide range" value={`${money(outlook.levels[0])} to ${money(outlook.levels[4])}`} hint="Four in five past outcomes" />}
                 {outlook && kse?.projection && <Stat label="5% dip first" value={odds(outlook.pDip)} hint={`Odds of touching ${money(kse.projection.dipLevel)} first`} />}
+                {!outlook && kse?.projection && <Stat label="KSE-100 centre" value={money(kse.projection.median)} hint={`${money(kse.projection.low)} to ${money(kse.projection.high)}`} />}
               </StatRow>
             )}
           </Card>
