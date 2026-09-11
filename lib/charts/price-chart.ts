@@ -216,8 +216,14 @@ export function renderPriceChart(input: PriceChartInput): Buffer {
   legend("CLOSE", INK);
 
   // --- footer -----------------------------------------------------------------------
+  // The date range gives way to the footer when the two would meet.
+  const range = `${bars[0].date} TO ${last.date}`;
+  const shortRange = `TO ${last.date}`;
+  const footerW = input.footer ? r.textWidth(input.footer, 2) : 0;
+  const fits = (s: string) => L + footerW + 24 + r.textWidth(s, 2) <= width - R;
   if (input.footer) r.text(L, height - 22, input.footer, MID, 2);
-  r.textRight(width - R, height - 22, `${bars[0].date} TO ${last.date}`, GREY, 2);
+  if (fits(range)) r.textRight(width - R, height - 22, range, GREY, 2);
+  else if (fits(shortRange)) r.textRight(width - R, height - 22, shortRange, GREY, 2);
 
   return r.toPng();
 }

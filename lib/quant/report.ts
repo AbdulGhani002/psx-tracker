@@ -453,7 +453,7 @@ export async function buildQuantReport(): Promise<QuantReport> {
       sellZone: modelZone ? { low: modelZone.sellLow, high: modelZone.sellHigh } : undefined,
       avgCost: pos?.avgCost ?? null,
       projection: projection ? { horizon: projection.horizon, median: projection.median, low: projection.low, high: projection.high, dipLevel: projection.dipLevel, dipLabel: heldName ? "FAIL" : "DIP" } : null,
-      footer: `LAST ${last.close.toFixed(2)}  ${pct(dayChangePct, 2)} ON THE DAY${heldName ? `   ${verdict}` : ""}${rank ? `   RANK ${rank.pos}/${rank.of}` : ""}${outlook ? `   ${odds(outlook.pUp)} HIGHER IN ${outlook.horizon}D IN THIS STATE` : ""}`,
+      footer: `LAST ${last.close.toFixed(2)}  ${pct(dayChangePct, 2)} ON THE DAY${heldName ? `   ${verdict}` : ""}${rank ? `   RANK ${rank.pos}/${rank.of}` : ""}${outlook ? `   ${odds(outlook.pUp)} HIGHER IN ${outlook.horizon}D` : ""}`,
     });
 
     const base = {
