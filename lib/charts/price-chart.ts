@@ -19,7 +19,7 @@ export type PriceChartInput = {
   // Where the model puts the price `horizon` sessions on: the centre, one
   // standard deviation either side, and the 5% dip level. Drawn as a fan to
   // the right of the last bar.
-  projection?: { horizon: number; median: number; low: number; high: number; dipLevel: number } | null;
+  projection?: { horizon: number; median: number; low: number; high: number; dipLevel: number; dipLabel?: string } | null;
   footer?: string;
   width?: number;
   height?: number;
@@ -193,7 +193,7 @@ export function renderPriceChart(input: PriceChartInput): Buffer {
     const yD = yAt(proj.dipLevel);
     if (yD > T && yD < T + plotH) {
       r.polyline([[lx0, yD], [xe, yD]], GREY, 1, [1, 3]);
-      labels.push({ y: yD, text: `DIP ${fmt(proj.dipLevel)}`, rgb: GREY });
+      labels.push({ y: yD, text: `${proj.dipLabel ?? "DIP"} ${fmt(proj.dipLevel)}`, rgb: GREY });
     }
     labels.sort((a, b) => a.y - b.y);
     for (let i = 1; i < labels.length; i++) if (labels[i].y - labels[i - 1].y < 15) labels[i].y = labels[i - 1].y + 15;

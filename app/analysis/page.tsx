@@ -36,19 +36,23 @@ const TONE: Record<string, "positive" | "negative" | "default"> = { BUY: "positi
 export default async function AnalysisPage() {
   const userId = await uid();
   const report = await loadQuantSnapshot<StoredReport>(`quant:report:${userId}`).catch(() => null);
+  const kse = report?.indices.find((i) => i.symbol === "KSE100") ?? report?.indices[0];
+  const outlook = kse?.outlook ?? null;
+  const market = report?.market ?? null;
+  const rec = report?.record ?? null;
 
   return (
     <>
       <PageHeader
         title="Analysis"
-        subtitle="The model's own reading: how strong the market is, where each name you hold ranks among every name on the exchange, the zones it would write down itself, and where it thinks the index is going. Your bands are shown beside its verdicts, not underneath them."
+        subtitle="The model's own reading: how strong the market is and what the KSE-100 did after past days like this, where each name you hold ranks among every name on the exchange and what names ranked there went on to do, and the zones read off the model's own curve of where a path stalls. Your bands are shown beside its verdicts, not underneath them."
       />
 
       {!report && (
         <Card>
           <div className="label-cap mb-2">No analysis stored yet</div>
           <p className="text-[15px] leading-relaxed mb-4">
-            The analysis is built after each close (14:45 CEST) and kept here. Build it now; it takes about a minute.
+            The analysis is built after each close (14:45 CEST) and kept here. Build it now; it takes a minute or two.
           </p>
           <RefreshAnalysis />
         </Card>
@@ -64,29 +68,37 @@ export default async function AnalysisPage() {
               </div>
               <RefreshAnalysis />
             </div>
-            {report.market && (
-              <div className="mt-4 text-[20px] leading-snug" style={{ color: report.market.state === "STRONG" ? "var(--positive)" : report.market.state === "WEAK" ? "var(--negative)" : "inherit" }}>
-                {report.market.line}
+            {market && (
+              <div className="mt-4 text-[20px] leading-snug" style={{ color: market.state === "STRONG" ? "var(--positive)" : market.state === "WEAK" ? "var(--negative)" : "inherit" }}>
+                {market.line}
               </div>
             )}
-            {report.indices[0]?.projection && (
-              <div className="mt-3 text-[15px] leading-relaxed">
-                <Caption text={report.indices[0].caption.split("\n").slice(1).join("\n")} />
+            {market?.outlookLine && <div className="mt-3 text-[15px] leading-relaxed">{market.outlookLine}</div>}
+            {market && market.tests.length > 0 && (
+              <div className="mt-4 flex flex-wrap gap-2">
+                {market.tests.map((t) => (
+                  <span key={t.name} className="text-[12px] border px-2 py-1" style={{ borderColor: "var(--rule)", color: t.pass ? "var(--positive)" : "var(--negative)" }} title={t.detail}>
+                    {t.pass ? "✓" : "✗"} {t.name} <span className="text-muted">({t.detail})</span>
+                  </span>
+                ))}
               </div>
             )}
-            {report.market && (
+            {market && (
               <StatRow>
-                <Stat label="Market" value={report.market.state} tone={report.market.state === "STRONG" ? "positive" : report.market.state === "WEAK" ? "negative" : "default"} hint="Equal-weight index vs 200-day, and breadth" />
-                <Stat label="Above 200-day" value={`${report.market.breadth200Pct.toFixed(0)}%`} hint="Share of names" />
-                <Stat label="Above 50-day" value={`${report.market.breadth50Pct.toFixed(0)}%`} hint="Share of names" />
-                {report.indices[0]?.projection && <Stat label="KSE-100 centre" value={money(report.indices[0].projection.median)} hint={`${odds(report.indices[0].projection.pUp)} odds higher in ${report.indices[0].projection.horizon} sessions`} />}
-                {report.indices[0]?.projection && <Stat label="Likely range" value={`${money(report.indices[0].projection.low)} to ${money(report.indices[0].projection.high)}`} hint="One standard deviation" />}
-                {report.indices[0]?.projection && <Stat label="5% dip level" value={money(report.indices[0].projection.dipLevel)} hint={`${odds(report.indices[0].projection.pDip)} odds of touching it first`} />}
+                <Stat label="Market" value={market.state} tone={market.state === "STRONG" ? "positive" : market.state === "WEAK" ? "negative" : "default"} hint="Equal-weight index vs 200-day, and breadth" />
+                {market.tests.length > 0 && <Stat label="Strength" value={`${market.score} of ${market.tests.length}`} hint="Chart tests the KSE-100 passes" />}
+                <Stat label="Above 200-day" value={`${market.breadth200Pct.toFixed(0)}%`} hint="Share of names" />
+                <Stat label="Above 50-day" value={`${market.breadth50Pct.toFixed(0)}%`} hint="Share of names" />
+                {outlook && <Stat label="Higher in 20 sessions" value={odds(outlook.pUp)} hint={`${Math.round(outlook.periods)} past states like this; all states ${odds(outlook.base.pUp)}`} />}
+                {outlook && <Stat label="KSE-100 median" value={money(outlook.levels[2])} hint={pct(outlook.medianPct)} />}
+                {outlook && <Stat label="Middle range" value={`${money(outlook.levels[1])} to ${money(outlook.levels[3])}`} hint="Half of past outcomes" />}
+                {outlook && <Stat label="Wide range" value={`${money(outlook.levels[0])} to ${money(outlook.levels[4])}`} hint="Four in five past outcomes" />}
+                {outlook && kse?.projection && <Stat label="5% dip first" value={odds(outlook.pDip)} hint={`Odds of touching ${money(kse.projection.dipLevel)} first`} />}
               </StatRow>
             )}
           </Card>
 
-          <Section number="01" title="Your names, by the model" description="Sorted by what needs doing. Percentile is the name's place among every name in the universe on the model's odds of beating the market; the zones are the model's own, from the name's volatility around its centre.">
+          <Section number="01" title="Your names, by the model" description="Sorted by what needs doing. Rank is the name's place among every name in the universe on the model's rank score; edge is what names ranked there went on to do against the market per 20 sessions, out of sample since 2007. The zones are quantiles of the model's path curve for the name: half of paths like this one reach the top of the buy zone, a quarter its bottom, a tenth the fail level; the same for the sell zone.">
             <div className="overflow-x-auto">
               <table className="w-full text-[13px]">
                 <thead>
@@ -94,12 +106,13 @@ export default async function AnalysisPage() {
                     <th className="py-2 pr-3">Name</th>
                     <th className="py-2 pr-3">Verdict</th>
                     <th className="py-2 pr-3">Last</th>
-                    <th className="py-2 pr-3">Percentile</th>
-                    <th className="py-2 pr-3">Beats market</th>
-                    <th className="py-2 pr-3">Dip first</th>
-                    <th className="py-2 pr-3">Model buy</th>
-                    <th className="py-2 pr-3">Model sell</th>
-                    <th className="py-2 pr-3">Case fails</th>
+                    <th className="py-2 pr-3">Rank</th>
+                    <th className="py-2 pr-3">Edge</th>
+                    <th className="py-2 pr-3">5% dip first</th>
+                    <th className="py-2 pr-3">Buy zone</th>
+                    <th className="py-2 pr-3">Sell zone</th>
+                    <th className="py-2 pr-3">Fails</th>
+                    <th className="py-2 pr-3">Turns above</th>
                     <th className="py-2 pr-3">Your band</th>
                   </tr>
                 </thead>
@@ -111,12 +124,13 @@ export default async function AnalysisPage() {
                         {h.verdict}
                       </td>
                       <td className="py-2 pr-3 font-mono">{money(h.last)} <span className="text-muted">({pct(h.dayChangePct)})</span></td>
-                      <td className="py-2 pr-3 font-mono">{h.pctile != null ? `${Math.round((1 - h.pctile) * 100)}th` : "–"}</td>
-                      <td className="py-2 pr-3 font-mono">{h.forecast ? odds(h.forecast.beat) : "–"}</td>
+                      <td className="py-2 pr-3 font-mono">{h.rank ? `${h.rank.pos} of ${h.rank.of}` : "–"}</td>
+                      <td className="py-2 pr-3 font-mono">{h.edge ? pct(h.edge.meanRelPct) : "–"}</td>
                       <td className="py-2 pr-3 font-mono">{h.forecast ? odds(h.forecast.dip) : "–"}</td>
-                      <td className="py-2 pr-3 font-mono">{h.zone ? `${money(h.zone.buyLow)} to ${money(h.zone.buyHigh)}` : "–"}</td>
+                      <td className="py-2 pr-3 font-mono">{h.zone ? `${money(h.zone.buyHigh)} to ${money(h.zone.buyLow)}` : "–"}</td>
                       <td className="py-2 pr-3 font-mono">{h.zone ? `${money(h.zone.sellLow)} to ${money(h.zone.sellHigh)}` : "–"}</td>
                       <td className="py-2 pr-3 font-mono">{h.zone ? money(h.zone.fails) : "–"}</td>
+                      <td className="py-2 pr-3 font-mono">{h.zone?.trigger ? money(h.zone.trigger) : "–"}</td>
                       <td className="py-2 pr-3 text-muted">{h.yourZone || "none"}</td>
                     </tr>
                   ))}
@@ -126,13 +140,14 @@ export default async function AnalysisPage() {
             <div className="mt-6 space-y-3">
               {report.holdings.map((h) => (
                 <div key={h.symbol} className="text-[14px] leading-relaxed">
-                  <span className="font-mono font-semibold">{h.symbol}</span> <span className="font-semibold">{h.verdict}</span> — {h.verdictLine}
+                  <span className="font-mono font-semibold">{h.symbol}</span> <span className="font-semibold">{h.verdict}</span>: {h.verdictLine}
+                  {h.edgeLine ? <span className="text-muted"> {h.edgeLine.charAt(0).toUpperCase() + h.edgeLine.slice(1)}.</span> : null}
                 </div>
               ))}
             </div>
           </Section>
 
-          <Section number="02" title="Charts" description="A year of closes, the 50- and 200-day averages, the model's buy and sell zones shaded, your average cost, and the model's projection as a fan to the right of the last bar.">
+          <Section number="02" title="Charts" description="A year of closes, the 50- and 200-day averages, the model's buy and sell zones shaded, your average cost, the fail level, and the projection as a fan to the right of the last bar: for the indices the wide range of past states like today's, for your names the market's median move plus the name's edge, a deviation either side.">
             <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
               {[...report.indices, ...report.holdings].map((it) => (
                 <Chart key={it.symbol} item={it} />
@@ -144,6 +159,66 @@ export default async function AnalysisPage() {
             <Card>
               <Caption text={report.modelNote} />
             </Card>
+            {rec?.calibration && rec.calibration.length === 10 && (
+              <div className="overflow-x-auto mt-6">
+                <div className="label-cap mb-2">What each tenth of the ranking then did, out of sample {rec.from} to {rec.to}, per {report.model?.horizon ?? 20} sessions</div>
+                <table className="w-full text-[13px]">
+                  <thead>
+                    <tr className="text-left label-cap border-b-2 border-ink">
+                      <th className="py-2 pr-3">Tenth</th>
+                      <th className="py-2 pr-3">Against the market</th>
+                      <th className="py-2 pr-3">Outright</th>
+                      <th className="py-2 pr-3">Share ahead of the market</th>
+                      <th className="py-2 pr-3">Name-days</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {[...rec.calibration].reverse().map((c) => (
+                      <tr key={c.decile} className="border-b border-[var(--rule)]">
+                        <td className="py-2 pr-3">{c.decile === 10 ? "10 (top)" : c.decile === 1 ? "1 (bottom)" : c.decile}</td>
+                        <td className="py-2 pr-3 font-mono">{pct(c.meanRelPct, 2)}</td>
+                        <td className="py-2 pr-3 font-mono">{pct(c.meanRetPct, 2)}</td>
+                        <td className="py-2 pr-3 font-mono">{odds(c.beatRate)}</td>
+                        <td className="py-2 pr-3 font-mono">{c.n.toLocaleString()}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+            {rec?.zones && (
+              <div className="overflow-x-auto mt-6">
+                <div className="label-cap mb-2">The zones out of sample: share of {rec.zones.n.toLocaleString()} paths that reached each level, the model's curve against a plain random walk's</div>
+                <table className="w-full text-[13px]">
+                  <thead>
+                    <tr className="text-left label-cap border-b-2 border-ink">
+                      <th className="py-2 pr-3">Level</th>
+                      <th className="py-2 pr-3">Built for</th>
+                      <th className="py-2 pr-3">Model</th>
+                      <th className="py-2 pr-3">Plain walk</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {(
+                      [
+                        ["Top of the buy zone", 0.5, rec.zones.buyHigh, rec.zones.walk.buyHigh],
+                        ["Bottom of the buy zone", 0.25, rec.zones.buyLow, rec.zones.walk.buyLow],
+                        ["Fail level", 0.1, rec.zones.fails, rec.zones.walk.fails],
+                        ["Bottom of the sell zone", 0.5, rec.zones.sellLow, rec.zones.walk.sellLow],
+                        ["Top of the sell zone", 0.25, rec.zones.sellHigh, rec.zones.walk.sellHigh],
+                      ] as Array<[string, number, number, number]>
+                    ).map(([name, built, m, w]) => (
+                      <tr key={name} className="border-b border-[var(--rule)]">
+                        <td className="py-2 pr-3">{name}</td>
+                        <td className="py-2 pr-3 font-mono">{odds(built)}</td>
+                        <td className="py-2 pr-3 font-mono">{odds(m)}</td>
+                        <td className="py-2 pr-3 font-mono">{odds(w)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
             {report.strategy && (
               <div className="overflow-x-auto mt-6">
                 <div className="label-cap mb-2">
@@ -175,7 +250,6 @@ export default async function AnalysisPage() {
                 </table>
               </div>
             )}
-            <div className="mt-6 text-[14px] leading-relaxed whitespace-pre-line text-muted">{report.detail}</div>
           </Section>
         </>
       )}
