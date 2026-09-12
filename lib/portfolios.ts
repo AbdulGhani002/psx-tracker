@@ -32,8 +32,26 @@ export async function listPortfolios(): Promise<PortfolioView[]> {
   await connectDb();
   let docs = await PortfolioModel.find({ userId: uid }).sort({ isDefault: -1, createdAt: 1 }).lean();
   if (docs.length === 0) {
-    await PortfolioModel.create({ userId: uid, name: "Main", broker: "", kind: "mixed", color: PALETTE[0], isDefault: true });
+    // One atomic upsert, so concurrent first reads cannot each create one.
+    await PortfolioModel.updateOne({ userId: uid, name: "Main" }, { $setOnInsert: { userId: uid, name: "Main", broker: "", kind: "mixed", color: PALETTE[0], isDefault: true, notes: "" } }, { upsert: true });
     docs = await PortfolioModel.find({ userId: uid }).sort({ isDefault: -1, createdAt: 1 }).lean();
+  }
+  // Duplicates from before the upsert (same name, no rows pointing at them)
+  // are folded into the oldest.
+  const seen = new Map<string, any>();
+  const extras: any[] = [];
+  for (const d of docs) {
+    const k = String(d.name).toLowerCase();
+    if (seen.has(k)) extras.push(d);
+    else seen.set(k, d);
+  }
+  if (extras.length) {
+    await PortfolioModel.deleteMany({ _id: { $in: extras.map((e) => e._id) } }).catch(() => {});
+    docs = docs.filter((d) => !extras.some((e) => String(e._id) === String(d._id)));
+  }
+  if (!docs.some((d) => (d as any).isDefault) && docs.length) {
+    await PortfolioModel.updateOne({ _id: docs[0]._id }, { $set: { isDefault: true } }).catch(() => {});
+    (docs[0] as any).isDefault = true;
   }
   return docs.map((d, i) => ({ ...plain(d), color: (d as any).color || PALETTE[i % PALETTE.length] }));
 }

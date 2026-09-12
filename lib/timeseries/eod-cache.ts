@@ -11,7 +11,10 @@ import { loadBars } from "@/lib/quant/universe";
 import { mongoBarsCache } from "@/lib/quant/store";
 import type { EodBar, EodPoint } from "./psx-eod";
 
-const MAX_AGE_HOURS = 30;
+// The pushed bars arrive every weekday evening; over a weekend or a holiday
+// the last push is what there is, and asking the portal instead only earns
+// a timeout per name. A week is the limit, not a day.
+const MAX_AGE_HOURS = 24 * 7;
 
 export async function eodBarsCached(symbols: string[]): Promise<Map<string, EodBar[]>> {
   return loadBars(symbols, mongoBarsCache(MAX_AGE_HOURS));

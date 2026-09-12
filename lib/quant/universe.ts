@@ -49,6 +49,9 @@ export type BarsCache = {
 export async function loadBars(symbols: string[], cache: BarsCache | null = null, concurrency = 1, pauseMs = 400): Promise<Map<string, EodBar[]>> {
   const out = new Map<string, EodBar[]>();
   const queue = [...new Set(symbols)];
+  // After three straight misses with nothing fetched, the portal is taken to
+  // be refusing this address and the rest come from the cache alone.
+  let misses = 0, fetched = 0;
   const worker = async () => {
     while (queue.length > 0) {
       const s = queue.shift();
@@ -59,13 +62,17 @@ export async function loadBars(symbols: string[], cache: BarsCache | null = null
           out.set(s, hit);
           continue;
         }
-        if (pauseMs > 0) await new Promise((r) => setTimeout(r, pauseMs));
-        const bars = await fetchEodBars(s).catch(() => [] as EodBar[]);
+        const blocked = misses >= 3 && fetched === 0;
+        if (!blocked && pauseMs > 0) await new Promise((r) => setTimeout(r, pauseMs));
+        const bars = blocked ? ([] as EodBar[]) : await fetchEodBars(s).catch(() => [] as EodBar[]);
         if (bars.length > 0) {
+          fetched++;
+          misses = 0;
           out.set(s, bars);
           if (cache) await cache.put(s, bars).catch(() => {});
           continue;
         }
+        misses++;
         // The feed is down or throttled: yesterday's series beats no series.
         // A report built on it says so through its dates; a report with no
         // charts says nothing.

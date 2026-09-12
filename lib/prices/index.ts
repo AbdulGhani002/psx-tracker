@@ -92,11 +92,25 @@ export async function getPrices(symbols: string[]): Promise<Map<string, number>>
       out.set(sym, quote.price);
       try { await writeSnapshot(quote); } catch { /* swallow */ }
     }
-    // Fall back to the last-known price for anything we couldn't refresh.
-    for (const sym of stale) {
-      if (!out.has(sym)) {
+    // Anything the portal would not give: the last close from the bars the
+    // laptop pushes each weekday, if it is newer than the snapshot; else the
+    // last snapshot. After the close those are the same number.
+    const missing = stale.filter((s) => !out.has(s));
+    if (missing.length > 0) {
+      let bars = new Map<string, Array<{ date: string; close: number }>>();
+      try {
+        const { eodBarsCached } = await import("@/lib/timeseries/eod-cache");
+        bars = (await eodBarsCached(missing)) as any;
+      } catch {
+        /* the bars are a fallback, not a requirement */
+      }
+      for (const sym of missing) {
         const cached = cache.get(sym);
-        if (cached) out.set(sym, cached.price);
+        const b = bars.get(sym);
+        const last = b && b.length ? b[b.length - 1] : null;
+        const lastTs = last ? Date.parse(last.date + "T11:00:00Z") : 0;
+        if (last && (!cached || lastTs > cached.timestamp.getTime())) out.set(sym, last.close);
+        else if (cached) out.set(sym, cached.price);
       }
     }
   }

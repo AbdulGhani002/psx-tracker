@@ -11,6 +11,7 @@ export async function fetchEodSeries(symbolOrIndex: string): Promise<EodPoint[]>
   const res = await fetch(url, {
     headers: { "user-agent": UA, accept: "application/json" },
     cache: "no-store",
+    signal: AbortSignal.timeout(8000),
   });
   if (!res.ok) return [];
   const body = await res.json();
@@ -41,6 +42,7 @@ export async function fetchEodBars(symbolOrIndex: string): Promise<EodBar[]> {
   const res = await fetch(url, {
     headers: { "user-agent": UA, accept: "application/json" },
     cache: "no-store",
+    signal: AbortSignal.timeout(8000),
   });
   if (!res.ok) return [];
   const body = await res.json();

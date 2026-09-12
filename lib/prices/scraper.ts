@@ -33,6 +33,9 @@ export async function fetchPSXPage(symbol: string): Promise<PSXSnapshot | null> 
     const res = await fetch(PSX_URL(upper), {
       headers: { "user-agent": UA, accept: "text/html" },
       cache: "no-store",
+      // The portal, when it is refusing the server's address, either closes at
+      // once or hangs; neither may hold a page for long.
+      signal: AbortSignal.timeout(4000),
     });
     if (!res.ok) return null;
     const html = await res.text();
@@ -76,9 +79,17 @@ export class PSXScraperFetcher implements PriceFetcher {
 
   async fetchBatch(symbols: string[]): Promise<Map<string, PriceQuote>> {
     const out = new Map<string, PriceQuote>();
+    let misses = 0;
     for (const s of symbols) {
       const q = await this.fetchPrice(s);
-      if (q) out.set(q.symbol, q);
+      if (q) {
+        out.set(q.symbol, q);
+        misses = 0;
+      } else if (++misses >= 3 && out.size === 0) {
+        // Three straight failures with nothing back: the portal is not
+        // answering this address today. Stop asking; the caller falls back.
+        break;
+      }
       await new Promise((r) => setTimeout(r, this.delayMs));
     }
     return out;
