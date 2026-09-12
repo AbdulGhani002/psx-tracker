@@ -1,7 +1,7 @@
 // Single source of truth for the app version + changelog.
 // Bump APP_VERSION and prepend a CHANGELOG entry on every release.
 
-export const APP_VERSION = "9.14.0";
+export const APP_VERSION = "10.0.0";
 
 export const BUILD_DATE =
   process.env.NEXT_PUBLIC_BUILD_DATE ?? "";
@@ -17,6 +17,23 @@ export type ChangelogEntry = {
 
 // Reverse-chronological. Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: "10.0.0",
+    date: "2026-09-12",
+    title: "A wealth dashboard: the Zar-style shell and overview, portfolios, analytics, payouts, tax and zakat, risk, calculators, and a screener of the whole universe",
+    changes: [
+      "The look is a trading dashboard now, modelled on Sarmaaya's Zar: a navy theme by default (light stays a click away), a sidebar of grouped links, a top bar with the KSE-100 and KMI-30 from the day's closes, a portfolio switcher and an Add trade button, and bottom tabs on a phone. Every card, table and heading across the app took the new shape; the number formats and the words did not change.",
+      "The Overview is five cards (total net worth, today's profit and loss, total return, invested, available cash), the portfolio's value against the KSE-100 started at the same point with 1M to ALL tabs and a return view, the asset allocation, a card per portfolio with its 30-day move, the day's gainers and losers with the rupees each made or lost, recent activity, a monthly performance heatmap, and what moved the book over the month.",
+      "Portfolios. One account keeps several: a broker account, a family member's money, a trading book. Trades, cash, funds and savings each carry a portfolio; rows recorded before this belong to the default. The switcher shows one or all; new trades go to the portfolio being shown unless the form says otherwise; Settings creates, colours and removes them. Targets and the Rebalance page still describe the whole book.",
+      "Analytics: time-weighted return against the KSE-100 for the period, money-weighted (XIRR), annualised growth and volatility, beta and Sharpe, the maximum drawdown with its dates, monthly bars and month-by-year tables for the portfolio and the market, the daily profit for the last forty sessions (yesterday's holdings at each day's closes, so a buy made that day is not counted), the holdings by value with today's move and 52-week position, and dividend yields on price and on cost.",
+      "Payouts: received all time and over the last twelve months, this tax year's net and withholding, a bar for each of the last 24 months, a by-year table, the yield each name pays on today's price and on your cost, the payouts the record says are coming, and bonus shares. Tax and Zakat: capital gains by tax year from the FIFO lots at your filer rate, the disposals behind them, dividends and their withholding by name, brokerage and levies paid, and a zakat estimate at today's values.",
+      "Risk, in the manner of an institutional risk desk: one-day and twenty-session value at risk and the expected shortfall beyond it, annualised volatility with the diversification ratio, beta to the KSE-100, each name's share of the book's variance beside its weight, correlations between the names, concentration as an effective number of positions and the top three, days to exit each position at a fifth of its volume, sector weights, and stress tests: index shocks through the book's beta, the index's own worst day, week, month and quarter in the history at hand, and this book's own worst month at today's weights.",
+      "Calculators: ROI and annualised return, CAGR, monthly investing, compounding with tax and the per-day figure, deductions on a trade at your broker's rate (commission with the 3-paisa floor, 15% sales tax, capital gains tax on a sale), dividend after withholding, Peter Lynch fair value and PEG, a per-share discounted cash flow, drawdown recovery, position size from a stop, and zakat.",
+      "Trades: size a buy by the rupees to invest and the form takes whole shares at the price; the fee formula follows a brokerage rate in Settings (0.15%, BMA's) with the 3-paisa floor and 15% sales tax, which is what the contract notes show; a portfolio can be chosen on the form.",
+      "The model: the decile table is kept for strong and for weak markets separately, and the edge printed beside each name is the one for today's state. The Analysis page adds a screener of every name the model scored today, best rank first, with each one's edge, trend, 60-day return against the index, volatility, dip odds and zones; names held or targeted are marked.",
+      "Price series for charts, movers and the ticker come from the bars the laptop pushes each weekday, with the exchange's portal as the fallback, so the pages work while the portal blocks the server's address. The benchmark series learned 1M and 3Y ranges.",
+    ],
+  },
   {
     version: "9.14.0",
     date: "2026-09-12",

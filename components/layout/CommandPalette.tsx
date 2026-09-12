@@ -22,7 +22,11 @@ type Item = {
 
 const PAGES: Item[] = [
   { id: "p-overview", label: "Overview", hint: "net worth, attribution", group: "Pages", href: "/" },
+  { id: "p-analytics", label: "Analytics", hint: "time-weighted returns, drawdowns, daily profit, yields", group: "Pages", href: "/analytics" },
   { id: "p-holdings", label: "Holdings", hint: "every position", group: "Pages", href: "/holdings" },
+  { id: "p-risk", label: "Risk", hint: "value at risk, correlations, stress tests", group: "Pages", href: "/risk" },
+  { id: "p-tax", label: "Tax & Zakat", hint: "capital gains, withholding, zakat by tax year", group: "Pages", href: "/tax" },
+  { id: "p-calc", label: "Calculators", hint: "ROI, CAGR, SIP, deductions, position size", group: "Pages", href: "/calculators" },
   { id: "p-decisions", label: "Decisions", hint: "sell discipline, scorecard", group: "Pages", href: "/decisions" },
   { id: "p-wealth", label: "Wealth", hint: "statement of assets", group: "Pages", href: "/wealth" },
   { id: "p-transactions", label: "Transactions", hint: "the ledger", group: "Pages", href: "/transactions" },
