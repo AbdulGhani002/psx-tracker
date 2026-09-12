@@ -1,484 +1,268 @@
 import { Suspense } from "react";
 import Link from "next/link";
-import { PageHeader } from "@/components/layout/PageHeader";
-import { Section } from "@/components/layout/Section";
-import { Stat, StatRow } from "@/components/ui/Stat";
-import { Term } from "@/components/ui/Term";
-import { Table, type Column } from "@/components/ui/Table";
-import { Badge } from "@/components/ui/Badge";
 import { Card } from "@/components/ui/Card";
+import { Stat, StatRow } from "@/components/ui/Stat";
 import { Skeleton } from "@/components/ui/Skeleton";
 import { SetupBanner } from "@/components/layout/SetupBanner";
-import { SectorBar } from "@/components/charts/SectorBar";
 import { AllocationDonut } from "@/components/charts/AllocationDonut";
-import { BenchmarkChartLoader } from "@/components/charts/BenchmarkChartLoader";
+import { PerformancePanel } from "@/components/charts/PerformancePanel";
+import { Heatmap } from "@/components/charts/Heatmap";
+import { Sparkline } from "@/components/ui/Sparkline";
 import { RefreshPrices } from "@/components/layout/RefreshPrices";
 import { WhatChanged, type ZoneSnapshotRow } from "@/components/layout/WhatChanged";
-import {
-  getPortfolioSummary,
-  getAllTransactions,
-  getNetWorth,
-  getTodaysMovers,
-  getRiskMetrics,
-  getAppSettings,
-  checkDataAvailability,
- getEffectiveInflationPct, getAttribution, getZoneBoard,} from "@/lib/data";
+import { getPortfolioSummary, checkDataAvailability, getAttribution, getZoneBoard, getEffectiveInflationPct } from "@/lib/data";
+import { getToday, getPortfolioCards, getRecentActivity, getPerformance, getAllocation } from "@/lib/analytics/dashboard";
+import { selectedPortfolio } from "@/lib/portfolios";
 import { realPct } from "@/lib/calculations/pk-tax";
-import {
-  fmtRs,
-  fmtUsd,
-  fmtSignedRs,
-  fmtSignedPct,
-  fmtPct,
-  fmtDate,
-  fmtDateTime,
-} from "@/lib/format";
-import { getUsdPkr } from "@/lib/fx";
-import type { PositionRow } from "@/lib/calculations";
-import type { Transaction } from "@/lib/types";
+import { fmtRs, fmtSignedRs, fmtSignedPct, fmtDate } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
 
-// The page streams: the header flushes immediately, then each section below
-// arrives as its data resolves. The data getters are wrapped in React cache()
-// (lib/data.ts), so sections sharing the portfolio summary compute it ONCE per
-// request — Suspense here costs no extra queries.
+// The overview streams: the cards first, then each panel as its data lands.
+// The readers are wrapped in React cache() (lib/data.ts), so panels that share
+// the portfolio summary compute it once per request.
 
-function BlockFallback({ rows = 3 }: { rows?: number }) {
-  return (
-    <div className="space-y-2.5 py-6">
-      {Array.from({ length: rows }).map((_, i) => (
-        <Skeleton key={i} className="h-5 w-full" />
-      ))}
-    </div>
-  );
+function Fallback({ h = 120 }: { h?: number }) {
+  return <Skeleton className="w-full" style={{ height: h }} />;
 }
 
-async function TopBlock() {
-  const [avail, summary, netWorth, movers, usdPkr, inf] = await Promise.all([
-    checkDataAvailability(),
-    getPortfolioSummary(),
-    getNetWorth(),
-    getTodaysMovers(),
-    getUsdPkr(),
-    getEffectiveInflationPct(),
-  ]);
-  const usd = (rs: number) => (usdPkr ? `≈ ${fmtUsd(rs, usdPkr, false)}` : undefined);
-  const hasOtherAssets = netWorth.funds + netWorth.savings > 0;
-  const hasMovers = movers.gainers.length + movers.losers.length > 0;
-  const xirrLabel = summary.xirr != null ? fmtSignedPct(summary.xirr, 1) : "—";
-  // Real XIRR: the same annualised return with inflation taken out (Fisher). In
-  // an 11% CPI economy the nominal figure alone flatters everything.
-  const realXirr = summary.xirr != null && inf.pct != null ? realPct(summary.xirr * 100, inf.pct) : null;
-  const xirrHint =
-    summary.xirr != null
-      ? `Annualised over ${Math.round(summary.xirrSpanDays)} days${
-          realXirr != null ? ` · real ${realXirr >= 0 ? "+" : ""}${realXirr.toFixed(1)}% after ${inf.pct!.toFixed(1)}% CPI` : ""
-        }`
-      : summary.xirrSpanDays < 90
-      ? `Needs 90+ days (you're at ${Math.round(summary.xirrSpanDays)})`
-      : "Out of range";
-  const totalReturn = summary.unrealizedPL + summary.realizedPL + summary.dividendsTotal;
-  const totalReturnPct = summary.totalCost > 0 ? totalReturn / summary.totalCost : null;
+const k = (v: number) => (Math.abs(v) >= 1e7 ? `Rs ${(v / 1e6).toFixed(2)}M` : fmtRs(v));
 
+async function Cards() {
+  const [avail, summary, today, alloc, inf] = await Promise.all([checkDataAvailability(), getPortfolioSummary(), getToday(), getAllocation(), getEffectiveInflationPct()]);
+  const totalReturn = summary.unrealizedPL + summary.realizedPL + summary.dividendsTotal;
+  const totalReturnPct = summary.totalCost > 0 ? (totalReturn / summary.totalCost) * 100 : null;
+  const realXirr = summary.xirr != null && inf.pct != null ? realPct(summary.xirr * 100, inf.pct) : null;
   return (
     <>
       {!avail.available && <SetupBanner reason={avail.reason} />}
-
-      {hasMovers && (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
-          <Card>
-            <div className="label-cap mb-2" style={{ color: "var(--positive)" }}>Today's gainers</div>
-            <div className="space-y-1.5">
-              {movers.gainers.length === 0 ? (
-                <span className="text-[12px] text-muted">None up today.</span>
-              ) : (
-                movers.gainers.map((m) => (
-                  <div key={m.symbol} className="flex justify-between font-mono mono-num text-[13px]">
-                    <Link href={`/holdings/${m.symbol}`} className="font-medium hover:text-[var(--accent-deep)]">{m.symbol}</Link>
-                    <span style={{ color: "var(--positive)" }}>{fmtSignedPct(m.changePct, 2)}</span>
-                  </div>
-                ))
-              )}
-            </div>
-          </Card>
-          <Card>
-            <div className="label-cap mb-2" style={{ color: "var(--negative)" }}>Today's losers</div>
-            <div className="space-y-1.5">
-              {movers.losers.length === 0 ? (
-                <span className="text-[12px] text-muted">None down today.</span>
-              ) : (
-                movers.losers.map((m) => (
-                  <div key={m.symbol} className="flex justify-between font-mono mono-num text-[13px]">
-                    <Link href={`/holdings/${m.symbol}`} className="font-medium hover:text-[var(--accent-deep)]">{m.symbol}</Link>
-                    <span style={{ color: "var(--negative)" }}>{fmtSignedPct(m.changePct, 2)}</span>
-                  </div>
-                ))
-              )}
-            </div>
-          </Card>
-        </div>
-      )}
-
-      {hasOtherAssets && (
-        <Link href="/assets" className="block mb-6">
-          <Card>
-            <div className="flex items-center justify-between gap-4 flex-wrap">
-              <div>
-                <div className="label-cap">Net worth (all assets)</div>
-                <div className="font-display mono-num text-[28px] mt-1">
-                  {fmtRs(netWorth.total)}
-                </div>
-                {usdPkr && <div className="font-mono text-[12px] text-muted mt-0.5">{usd(netWorth.total)}</div>}
-              </div>
-              <div className="flex gap-5 font-mono mono-num text-[12px]">
-                <div>
-                  <div className="text-[10px] tracking-stat uppercase text-muted">Equities</div>
-                  <div>{fmtRs(netWorth.equity)}</div>
-                </div>
-                <div>
-                  <div className="text-[10px] tracking-stat uppercase text-muted">Funds</div>
-                  <div>{fmtRs(netWorth.funds)}</div>
-                </div>
-                <div>
-                  <div className="text-[10px] tracking-stat uppercase text-muted">Savings</div>
-                  <div>{fmtRs(netWorth.savings)}</div>
-                </div>
-              </div>
-            </div>
-          </Card>
-        </Link>
-      )}
-
       <StatRow>
-        <Stat label="Total Value" value={fmtRs(summary.totalValue)} hint={usd(summary.totalValue)} />
-        <Stat label="Cost Basis" value={fmtRs(summary.totalCost)} hint={usd(summary.totalCost)} />
-        <Stat
-          label="Unrealised P/L"
-          value={fmtSignedRs(summary.unrealizedPL)}
-          tone={summary.unrealizedPL >= 0 ? "positive" : "negative"}
-        />
-        <Stat
-          label="Realised P/L"
-          value={fmtSignedRs(summary.realizedPL)}
-          tone={summary.realizedPL >= 0 ? "positive" : "negative"}
-        />
-        <Stat
-          label="XIRR"
-          value={xirrLabel}
-          hint={xirrHint}
-          tone={summary.xirr == null ? "muted" : summary.xirr >= 0 ? "positive" : "negative"}
-        />
-        <Stat
-          label={`Dividends ${summary.taxYearLabel}`}
-          value={fmtRs(summary.dividendsYTD)}
-          hint={totalReturnPct != null ? `Total return ${fmtSignedPct(totalReturnPct, 1)}` : "PK tax year (Jul–Jun)"}
-        />
+        <Stat label="Total net worth" value={k(alloc.total)} size="lg" hint={`Equities ${k(alloc.equity)} · funds ${k(alloc.funds)}${alloc.savings > 0 ? ` · savings ${k(alloc.savings)}` : ""}`} />
+        <Stat label={`Today's P&L${today.asOf ? ` · ${fmtDate(today.asOf)}` : ""}`} value={fmtSignedRs(today.profit)} size="lg" tone={today.profit >= 0 ? "positive" : "negative"} delta={fmtSignedPct(today.profitPct / 100, 2)} deltaTone={today.profit >= 0 ? "positive" : "negative"} hint="Yesterday's holdings at today's closes" />
+        <Stat label="Total return" value={fmtSignedRs(totalReturn)} size="lg" tone={totalReturn >= 0 ? "positive" : "negative"} delta={totalReturnPct != null ? fmtSignedPct(totalReturnPct / 100, 1) : undefined} deltaTone={totalReturn >= 0 ? "positive" : "negative"} hint={`Unrealised ${fmtSignedRs(summary.unrealizedPL)} · realised ${fmtSignedRs(summary.realizedPL)} · dividends ${fmtRs(summary.dividendsTotal)}`} />
+        <Stat label="Invested" value={k(summary.totalCost)} size="lg" hint={summary.xirr != null ? `XIRR ${fmtSignedPct(summary.xirr, 1)}${realXirr != null ? ` · real ${realXirr >= 0 ? "+" : ""}${realXirr.toFixed(1)}%` : ""}` : "Cost of what you hold"} />
+        <Stat label="Available cash" value={k(alloc.availableCash)} size="lg" hint={`Money-market fund ${k(alloc.funds)}${alloc.brokerCash > 0 ? ` · brokerage ${k(alloc.brokerCash)}` : ""}`} />
       </StatRow>
     </>
   );
 }
 
-// The month's change, split by holding — so the number at the top has a WHY.
-async function AttributionBlock() {
-  const a = await getAttribution(30).catch(() => null);
-  if (!a || a.contributions.length === 0) return null;
-  const rows = a.contributions.slice(0, 6);
-  const anyPartial = rows.some((c) => c.partialWindow);
+async function PerformanceCard() {
+  const alloc = await getAllocation();
   return (
-    <Card>
-      <div className="flex items-baseline justify-between mb-3 flex-wrap gap-2">
-        <span className="label-cap">What moved it — last 30 days (price only)</span>
-        <span className="font-mono mono-num text-[13px]" style={{ color: a.totalChangePkr >= 0 ? "var(--positive)" : "var(--negative)" }}>
-          {a.totalChangePkr >= 0 ? "+" : ""}{fmtRs(a.totalChangePkr)}
-        </span>
+    <Card title="Portfolio performance" eyebrow="Value against the KSE-100, started at the same point">
+      <PerformancePanel initialRange="1Y" netWorthNow={alloc.total} />
+    </Card>
+  );
+}
+
+async function AllocationCard() {
+  const alloc = await getAllocation();
+  return (
+    <Card title="Asset allocation" eyebrow="Where the money sits">
+      <AllocationDonut slices={alloc.slices} centerValue={String(alloc.slices.length)} centerLabel="classes" />
+    </Card>
+  );
+}
+
+async function PortfolioCardsRow() {
+  const [cards, selected] = await Promise.all([getPortfolioCards(), selectedPortfolio()]);
+  if (cards.length === 0) return null;
+  return (
+    <div className="mt-6">
+      <div className="text-[12px] text-muted mb-2">
+        {selected ? `Showing ${selected.name}. ` : "All portfolios. "}
+        <Link href="/settings#portfolios" className="link-underline">Manage portfolios</Link>
       </div>
-      <div className="space-y-1.5">
-        {rows.map((c) => (
-          <div key={c.symbol} className="grid grid-cols-[64px_1fr_auto_auto] items-baseline gap-3 font-mono mono-num text-[13px]">
-            <Link href={"/holdings/" + c.symbol} className="font-medium hover:text-[var(--accent-deep)]">{c.symbol}{c.partialWindow ? "†" : ""}</Link>
-            <span className="text-[11px] text-muted truncate">{fmtRs(c.priceThen, true)} → {fmtRs(c.priceNow, true)}</span>
-            <span style={{ color: c.pricePct >= 0 ? "var(--positive)" : "var(--negative)" }}>{fmtSignedPct(c.pricePct)}</span>
-            <span className="text-right min-w-[90px]" style={{ color: c.changePkr >= 0 ? "var(--positive)" : "var(--negative)" }}>
-              {c.changePkr >= 0 ? "+" : ""}{fmtRs(c.changePkr)}
-            </span>
+      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3 stagger">
+        {cards.map((c) => (
+          <div key={c.portfolio._id} className="stat-card" style={{ borderTop: `2px solid ${c.portfolio.color}` }}>
+            <div className="flex items-center justify-between">
+              <div className="text-[12px] text-muted">
+                <span className="inline-block w-2 h-2 rounded-full mr-1.5" style={{ background: c.portfolio.color }} />
+                {c.portfolio.name}
+                {c.portfolio.isDefault && <span className="ml-1.5 text-[10px]">default</span>}
+              </div>
+              {c.change30Pct != null && (
+                <span className="pill" data-tone={c.change30Pct >= 0 ? "positive" : "negative"}>
+                  {c.change30Pct >= 0 ? "+" : ""}{c.change30Pct.toFixed(1)}% 30d
+                </span>
+              )}
+            </div>
+            <div className="mono-num text-[22px] font-semibold mt-1.5">{k(c.total)}</div>
+            <div className="flex items-end justify-between mt-1">
+              <div className="text-[11px] text-muted">{c.names} names · equities {k(c.equity)}{c.funds > 0 ? ` · funds ${k(c.funds)}` : ""}</div>
+              <Sparkline points={c.spark} width={90} height={24} />
+            </div>
           </div>
         ))}
       </div>
-      {(anyPartial || a.excluded.length > 0) && (
-        <p className="text-[10px] text-muted mt-3">
-          {anyPartial ? "† price history starts inside the window, so this move is measured from the first available quote. " : ""}
-          {a.excluded.length > 0 ? "Not shown (no usable prices): " + a.excluded.map((e) => e.symbol).join(", ") + "." : ""}
-        </p>
+    </div>
+  );
+}
+
+async function MoversCard() {
+  const today = await getToday();
+  const Row = ({ n }: { n: (typeof today.names)[number] }) => (
+    <div className="flex items-center justify-between py-2 border-b border-[var(--rule)] last:border-0">
+      <div className="min-w-0">
+        <Link href={`/holdings/${n.symbol}`} className="font-medium text-[13px] hover:text-[var(--accent-deep)]">{n.symbol}</Link>
+        <div className="text-[11px] text-muted truncate">{n.name}</div>
+      </div>
+      <div className="text-right">
+        <div className="font-mono mono-num text-[13px]">{n.price.toFixed(2)}</div>
+        <div className="font-mono mono-num text-[11.5px]" style={{ color: n.changePct >= 0 ? "var(--positive)" : "var(--negative)" }}>
+          {n.changePct >= 0 ? "+" : ""}{n.changePct.toFixed(2)}% · {fmtSignedRs(n.profit)}
+        </div>
+      </div>
+    </div>
+  );
+  return (
+    <>
+      <Card title="Top gainers" eyebrow={today.asOf ? `Session of ${fmtDate(today.asOf)}` : undefined}>
+        {today.gainers.length === 0 ? <div className="text-[12px] text-muted">None up.</div> : today.gainers.map((n) => <Row key={n.symbol} n={n} />)}
+      </Card>
+      <Card title="Top losers" eyebrow={today.asOf ? `Session of ${fmtDate(today.asOf)}` : undefined}>
+        {today.losers.length === 0 ? <div className="text-[12px] text-muted">None down.</div> : today.losers.map((n) => <Row key={n.symbol} n={n} />)}
+      </Card>
+    </>
+  );
+}
+
+async function ActivityCard() {
+  const items = await getRecentActivity(8);
+  return (
+    <Card title="Recent activity" eyebrow="Trades, payouts and cash" action={<Link href="/transactions" className="text-[12px] link-underline">All</Link>}>
+      {items.length === 0 ? (
+        <div className="text-[12px] text-muted">Nothing yet.</div>
+      ) : (
+        items.map((a, i) => (
+          <div key={i} className="flex items-center justify-between py-2 border-b border-[var(--rule)] last:border-0">
+            <div className="min-w-0">
+              <div className="text-[13px]">
+                <span className="text-muted">{a.kind}</span> <span className="font-medium">{a.symbol}</span>
+              </div>
+              <div className="text-[11px] text-muted truncate">{a.text || fmtDate(a.date)}</div>
+            </div>
+            <div className="text-right">
+              <div className="font-mono mono-num text-[12.5px]" style={{ color: a.amount > 0 ? "var(--positive)" : a.amount < 0 ? "var(--ink)" : "var(--muted)" }}>
+                {a.amount === 0 ? "" : fmtSignedRs(a.amount)}
+              </div>
+              <div className="text-[10.5px] text-muted">{fmtDate(a.date)}</div>
+            </div>
+          </div>
+        ))
       )}
     </Card>
   );
 }
 
-async function AllocationBlock() {
-  const [summary, netWorth, settings] = await Promise.all([
-    getPortfolioSummary(),
-    getNetWorth(),
-    getAppSettings(),
-  ]);
-  const cap = settings.concentrationCap ?? 25;
-  const active = summary.positions.filter((p) => p.shares > 0);
-  const topPos = [...active].sort((a, b) => b.currentPercent - a.currentPercent)[0];
-  const topSector = summary.sectorBreakdown[0];
-  const cashBufferPct = netWorth.total > 0 ? (netWorth.savings / netWorth.total) * 100 : 0;
-  const signals: Array<{ ok: boolean; text: string }> = [];
-  if (topPos) {
-    signals.push({
-      ok: topPos.currentPercent <= cap,
-      text: topPos.currentPercent <= cap
-        ? `Largest position ${topPos.symbol} ${topPos.currentPercent.toFixed(1)}% — within the ${cap}% cap`
-        : `${topPos.symbol} is ${topPos.currentPercent.toFixed(1)}% — over your ${cap}% single-stock cap, consider trimming`,
-    });
-  }
-  if (topSector) {
-    signals.push({
-      ok: topSector.percent <= 40,
-      text: topSector.percent <= 40
-        ? `Top sector ${topSector.sector} ${topSector.percent.toFixed(1)}% — under 40%`
-        : `${topSector.sector} is ${topSector.percent.toFixed(1)}% of equities — over the 40% sector cap`,
-    });
-  }
-  signals.push({
-    ok: cashBufferPct >= 5,
-    text: cashBufferPct >= 5
-      ? `Cash + savings buffer ${cashBufferPct.toFixed(1)}% — dry powder available`
-      : `Only ${cashBufferPct.toFixed(1)}% in cash/savings — under the 5% buffer for opportunities`,
-  });
-
-  const positionColumns: Column<PositionRow>[] = [
-    {
-      key: "symbol",
-      header: "Symbol",
-      render: (r) => (
-        <Link href={`/holdings/${r.symbol}`} className="font-mono font-medium hover:text-[var(--accent-deep)]">
-          {r.symbol}
-        </Link>
-      ),
-    },
-    { key: "sector", header: "Sector", render: (r) => <span className="text-[12px] text-muted">{r.sector}</span> },
-    { key: "value", header: "Market Value", align: "right", mono: true, render: (r) => fmtRs(r.marketValue) },
-    {
-      key: "alloc",
-      header: "% / Target",
-      align: "right",
-      mono: true,
-      render: (r) => {
-        const dev = Math.abs(r.deviation);
-        const tone = dev <= 3 ? "positive" : dev <= 6 ? "amber" : "negative";
-        return (
-          <div className="flex items-center justify-end gap-2">
-            <span>{fmtPct(r.currentPercent / 100, 1)}</span>
-            <span className="text-muted">/</span>
-            <span className="text-muted">{fmtPct(r.targetPercent / 100, 0)}</span>
-            <Badge tone={tone as any}>{fmtSignedPct(r.deviation / 100, 1)}</Badge>
-          </div>
-        );
-      },
-    },
-    {
-      key: "unr",
-      header: "Unrealised",
-      align: "right",
-      mono: true,
-      render: (r) => (
-        <span style={{ color: r.unrealizedPL >= 0 ? "var(--positive)" : "var(--negative)" }}>
-          {fmtSignedPct(r.unrealizedPct)}
-        </span>
-      ),
-    },
-  ];
-
+async function HeatmapCard() {
+  const perf = await getPerformance("ALL").catch(() => null);
+  if (!perf) return null;
+  const s = perf.summary;
   return (
-    <>
-      {active.length > 0 && (
-        <Section title="Portfolio signals" display="Sizing discipline at a glance.">
-          <Card>
-            <ul className="space-y-2.5">
-              {signals.map((s, i) => (
-                <li key={i} className="flex items-start gap-2.5 text-[14px]">
-                  <span aria-hidden style={{ color: s.ok ? "var(--positive)" : "var(--negative)" }}>
-                    {s.ok ? "✓" : "!"}
-                  </span>
-                  <span style={{ color: s.ok ? "var(--ink)" : "var(--negative)" }}>{s.text}</span>
-                </li>
-              ))}
-            </ul>
-          </Card>
-        </Section>
+    <Card title="Performance heatmap" eyebrow="Time-weighted return by month; the market is on the Analytics page" action={<Link href="/analytics" className="text-[12px] link-underline">Analytics</Link>}>
+      <Heatmap table={perf.monthly} years={3} />
+      {s && (
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mt-4 text-[12px]">
+          <div><div className="text-muted">Since {fmtDate(s.from)}</div><div className="font-mono mono-num" style={{ color: s.twrPct >= 0 ? "var(--positive)" : "var(--negative)" }}>{s.twrPct >= 0 ? "+" : ""}{s.twrPct.toFixed(1)}%{s.benchPct != null ? <span className="text-muted"> · KSE-100 {s.benchPct >= 0 ? "+" : ""}{s.benchPct.toFixed(1)}%</span> : null}</div></div>
+          <div><div className="text-muted">Months up</div><div className="font-mono mono-num">{Math.round(perf.monthly.positiveShare * 100)}% of {perf.monthly.months}</div></div>
+          <div><div className="text-muted">Best month</div><div className="font-mono mono-num" style={{ color: "var(--positive)" }}>{perf.monthly.best ? `+${(perf.monthly.best.ret * 100).toFixed(1)}% · ${perf.monthly.best.year}-${String(perf.monthly.best.month).padStart(2, "0")}` : "–"}</div></div>
+          <div><div className="text-muted">Worst month</div><div className="font-mono mono-num" style={{ color: "var(--negative)" }}>{perf.monthly.worst ? `${(perf.monthly.worst.ret * 100).toFixed(1)}% · ${perf.monthly.worst.year}-${String(perf.monthly.worst.month).padStart(2, "0")}` : "–"}</div></div>
+        </div>
       )}
-
-      <Section
-        number="01"
-        title="Allocation snapshot"
-        display="Where the money sits today."
-        description="Current allocation vs. target. Deviations outside the rebalance band are flagged. Historical positions (0 shares) are hidden — see them on /holdings."
-      >
-        {active.length > 0 && (
-          <Card className="mb-6">
-            <div className="label-cap mb-4">Equity allocation by holding</div>
-            <AllocationDonut
-              slices={active.map((p) => ({ label: p.symbol, value: p.marketValue }))}
-              centerValue={fmtRs(summary.totalValue, true)}
-              centerLabel="Equities"
-            />
-          </Card>
-        )}
-        <Table
-          columns={positionColumns}
-          rows={summary.positions.filter((r) => r.shares > 0)}
-          rowKey={(r) => r.symbol}
-          empty="No active holdings."
-        />
-      </Section>
-
-      <Section
-        number="02"
-        title="Sector concentration"
-        display="Exposure by industry."
-        description="Visible weights across PSX sectors."
-      >
-        {summary.sectorBreakdown.length === 0 ? (
-          <Card>
-            <p className="text-sm text-muted">Add positions to see sector exposure.</p>
-          </Card>
-        ) : (
-          <SectorBar entries={summary.sectorBreakdown} totalValue={summary.totalValue} />
-        )}
-      </Section>
-    </>
+    </Card>
   );
 }
 
-async function RiskBlock() {
-  const risk = await getRiskMetrics();
-  if (!risk || risk.annualVol == null) return null;
+async function AttributionCard() {
+  const a = await getAttribution(30).catch(() => null);
+  if (!a || a.contributions.length === 0) return null;
+  const rows = a.contributions.slice(0, 8);
   return (
-    <Section
-      number="04"
-      title="Risk"
-      display="How bumpy the ride is."
-      description="From your portfolio's daily returns over the last year vs KSE-100. Annualised."
-    >
-      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
-        <Stat label="Volatility" value={fmtPct(risk.annualVol ?? 0, 1)} tone="muted" hint="annualised σ" />
-        <Stat label={<Term k="sharpe">Sharpe</Term>} value={risk.sharpe != null ? risk.sharpe.toFixed(2) : "—"} tone={(risk.sharpe ?? 0) >= 1 ? "positive" : "default"} hint="return per unit risk" />
-        <Stat label="Sortino" value={risk.sortino != null ? risk.sortino.toFixed(2) : "—"} tone={(risk.sortino ?? 0) >= 1 ? "positive" : "default"} hint="downside-adjusted" />
-        <Stat label={<Term k="drawdown">Max drawdown</Term>} value={fmtPct(risk.maxDrawdown ?? 0, 1)} tone="negative" hint="peak-to-trough" />
-        <Stat label={<Term k="beta">Beta vs KSE</Term>} value={risk.beta != null ? risk.beta.toFixed(2) : "—"} tone="muted" hint="market sensitivity" />
-        <Stat label={<Term k="alpha">Alpha</Term>} value={risk.alpha != null ? fmtSignedPct(risk.alpha, 1) : "—"} tone={(risk.alpha ?? 0) >= 0 ? "positive" : "negative"} hint="vs CAPM expectation" />
+    <Card title="What moved it" eyebrow="Last 30 days, price only" action={<span className="font-mono mono-num text-[13px]" style={{ color: a.totalChangePkr >= 0 ? "var(--positive)" : "var(--negative)" }}>{fmtSignedRs(a.totalChangePkr)}</span>}>
+      <div className="space-y-2">
+        {rows.map((c) => {
+          const share = a.totalChangePkr !== 0 ? Math.min(1, Math.abs(c.changePkr) / Math.max(...rows.map((r) => Math.abs(r.changePkr)))) : 0;
+          return (
+            <div key={c.symbol} className="grid grid-cols-[64px_1fr_auto] items-center gap-3 text-[12.5px]">
+              <Link href={"/holdings/" + c.symbol} className="font-medium hover:text-[var(--accent-deep)]">{c.symbol}</Link>
+              <div className="h-1.5 rounded-full bg-[var(--surface-2)] overflow-hidden">
+                <div className="h-full rounded-full" style={{ width: `${share * 100}%`, background: c.changePkr >= 0 ? "var(--positive)" : "var(--negative)" }} />
+              </div>
+              <span className="font-mono mono-num" style={{ color: c.changePkr >= 0 ? "var(--positive)" : "var(--negative)" }}>{fmtSignedRs(c.changePkr)}</span>
+            </div>
+          );
+        })}
       </div>
-    </Section>
+    </Card>
   );
 }
 
-async function RecentBlock() {
-  const allTx = await getAllTransactions();
-  const recent = allTx.slice(0, 5);
-  const recentColumns: Column<Transaction>[] = [
-    { key: "date", header: "Date", render: (t) => <span className="font-mono text-[12px]">{fmtDate(t.date)}</span> },
-    { key: "symbol", header: "Symbol", render: (t) => <span className="font-mono font-medium">{t.symbol}</span> },
-    {
-      key: "type",
-      header: "Type",
-      render: (t) => (
-        <Badge
-          tone={
-            t.type === "BUY" || t.type === "RIGHT"
-              ? "accent"
-              : t.type === "SELL"
-              ? "negative"
-              : t.type === "DIVIDEND"
-              ? "positive"
-              : "amber"
-          }
-        >
-          {t.type}
-        </Badge>
-      ),
-    },
-    { key: "amt", header: "Net", align: "right", mono: true, render: (t) => fmtRs(t.netAmount) },
-    { key: "notes", header: "Notes", render: (t) => <span className="text-[12px] text-muted">{t.notes}</span> },
-  ];
-  return (
-    <Section
-      number="05"
-      title="Recent activity"
-      display="The last five things you did."
-      action={<Link href="/transactions" className="label-cap hover:text-[var(--accent-deep)]">All transactions →</Link>}
-    >
-      <Table columns={recentColumns} rows={recent} rowKey={(t) => String(t._id)} empty="No transactions recorded yet." />
-    </Section>
-  );
-}
-
-// What crossed a line since the last visit. The server supplies today's zone
-// statuses; the browser holds the previous ones and does the diff.
 async function WhatChangedBlock() {
   const board = await getZoneBoard().catch(() => null);
   if (!board) return null;
   const rows: ZoneSnapshotRow[] = board.rows
     .filter((r) => r.sharesHeld > 0 || r.alertsOn)
-    .map((r) => ({
-      symbol: r.symbol,
-      sector: r.sector ?? "",
-      status: String(r.status),
-      price: r.price,
-      stale: r.priceStale,
-      hasPlan: r.buyZoneHigh != null || r.sellZoneLow != null,
-    }));
+    .map((r) => ({ symbol: r.symbol, sector: r.sector ?? "", status: String(r.status), price: r.price, stale: r.priceStale, hasPlan: r.buyZoneHigh != null || r.sellZoneLow != null }));
   if (rows.length === 0) return null;
   return <WhatChanged rows={rows} />;
 }
 
-export default function Dashboard() {
+export default async function OverviewPage() {
   return (
     <div>
-      <PageHeader
-        eyebrow="Overview"
-        title="Your portfolio."
-        subtitle={`As of ${fmtDateTime(new Date())}`}
-        italic={false}
-      >
+      <div className="flex items-center justify-between gap-3 flex-wrap">
+        <div>
+          <h1 className="text-[22px] font-semibold leading-tight">Overview</h1>
+          <div className="text-[12px] text-muted mt-0.5">Consolidated view of what you own, how it moved, and where it stands.</div>
+        </div>
         <RefreshPrices />
-      </PageHeader>
+      </div>
 
-      <Suspense fallback={<BlockFallback rows={5} />}>
-        <TopBlock />
+      <Suspense fallback={<Fallback h={100} />}>
+        <Cards />
       </Suspense>
 
       <Suspense fallback={null}>
         <WhatChangedBlock />
       </Suspense>
 
-      <Suspense fallback={null}>
-        <AttributionBlock />
+      <div className="grid grid-cols-1 xl:grid-cols-3 gap-4 mt-6">
+        <div className="xl:col-span-2">
+          <Suspense fallback={<Fallback h={340} />}>
+            <PerformanceCard />
+          </Suspense>
+        </div>
+        <Suspense fallback={<Fallback h={340} />}>
+          <AllocationCard />
+        </Suspense>
+      </div>
+
+      <Suspense fallback={<Fallback h={110} />}>
+        <PortfolioCardsRow />
       </Suspense>
 
-      <Suspense fallback={<BlockFallback rows={6} />}>
-        <AllocationBlock />
-      </Suspense>
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-6">
+        <Suspense fallback={<><Fallback h={260} /><Fallback h={260} /></>}>
+          <MoversCard />
+        </Suspense>
+        <Suspense fallback={<Fallback h={260} />}>
+          <ActivityCard />
+        </Suspense>
+      </div>
 
-      <Section
-        number="03"
-        title="Benchmark"
-        display="Portfolio vs. KSE-100."
-        description="Indexed to 100 at the start of the window. 'Portfolio + dividends' is your real total return (dividends reinvested); the faint 'price only' line excludes them — the gap between the two is what your dividends add. KSE-100 is a price index, so the fair comparison is your total-return line vs the index."
-      >
-        <BenchmarkChartLoader />
-      </Section>
-
-      <Suspense fallback={<BlockFallback rows={2} />}>
-        <RiskBlock />
-      </Suspense>
-
-      <Suspense fallback={<BlockFallback rows={3} />}>
-        <RecentBlock />
-      </Suspense>
+      <div className="grid grid-cols-1 xl:grid-cols-3 gap-4 mt-6">
+        <div className="xl:col-span-2">
+          <Suspense fallback={<Fallback h={220} />}>
+            <HeatmapCard />
+          </Suspense>
+        </div>
+        <Suspense fallback={<Fallback h={220} />}>
+          <AttributionCard />
+        </Suspense>
+      </div>
     </div>
   );
 }
