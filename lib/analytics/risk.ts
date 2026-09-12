@@ -103,7 +103,7 @@ async function _getRisk(): Promise<RiskView | null> {
     const out: number[] = [];
     let prev: number | null = null;
     for (const d of days) {
-      const c = closes.get(d) ?? prev;
+      const c: number | null = closes.get(d) ?? prev;
       if (c == null) {
         out.push(0);
         continue;
