@@ -25,6 +25,9 @@ const AppSettingsSchema = new Schema(
     // The CASH target: the share of the whole book (equities plus the fund)
     // that is meant to sit in the money-market fund rather than in shares.
     mfCashReservePct: { type: Number, default: 5 },
+    // Your broker's commission on a trade, in percent of value; the per-share
+    // floor of 3 paisa and the 15% sales tax on the commission are fixed.
+    brokeragePct: { type: Number, default: 0.15 },
     // Only buy a name whose price is inside its buy band. Outside it, the money
     // stays in cash and waits, instead of being deployed at a reduced weight.
     strictBuyZones: { type: Boolean, default: false },
@@ -71,6 +74,7 @@ export const DEFAULT_SETTINGS = {
   pmexCgtPercent: 15,
   concentrationCap: 25,
   mfCashReservePct: 5,
+  brokeragePct: 0.15,
   strictBuyZones: false,
   inflationPct: 0,
   equityRiskPremiumPct: 5.5,

@@ -14,6 +14,9 @@ import { computePSXFees } from "@/lib/calculations";
 type Props = {
   existingSymbols: string[];
   defaultSymbol?: string;
+  portfolios?: Array<{ _id: string; name: string; color: string; isDefault: boolean }>;
+  defaultPortfolioId?: string;
+  brokeragePct?: number;
 };
 
 const TYPE_HINTS: Record<TransactionType, string> = {
@@ -33,8 +36,12 @@ type Lookup = {
   asOf: string | null;
 };
 
-export function NewTransactionForm({ existingSymbols, defaultSymbol }: Props) {
+export function NewTransactionForm({ existingSymbols, defaultSymbol, portfolios = [], defaultPortfolioId = "", brokeragePct }: Props) {
   const router = useRouter();
+  const [portfolioId, setPortfolioId] = useState<string>(defaultPortfolioId);
+  // Size by shares, or by the rupees to invest (whole shares at the price).
+  const [sizeMode, setSizeMode] = useState<"shares" | "investment">("shares");
+  const [investment, setInvestment] = useState<number>(0);
   const initialSymbol =
     defaultSymbol && existingSymbols.includes(defaultSymbol)
       ? defaultSymbol
@@ -71,7 +78,7 @@ export function NewTransactionForm({ existingSymbols, defaultSymbol }: Props) {
   const [ratio, setRatio] = useState<string>("");
   const [notes, setNotes] = useState<string>("");
 
-  const feeBreakdown = computePSXFees({ shares, price, type });
+  const feeBreakdown = computePSXFees({ shares, price, type, ratePct: brokeragePct });
 
   // Auto-fill fees from PSX brokerage formula whenever shares/price/type changes,
   // unless the user manually edited the fee field.
@@ -200,6 +207,7 @@ export function NewTransactionForm({ existingSymbols, defaultSymbol }: Props) {
           fees,
           notes,
           ratio,
+          ...(portfolioId ? { portfolioId } : {}),
           ...(type === "SELL"
             ? {
                 decision: {
@@ -325,7 +333,39 @@ export function NewTransactionForm({ existingSymbols, defaultSymbol }: Props) {
             </div>
           </div>
 
-          {type !== "SPLIT" && (
+          {portfolios.length > 1 && (
+            <label className="block">
+              <span className="text-[11.5px] text-muted">Portfolio</span>
+              <select value={portfolioId} onChange={(e) => setPortfolioId(e.target.value)} className="mt-1 w-full rounded-lg px-3 py-2 text-[13px]" style={{ background: "var(--surface-2)", border: "1px solid var(--rule)", color: "var(--ink)" }}>
+                {portfolios.map((p) => (
+                  <option key={p._id} value={p._id}>{p.name}{p.isDefault ? " (default)" : ""}</option>
+                ))}
+              </select>
+            </label>
+          )}
+          {(type === "BUY" || type === "RIGHT") && (
+            <div>
+              <span className="text-[11.5px] text-muted">Size by</span>
+              <div className="seg mt-1">
+                <button type="button" data-active={sizeMode === "shares"} onClick={() => setSizeMode("shares")}>Shares</button>
+                <button type="button" data-active={sizeMode === "investment"} onClick={() => setSizeMode("investment")}>Rupees</button>
+              </div>
+            </div>
+          )}
+          {type !== "SPLIT" && (type === "BUY" || type === "RIGHT") && sizeMode === "investment" && (
+            <NumberInput
+              label="Rupees to invest"
+              value={investment}
+              onChange={(v) => {
+                setInvestment(v);
+                if (price > 0) setShares(Math.max(0, Math.floor(v / price)));
+              }}
+              step={1000}
+              min={0}
+              hint={price > 0 && shares > 0 ? `${shares.toLocaleString()} whole shares at ${price.toFixed(2)}; ${(shares * price).toLocaleString(undefined, { maximumFractionDigits: 0 })} before fees` : "Enter a price first"}
+            />
+          )}
+          {type !== "SPLIT" && !((type === "BUY" || type === "RIGHT") && sizeMode === "investment") && (
             <NumberInput
               label={type === "DIVIDEND" ? "Shares at record date" : "Shares"}
               value={shares}

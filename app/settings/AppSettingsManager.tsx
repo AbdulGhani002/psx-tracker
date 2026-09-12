@@ -15,6 +15,7 @@ type Settings = {
   dividendWhtNonFiler: number;
   cgtRateFiler: number;
   cgtRateNonFiler: number;
+  brokeragePct?: number;
   podWhtFiler: number;
   podWhtNonFiler: number;
   pmexCommissionPerLot: number;
@@ -97,6 +98,7 @@ export function AppSettingsManager({ initial, telegramConfigured }: { initial: S
 
         <NumberInput label="CGT — filer (%)" value={s.cgtRateFiler} onChange={(v) => set("cgtRateFiler", v)} min={0} max={100} step={0.5} suffix="%" hint="Equities; verify against the current FBR schedule." />
         <NumberInput label="CGT — non-filer (%)" value={s.cgtRateNonFiler} onChange={(v) => set("cgtRateNonFiler", v)} min={0} max={100} step={0.5} suffix="%" />
+        <NumberInput label="Brokerage commission (% of value; 3 paisa a share floor, 15% SST added)" value={s.brokeragePct ?? 0.15} onChange={(v) => set("brokeragePct", v)} min={0} max={5} step={0.01} suffix="%" />
         <NumberInput label="Profit-on-debt WHT — filer (%)" value={s.podWhtFiler ?? 15} onChange={(v) => set("podWhtFiler", v)} min={0} max={100} step={0.5} suffix="%" hint="Bank/savings profit and T-bills (Sec 151); withheld at source." />
         <NumberInput label="Profit-on-debt WHT — non-filer (%)" value={s.podWhtNonFiler ?? 35} onChange={(v) => set("podWhtNonFiler", v)} min={0} max={100} step={0.5} suffix="%" />
         <div />

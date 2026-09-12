@@ -1265,6 +1265,7 @@ async function _getAppSettings(): Promise<AppSettings> {
     pmexCgtPercent: doc?.pmexCgtPercent ?? DEFAULT_SETTINGS.pmexCgtPercent,
     concentrationCap: doc?.concentrationCap ?? DEFAULT_SETTINGS.concentrationCap,
     mfCashReservePct: (doc as any)?.mfCashReservePct ?? DEFAULT_SETTINGS.mfCashReservePct,
+    brokeragePct: (doc as any)?.brokeragePct ?? DEFAULT_SETTINGS.brokeragePct,
     strictBuyZones: (doc as any)?.strictBuyZones ?? (DEFAULT_SETTINGS as any).strictBuyZones ?? false,
     equityRiskPremiumPct: (doc as any)?.equityRiskPremiumPct ?? DEFAULT_SETTINGS.equityRiskPremiumPct,
     defaultFairPE: (doc as any)?.defaultFairPE ?? DEFAULT_SETTINGS.defaultFairPE,

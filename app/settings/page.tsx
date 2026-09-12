@@ -4,6 +4,8 @@ import { SetupBanner } from "@/components/layout/SetupBanner";
 import { SbpRatesManager } from "./SbpRatesManager";
 import { AppSettingsManager } from "./AppSettingsManager";
 import { BackupManager } from "./BackupManager";
+import { PortfoliosManager } from "./PortfoliosManager";
+import { listPortfolios } from "@/lib/portfolios";
 import { ThemeToggle } from "@/components/layout/ThemeToggle";
 import { Card } from "@/components/ui/Card";
 import { getSbpRates, getAppSettings, checkDataAvailability } from "@/lib/data";
@@ -14,7 +16,7 @@ export const dynamic = "force-dynamic";
 
 export default async function SettingsPage() {
   const avail = await checkDataAvailability();
-  const [rates, appSettings] = await Promise.all([getSbpRates(), getAppSettings()]);
+  const [rates, appSettings, portfolios] = await Promise.all([getSbpRates(), getAppSettings(), listPortfolios().catch(() => [])]);
   const usingDefaults = rates.length === 0;
   const defaults = SBP_POLICY_RATE_DEFAULTS.map((s) => ({
     effectiveDate: s.from,
@@ -29,6 +31,10 @@ export default async function SettingsPage() {
         subtitle="Reference rates and app configuration. Changes here flow into the dashboard benchmark and projections."
       />
       {!avail.available && <SetupBanner reason={avail.reason} />}
+
+      <Section number="00" title="Portfolios" display="One account, several books." description="Keep a broker account, a family member's money or a trading book apart. The switcher in the top bar filters every page to one of them or shows them all together.">
+        <PortfoliosManager initial={portfolios} />
+      </Section>
 
       <Section number="01" title="Appearance" display="Light or dark.">
         <Card>
