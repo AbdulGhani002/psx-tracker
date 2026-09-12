@@ -158,6 +158,42 @@ export default async function AnalysisPage() {
             </div>
           </Section>
 
+          {report.screen && report.screen.length > 0 && (
+            <Section number="01b" title="The whole universe, by the model" description={`Every name the model scored today (${report.screen.length}), best rank first: its edge for today's market state, its trend, and the zones it would write for it. Names you hold or target are marked. This is the model's screener; it says nothing about a business, only about how names in this state and rank went on to do.`}>
+              <div className="overflow-x-auto">
+                <table className="table-zar">
+                  <thead>
+                    <tr>
+                      <th>#</th><th>Name</th><th className="text-right">Last</th><th className="text-right">Day</th><th className="text-right">Edge</th><th>Trend</th><th className="text-right">60d vs index</th><th className="text-right">Vol</th><th className="text-right">Dip odds</th><th className="text-right">Buy zone</th><th className="text-right">Sell zone</th><th className="text-right">Fails</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {report.screen.map((r) => (
+                      <tr key={r.symbol} style={r.held || r.targetPct > 0 ? { background: "color-mix(in srgb, var(--accent) 7%, transparent)" } : undefined}>
+                        <td className="font-mono mono-num text-muted">{r.rank}</td>
+                        <td>
+                          <span className="font-medium">{r.symbol}</span>
+                          {r.held && <span className="pill ml-2" data-tone="positive">held</span>}
+                          {!r.held && r.targetPct > 0 && <span className="pill ml-2" data-tone="muted">target {r.targetPct}%</span>}
+                        </td>
+                        <td className="text-right font-mono mono-num">{money(r.price)}</td>
+                        <td className="text-right font-mono mono-num" style={{ color: r.dayChangePct >= 0 ? "var(--positive)" : "var(--negative)" }}>{pct(r.dayChangePct)}</td>
+                        <td className="text-right font-mono mono-num" style={{ color: (r.edgePct ?? 0) >= 0 ? "var(--positive)" : "var(--negative)" }}>{r.edgePct != null ? pct(r.edgePct) : "–"}</td>
+                        <td className="text-muted text-[12px]">{r.trend.toLowerCase()}</td>
+                        <td className="text-right font-mono mono-num" style={{ color: r.rel60Pct >= 0 ? "var(--positive)" : "var(--negative)" }}>{pct(r.rel60Pct)}</td>
+                        <td className="text-right font-mono mono-num">{r.vol60Pct.toFixed(0)}%</td>
+                        <td className="text-right font-mono mono-num">{odds(r.dip)}</td>
+                        <td className="text-right font-mono mono-num">{money(r.buyHigh)} to {money(r.buyLow)}</td>
+                        <td className="text-right font-mono mono-num">{money(r.sellLow)} to {money(r.sellHigh)}</td>
+                        <td className="text-right font-mono mono-num">{money(r.fails)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </Section>
+          )}
+
           <Section number="02" title="Charts" description="A year of closes, the 50- and 200-day averages, the model's buy and sell zones shaded, your average cost, the fail level, and the projection as a fan to the right of the last bar: for the indices the wide range of past states like today's, for your names the market's median move plus the name's edge, a deviation either side.">
             <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
               {[...report.indices, ...report.holdings].map((it) => (

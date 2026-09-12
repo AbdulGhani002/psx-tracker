@@ -62,7 +62,32 @@ export type ModelRecord = {
   names: number;
   icRel: { mean: number; tStat: number } | null;
   calibration: CalibrationRow[] | null;
+  calibrationByState: { strong: CalibrationRow[]; weak: CalibrationRow[]; strongDates: number; weakDates: number } | null;
   zones: ZoneCoverage | null;
+};
+
+// One row of the whole universe, for the screener: every name the model
+// scored today, with its rank, edge, trend and zones.
+export type ScreenRow = {
+  symbol: string;
+  name: string;
+  price: number;
+  dayChangePct: number;
+  rank: number;
+  of: number;
+  pctile: number;
+  edgePct: number | null;
+  trend: string;
+  dip: number;
+  buyHigh: number;
+  buyLow: number;
+  fails: number;
+  sellLow: number;
+  sellHigh: number;
+  held: boolean;
+  targetPct: number;
+  vol60Pct: number;
+  rel60Pct: number; // 60-session return against the KSE-100
 };
 
 // The name's place in the written portfolio, and the model's one-clause action.
@@ -110,6 +135,7 @@ export type QuantReport = {
   record: ModelRecord | null;
   strategy: StrategyResult | null;
   model: { trainedOn: string; trainedFrom: string; horizon: number; names: number; learners: string; heads: number } | null;
+  screen: ScreenRow[];
 };
 
 // What the Analysis page reads back: the report without the buffers.
@@ -280,6 +306,7 @@ export async function buildQuantReport(): Promise<QuantReport> {
           names: v.symbols,
           icRel: v.icRel ? { mean: v.icRel.mean, tStat: v.icRel.tStat } : null,
           calibration: v.calibration ?? null,
+          calibrationByState: v.calibrationByState ?? null,
           zones: v.zones ?? null,
         }
       : null;
@@ -352,9 +379,15 @@ export async function buildQuantReport(): Promise<QuantReport> {
     const today = rankOf(symbol);
     return v && v.length && today ? { pos: Math.round(v.reduce((a, b) => a + b, 0) / v.length), of: today.of } : null;
   };
+  // The edge for a rank: from the table for today's market state when the
+  // model carries one (strong: the equal-weight index above its 200-day), else
+  // the pooled table. Decided after the market is read, so it is a function
+  // of the state at call time.
+  let edgeTable: CalibrationRow[] | null = null;
   const edgeOf = (pctile: number | null): DecileEdge => {
-    if (pctile == null || !rec?.calibration || rec.calibration.length !== 10) return null;
-    const c = rec.calibration[Math.min(9, Math.floor(pctile * 10))];
+    const table = edgeTable ?? rec?.calibration ?? null;
+    if (pctile == null || !table || table.length !== 10) return null;
+    const c = table[Math.min(9, Math.floor(pctile * 10))];
     return { decile: c.decile, meanRelPct: c.meanRelPct, beatRate: c.beatRate };
   };
 
@@ -378,6 +411,7 @@ export async function buildQuantReport(): Promise<QuantReport> {
     const level = ew[ew.length - 1].close;
     const ma200 = ew.slice(-200).reduce((s, b) => s + b.close, 0) / 200;
     market = readMarket({ indexAbove200: level > ma200, ewLevel: level, ewMa200: ma200, breadth200Pct: br.above200Pct, breadth50Pct: br.above50Pct, tests: kseRead.tests, outlook: kseRead.outlook, outlookRecord: model?.indexOutlook?.record ?? null });
+    if (rec?.calibrationByState) edgeTable = market.indexAbove200 ? rec.calibrationByState.strong : rec.calibrationByState.weak;
   }
 
   const relTable: Array<{ symbol: string; rel: number }> = [];
@@ -562,6 +596,49 @@ export async function buildQuantReport(): Promise<QuantReport> {
   const verdictOrder = (vv: Verdict) => (vv === "INDEX" ? 99 : VERDICT_RANK[vv]);
   holdings.sort((a, b) => verdictOrder(a.verdict) - verdictOrder(b.verdict) || (b.plan?.targetPct ?? 0) - (a.plan?.targetPct ?? 0) || (b.pctile ?? 0) - (a.pctile ?? 0) || a.symbol.localeCompare(b.symbol));
 
+  // --- the screener: every name the model scored today -----------------------
+  const screen: ScreenRow[] = [];
+  if (relValues.length >= 8) {
+    for (const [symbol, f] of forecasts) {
+      const b = bars.get(symbol);
+      if (!b || b.length < 260) continue;
+      const price = b[b.length - 1].close;
+      const prev = b[b.length - 2]?.close ?? price;
+      const pctile = relValues.filter((v) => v < f.rel).length / (relValues.length - 1);
+      const rank = relValues.filter((v) => v > f.rel).length + 1;
+      const volD = realisedVolPct(b, 60);
+      if (volD == null) continue;
+      const lv = pathLevels(price, sigmaOverHorizon(volD / 100 / Math.sqrt(252), f.horizon), f.pLow, f.pHigh);
+      const e = edgeOf(pctile);
+      const tr = readTrend(b);
+      const pos = posBySymbol.get(symbol);
+      const kseN = kse.length;
+      const rel60 = b.length > 60 && kseN > 60 ? (b[b.length - 1].close / b[b.length - 61].close - kse[kseN - 1].close / kse[kseN - 61].close) * 100 : 0;
+      screen.push({
+        symbol,
+        name: pos?.name ?? "",
+        price,
+        dayChangePct: prev > 0 ? (price / prev - 1) * 100 : 0,
+        rank,
+        of: relValues.length,
+        pctile,
+        edgePct: e?.meanRelPct ?? null,
+        trend: tr?.label ?? "",
+        dip: f.dip,
+        buyHigh: lv.buyHigh,
+        buyLow: lv.buyLow,
+        fails: lv.fails,
+        sellLow: lv.sellLow,
+        sellHigh: lv.sellHigh,
+        held: !!pos && pos.shares > 0,
+        targetPct: pos?.targetPercent ?? 0,
+        vol60Pct: volD,
+        rel60Pct: rel60,
+      });
+    }
+    screen.sort((a, b) => a.rank - b.rank);
+  }
+
   // --- the list: the index, then every name with its target, weight and action
   const kseFirst = indices.find((i) => i.symbol === "KSE100");
   const planLines: string[] = [];
@@ -648,6 +725,10 @@ export async function buildQuantReport(): Promise<QuantReport> {
       const top = rec.calibration[9], bottom = rec.calibration[0];
       parts.push(`What the ranking was worth: the top tenth of names by rank score went on to beat the market by ${pct(top.meanRelPct)} per ${model.horizon} sessions (${odds(top.beatRate)} of them ahead), the bottom tenth trailed it by ${pct(bottom.meanRelPct)} (${odds(bottom.beatRate)} ahead).`);
     }
+    if (rec.calibrationByState && rec.calibrationByState.strong.length === 10 && rec.calibrationByState.weak.length === 10) {
+      const st = rec.calibrationByState;
+      parts.push(`By the market's state: with the index above its 200-day the top tenth beat the market by ${pct(st.strong[9].meanRelPct)} and the bottom tenth trailed by ${pct(st.strong[0].meanRelPct)}; below it, ${pct(st.weak[9].meanRelPct)} and ${pct(st.weak[0].meanRelPct)}. The edge shown for each name is the one for today's state.`);
+    }
     if (rec.zones) {
       const z = rec.zones;
       parts.push(`The zones, out of sample on ${z.n.toLocaleString()} paths: the top of the buy zone was reached by ${odds(z.buyHigh)} of paths (built to be a half), its bottom by ${odds(z.buyLow)} (a quarter), the fail level by ${odds(z.fails)} (a tenth); the sell zone's bottom by ${odds(z.sellLow)} (a half), its top by ${odds(z.sellHigh)} (a quarter).`);
@@ -728,6 +809,7 @@ export async function buildQuantReport(): Promise<QuantReport> {
     model: model
       ? { trainedOn: model.trainedOn, trainedFrom: model.trainedFrom ?? "eod", horizon: model.horizon, names: model.universe.length, learners: model.learners.map((l) => l.kind).join("+"), heads: model.targetNames.length }
       : null,
+    screen,
   };
 
   // Kept per user for the Analysis page and for the app's zone views.

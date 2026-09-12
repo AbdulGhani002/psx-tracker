@@ -203,6 +203,9 @@ export type PanelWalkResult = {
   icBeat?: SeriesStat; // the odds of beating the market against the same, for comparing the two labels
   spread: SeriesStat; // top fifth minus bottom fifth by rank score, relative return per horizon, in %
   calibration?: CalibrationRow[];
+  // The same table split by the market's state on the day (the equal-weight
+  // index above or below its 200-day): what a rank was worth in each.
+  calibrationByState?: { strong: CalibrationRow[]; weak: CalibrationRow[]; strongDates: number; weakDates: number };
   zones?: ZoneCoverage;
   perSymbol: SymbolMetrics[];
   roundsPerWindow?: number[][]; // per window, per target: rounds the boosters kept
@@ -484,6 +487,34 @@ export function scorePanel(points: PanelPoint[], opts: PanelOptions, windows: nu
     perSymbol,
     points: keepPoints ? points : undefined,
   };
+}
+
+// What each tenth of the ranking then did, pooled over the dates given.
+export function calibrationOf(points: PanelPoint[]): CalibrationRow[] {
+  const byDate = new Map<number, PanelPoint[]>();
+  for (const q of points) {
+    const g = byDate.get(q.di);
+    if (g) g.push(q);
+    else byDate.set(q.di, [q]);
+  }
+  const cal = Array.from({ length: 10 }, (_, d) => ({ decile: d + 1, n: 0, rel: 0, ret: 0, beat: 0 }));
+  for (const g of byDate.values()) {
+    if (g.length < 8) continue;
+    const sorted = [...g].sort((a, b) => rankScore(a.p) - rankScore(b.p));
+    for (let r = 0; r < sorted.length; r++) {
+      const c = cal[Math.min(9, Math.floor((r / sorted.length) * 10))];
+      c.n++; c.rel += sorted[r].fwdRel; c.ret += sorted[r].fwdRet; c.beat += sorted[r].t[1];
+    }
+  }
+  return cal.map((c) => ({ decile: c.decile, n: c.n, meanRelPct: c.n ? (c.rel / c.n) * 100 : 0, meanRetPct: c.n ? (c.ret / c.n) * 100 : 0, beatRate: c.n ? c.beat / c.n : 0 }));
+}
+
+// The table split by the market's state on each date.
+export function calibrationByState(points: PanelPoint[], gate: Map<string, boolean>): { strong: CalibrationRow[]; weak: CalibrationRow[]; strongDates: number; weakDates: number } {
+  const strong = points.filter((q) => gate.get(q.date) === true);
+  const weak = points.filter((q) => gate.get(q.date) === false);
+  const dates = (pts: PanelPoint[]) => new Set(pts.map((q) => q.di)).size;
+  return { strong: calibrationOf(strong), weak: calibrationOf(weak), strongDates: dates(strong), weakDates: dates(weak) };
 }
 
 // The zones' out-of-sample coverage, model curve against the walk's curve.

@@ -25,7 +25,8 @@
 
 import { join } from "node:path";
 import { writeFileSync, statSync } from "node:fs";
-import { buildPanel, walkForwardPanel, trainFinal, predictEnsemble, type PanelWalkResult } from "../lib/quant/panel";
+import { buildPanel, walkForwardPanel, trainFinal, predictEnsemble, calibrationByState, type PanelWalkResult } from "../lib/quant/panel";
+import { indexGate } from "../lib/quant/strategy";
 import { buildFeatures, readTrend, FEATURE_NAMES, TARGET_NAMES, DIP_PCT, RANK_FEATURE_NAMES } from "../lib/quant/features";
 import { marketContext, macroContext, mergeContext } from "../lib/quant/context";
 import { gbmFeatureUse } from "../lib/quant/gbm";
@@ -160,6 +161,12 @@ async function main() {
   if (validation?.points) {
     strategy = strategyBacktest(validation.points, index, breadth200, { horizon: opts.horizon, cashYieldPct: 10, costPct: 0.3 });
     if (strategy) console.log("\n" + strategyTable(strategy) + "\n\n" + strategyYearTable(strategy));
+    // What a rank was worth in strong and in weak markets.
+    const byState = calibrationByState(validation.points, indexGate(index));
+    validation.calibrationByState = byState;
+    const line = (rows: typeof byState.strong) => rows.map((c) => `${c.decile}: ${c.meanRelPct >= 0 ? "+" : ""}${c.meanRelPct.toFixed(2)}%`).join("  ");
+    console.log(`\nDeciles when the index sat above its 200-day (${byState.strongDates} dates): ${line(byState.strong)}`);
+    console.log(`Deciles when it sat below (${byState.weakDates} dates):                    ${line(byState.weak)}`);
   }
 
   // The KSE-100 state table: what the index did after past days in each
