@@ -9,6 +9,17 @@ import { connectDb } from "@/lib/db";
 import { HoldingModel, TransactionModel, TRANSACTION_TYPES } from "@/lib/models";
 import { getCompanyInfo } from "@/lib/prices";
 import { deriveFromTransactions } from "@/lib/calculations";
+import { selectedPortfolio, defaultPortfolio } from "@/lib/portfolios";
+
+// The portfolio a new row belongs to: what the form said, else the one the
+// pages are looking at, else the default.
+async function portfolioFor(requested?: string | null): Promise<string> {
+  if (requested) return requested;
+  const sel = await selectedPortfolio();
+  if (sel) return sel._id;
+  const def = await defaultPortfolio();
+  return def?._id ?? "";
+}
 
 export const dynamic = "force-dynamic";
 
@@ -21,6 +32,7 @@ const txSchema = z.object({
   fees: z.number().default(0),
   notes: z.string().default(""),
   ratio: z.string().default(""),
+  portfolioId: z.string().optional(),
   // SELLING REQUIRES A DECISION. Recording a SELL without rationale + falsifier
   // is impossible by design — holding needs no courage; selling needs a log.
   decision: z
@@ -162,6 +174,7 @@ export async function POST(req: NextRequest) {
 
     const created = await TransactionModel.create({
       userId: await uid(),
+      portfolioId: await portfolioFor(parsed.portfolioId),
       symbol: parsed.symbol,
       type: parsed.type,
       date: new Date(parsed.date),

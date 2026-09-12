@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 
 export function ThemeToggle({ compact = false }: { compact?: boolean }) {
-  const [theme, setTheme] = useState<"light" | "dark">("light");
+  const [theme, setTheme] = useState<"light" | "dark">("dark");
 
   useEffect(() => {
     const saved = (typeof window !== "undefined" && localStorage.getItem("theme")) as
@@ -13,7 +13,7 @@ export function ThemeToggle({ compact = false }: { compact?: boolean }) {
     if (saved === "dark" || saved === "light") setTheme(saved);
     else {
       const current = document.documentElement.getAttribute("data-theme");
-      setTheme(current === "dark" ? "dark" : "light");
+      setTheme(current === "light" ? "light" : "dark");
     }
   }, []);
 
@@ -42,6 +42,7 @@ export function ThemeToggle({ compact = false }: { compact?: boolean }) {
 
 // Inline script (runs before paint) to apply the saved theme and avoid a flash.
 export function ThemeScript() {
-  const js = `(function(){try{var t=localStorage.getItem('theme');if(t==='dark'){document.documentElement.setAttribute('data-theme','dark');}}catch(e){}})();`;
+  // Dark is the default; only a saved "light" flips it.
+  const js = `(function(){try{var t=localStorage.getItem('theme');document.documentElement.setAttribute('data-theme',t==='light'?'light':'dark');}catch(e){document.documentElement.setAttribute('data-theme','dark');}})();`;
   return <script dangerouslySetInnerHTML={{ __html: js }} />;
 }

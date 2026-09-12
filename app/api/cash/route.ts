@@ -29,8 +29,11 @@ export async function POST(req: NextRequest) {
     const body = await req.json();
     const parsed = postSchema.parse(body);
     await connectDb();
+    const { selectedPortfolio, defaultPortfolio } = await import("@/lib/portfolios");
+    const portfolioId = (body?.portfolioId as string | undefined) || (await selectedPortfolio())?._id || (await defaultPortfolio())?._id || "";
     const created = await CashEntryModel.create({
       userId: await uid(),
+      portfolioId,
       date: parsed.date ? new Date(parsed.date) : new Date(),
       type: parsed.type,
       amount: parsed.amount,

@@ -1,7 +1,7 @@
 import { getAllTransactions, getSbpRateSteps, getSavingsValued, getMutualFundsValued, getCashEntries, getAppSettings, getFeedSnapshot, saveFeedSnapshot } from "@/lib/data";
 import { buildBenchmarkSeries, type BenchmarkSeries } from "@/lib/timeseries/portfolio-history";
 
-export const BENCHMARK_RANGES = ["90D", "1Y", "ALL"] as const;
+export const BENCHMARK_RANGES = ["1M", "3M", "90D", "1Y", "3Y", "ALL"] as const;
 export const benchmarkKey = (range: string) => `benchmark:${range}`;
 
 // Cached wrapper shared by the API route and the Wealth page: the series needs

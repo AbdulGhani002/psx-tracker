@@ -1,5 +1,6 @@
 import type { Transaction } from "@/lib/types";
-import { fetchEodSeries, fetchManyEod, type EodPoint } from "./psx-eod";
+import type { EodPoint } from "./psx-eod";
+import { eodSeriesCached as fetchEodSeries, manyEodCached as fetchManyEod } from "./eod-cache";
 import { fetchYahooDaily, type YahooRange } from "./yahoo";
 import { riskFreeIndex, type RateStep } from "./sbp-rate";
 import { computeCashBalance } from "../calculations/cash";
@@ -153,13 +154,19 @@ export type BenchmarkSeries = {
 };
 
 const RANGE_TO_DAYS: Record<string, number> = {
+  "1M": 31,
+  "3M": 92,
   "90D": 90,
   "1Y": 365,
+  "3Y": 1096,
   ALL: 3650,
 };
 const RANGE_TO_YAHOO: Record<string, YahooRange> = {
+  "1M": "3mo",
+  "3M": "3mo",
   "90D": "3mo",
   "1Y": "1y",
+  "3Y": "5y",
   ALL: "5y",
 };
 

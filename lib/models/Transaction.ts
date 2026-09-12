@@ -6,6 +6,8 @@ export { TRANSACTION_TYPES, type TransactionType };
 const TransactionSchema = new Schema(
   {
     userId: { type: String, default: "", index: true },
+    // Which of the user's portfolios this belongs to; "" is the default one.
+    portfolioId: { type: String, default: "", index: true },
     symbol: { type: String, required: true, uppercase: true, trim: true, index: true },
     type: { type: String, required: true, enum: TRANSACTION_TYPES },
     date: { type: Date, required: true, index: true },

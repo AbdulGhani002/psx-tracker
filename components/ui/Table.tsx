@@ -22,11 +22,11 @@ export function Table<T>({ columns, rows, rowKey, empty, onRowClick }: Props<T>)
     <div className="overflow-x-auto">
       <table className="w-full border-collapse text-[13px]">
         <thead>
-          <tr className="border-t border-ink border-b border-ink">
+          <tr className="border-b border-[var(--rule)]">
             {columns.map((c) => (
               <th
                 key={c.key}
-                className="px-3 py-2 font-mono text-[10px] uppercase tracking-stat text-muted font-medium"
+                className="px-3 py-2.5 text-[11px] uppercase tracking-[0.06em] text-muted font-medium"
                 style={{ textAlign: c.align ?? "left", width: c.width }}
               >
                 {c.header}

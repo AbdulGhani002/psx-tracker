@@ -1,60 +1,64 @@
 import "./globals.css";
 import type { Metadata } from "next";
-import Link from "next/link";
-import { Instrument_Serif, Roboto, Roboto_Mono } from "next/font/google";
-import { SiteNav } from "@/components/layout/SiteNav";
+import { Roboto, Roboto_Mono } from "next/font/google";
+import { AppShell } from "@/components/layout/AppShell";
 import { ThemeScript } from "@/components/layout/ThemeToggle";
 import { NoNumberScroll } from "@/components/ui/NoNumberScroll";
 import { PwaRegister } from "@/components/layout/PwaRegister";
 import { CommandPalette } from "@/components/layout/CommandPalette";
 import { QuickAdd } from "@/components/layout/QuickAdd";
-import { APP_VERSION } from "@/lib/version";
+import { getCurrentUserId } from "@/lib/auth/current-user";
+import { listPortfolios, selectedPortfolio } from "@/lib/portfolios";
+import { indexTickers } from "@/lib/timeseries/eod-cache";
+import { UserModel } from "@/lib/models/User";
+import { connectDb } from "@/lib/db";
 
-// Self-hosted, preloaded fonts — no external render-blocking round-trips.
-//
-// Two faces, two jobs. Instrument Serif is a masthead: high-contrast, drawn for
-// size, and used only for the logo and headlines — it is never asked to be
-// legible at 11px, which is exactly where display serifs fall apart. Roboto
-// carries every word actually read, and Roboto Mono every figure, so columns of
-// money line up on the decimal.
-const display = Instrument_Serif({ subsets: ["latin"], weight: ["400"], style: ["normal", "italic"], display: "swap", variable: "--font-display" });
+// One family for words, one for figures. Roboto carries every word read,
+// Roboto Mono every number, so columns of money line up on the decimal.
 const sans = Roboto({ subsets: ["latin"], weight: ["300", "400", "500", "700"], display: "swap", variable: "--font-sans" });
 const mono = Roboto_Mono({ subsets: ["latin"], weight: ["400", "500"], display: "swap", variable: "--font-mono" });
 
 export const metadata: Metadata = {
   title: "PSX Portfolio",
-  description: "A long-horizon Pakistani equity portfolio tracker.",
+  description: "A wealth dashboard for the Pakistan Stock Exchange: portfolios, payouts, tax, risk and the model.",
 };
 
 export const viewport = {
-  themeColor: "#16150f",
+  themeColor: "#0a0f1c",
 };
 
-export default function RootLayout({ children }: { children: React.ReactNode }) {
+// What the shell needs about the signed-in user: nothing when there is none
+// (the auth screens), else the market line, the portfolios and the initial.
+async function shellData() {
+  const uid = await getCurrentUserId();
+  if (!uid) return { authed: false as const, tickers: [], portfolios: [], selected: "all", initial: "" };
+  const [tickers, portfolios, selected, user] = await Promise.all([
+    indexTickers().catch(() => []),
+    listPortfolios().catch(() => []),
+    selectedPortfolio().catch(() => null),
+    connectDb()
+      .then(() => UserModel.findById(uid).select("email name").lean())
+      .catch(() => null),
+  ]);
+  const label = String((user as any)?.name || (user as any)?.email || "U");
+  return { authed: true as const, tickers, portfolios: portfolios.map((p) => ({ _id: p._id, name: p.name, color: p.color, isDefault: p.isDefault })), selected: selected?._id ?? "all", initial: label.slice(0, 1).toUpperCase() };
+}
+
+export default async function RootLayout({ children }: { children: React.ReactNode }) {
+  const shell = await shellData();
   return (
-    <html lang="en" className={`${display.variable} ${sans.variable} ${mono.variable}`}>
+    <html lang="en" className={`${sans.variable} ${mono.variable}`}>
       <head>
         <ThemeScript />
       </head>
       <body>
         <NoNumberScroll />
         <PwaRegister />
-        <CommandPalette />
-        <QuickAdd />
-        <div className="min-h-screen flex flex-col">
-          <SiteNav />
-          <main className="flex-1 w-full max-w-[1180px] mx-auto px-6 py-10 fade-in">
-            {children}
-          </main>
-          <footer className="border-t border-rule mt-16">
-            <div className="max-w-[1180px] mx-auto px-6 py-6 flex justify-between items-center">
-              <span className="label-cap">PSX Portfolio</span>
-              <Link href="/changelog" className="label-cap hover:text-[var(--accent-deep)] transition-colors">
-                v{APP_VERSION}
-              </Link>
-            </div>
-          </footer>
-        </div>
+        {shell.authed && <CommandPalette />}
+        {shell.authed && <QuickAdd />}
+        <AppShell authed={shell.authed} tickers={shell.tickers} portfolios={shell.portfolios} selected={shell.selected} initial={shell.initial}>
+          {children}
+        </AppShell>
       </body>
     </html>
   );

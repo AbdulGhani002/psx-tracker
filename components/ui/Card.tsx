@@ -1,36 +1,48 @@
 type Props = {
   children: React.ReactNode;
   className?: string;
-  accent?: boolean;
+  accent?: boolean; // kept for callers; a card is a card either way
   inverted?: boolean;
+  title?: string;
+  eyebrow?: string;
+  action?: React.ReactNode;
+  pad?: boolean;
 };
 
-// A section of the page, not a box on it.
-//
-// This used to be a tinted panel with a 4px accent bar down the left, repeated
-// down every page — the one shape that makes a layout look assembled rather
-// than set. A newspaper does not box its sections; it rules them off and lets
-// the type carry the hierarchy. So the default is a heavy rule above and open
-// paper below, `accent={false}` gives the lighter hairline for a subordinate
-// block, and the inverted panel survives for the one or two places that really
-// do need to sit apart from the page.
-export function Card({ children, className = "", accent = true, inverted = false }: Props) {
+// A panel on the dashboard: a raised surface with a hairline border and a
+// soft shadow, the same on every page so the eye learns one shape.
+export function Card({ children, className = "", inverted = false, title, eyebrow, action, pad = true }: Props) {
+  const head =
+    title || eyebrow || action ? (
+      <div className="flex items-start justify-between gap-3 mb-4">
+        <div>
+          {eyebrow && <div className="label-cap mb-1">{eyebrow}</div>}
+          {title && <div className="text-[15px] font-semibold leading-tight">{title}</div>}
+        </div>
+        {action && <div className="shrink-0">{action}</div>}
+      </div>
+    ) : null;
   if (inverted) {
     return (
-      <div className={`bg-[var(--inverted-bg)] text-[var(--inverted-fg)] p-6 ${className}`}>
+      <div className={`card ${pad ? "card-pad" : ""} bg-[var(--inverted-bg)] text-[var(--inverted-fg)] ${className}`}>
+        {head}
         {children}
       </div>
     );
   }
-  const rule = accent ? "border-t-2 border-t-[var(--ink)]" : "border-t border-t-[var(--rule)]";
-  return <div className={`${rule} pt-4 ${className}`}>{children}</div>;
+  return (
+    <div className={`card ${pad ? "card-pad" : ""} ${className}`}>
+      {head}
+      {children}
+    </div>
+  );
 }
 
 export function CardHeader({ title, eyebrow }: { title: string; eyebrow?: string }) {
   return (
     <div className="mb-4">
       {eyebrow && <div className="label-cap mb-1.5">{eyebrow}</div>}
-      <div className="font-display text-[22px] leading-tight">{title}</div>
+      <div className="text-[18px] font-semibold leading-tight">{title}</div>
     </div>
   );
 }

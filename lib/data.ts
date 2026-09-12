@@ -2,6 +2,7 @@ import "server-only";
 import { cache } from "react";
 import { connectDb } from "./db";
 import { getCurrentUserId } from "./auth/current-user";
+import { portfolioFilter } from "@/lib/portfolios";
 import { knownHoldingCompany } from "./holding-companies";
 import { PmexAccountModel, HoldingModel, TransactionModel, CashEntryModel, WatchlistEntryModel, SbpRateModel, MutualFundModel, SavingsAccountModel, AppSettingsModel, CommodityTradeModel, FundamentalModel, FeedSnapshotModel, UserModel, DEFAULT_SETTINGS, type Holding, type Transaction } from "./models";
 import { fetchFundamentals } from "./prices/fundamentals";
@@ -86,14 +87,14 @@ export async function getHoldingBySymbol(symbol: string): Promise<Holding | null
 async function _getAllTransactions(): Promise<Transaction[]> {
   const uid = await getCurrentUserId();
   if (!uid || !(await tryConnect())) return [];
-  const docs = await TransactionModel.find({ userId: uid, deletedAt: null }).sort({ date: -1, createdAt: -1 }).lean();
+  const docs = await TransactionModel.find({ userId: uid, deletedAt: null, ...(await portfolioFilter()) }).sort({ date: -1, createdAt: -1 }).lean();
   return plain<Transaction[]>(docs);
 }
 
 export async function getTransactionsBySymbol(symbol: string): Promise<Transaction[]> {
   const uid = await getCurrentUserId();
   if (!uid || !(await tryConnect())) return [];
-  const docs = await TransactionModel.find({ userId: uid, symbol: symbol.toUpperCase(), deletedAt: null })
+  const docs = await TransactionModel.find({ userId: uid, symbol: symbol.toUpperCase(), deletedAt: null, ...(await portfolioFilter()) })
     .sort({ date: 1, createdAt: 1 })
     .lean();
   return plain<Transaction[]>(docs);
@@ -823,9 +824,10 @@ async function _getCashSummary(): Promise<CashSummary> {
       cgtWithheld: 0,
     };
   }
+  const pf = await portfolioFilter();
   const [entries, txs, settings] = await Promise.all([
-    CashEntryModel.find({ userId: await meId() }).lean(),
-    TransactionModel.find({ userId: await meId(), deletedAt: null }).lean(),
+    CashEntryModel.find({ userId: await meId(), ...pf }).lean(),
+    TransactionModel.find({ userId: await meId(), deletedAt: null, ...pf }).lean(),
     getAppSettings() as Promise<any>,
   ]);
   const cgtRatePct = settings.filerStatus === "filer" ? settings.cgtRateFiler : settings.cgtRateNonFiler;
@@ -834,8 +836,8 @@ async function _getCashSummary(): Promise<CashSummary> {
 
 export async function getCashEntries() {
   if (!(await tryConnect())) return [];
-  const docs = await CashEntryModel.find({ userId: await meId() }).sort({ date: -1, createdAt: -1 }).lean();
-  return plain<Array<{ _id: string; date: string; type: "DEPOSIT" | "WITHDRAWAL"; amount: number; notes: string }>>(docs);
+  const docs = await CashEntryModel.find({ userId: await meId(), ...(await portfolioFilter()) }).sort({ date: -1, createdAt: -1 }).lean();
+  return plain<Array<{ _id: string; date: string; type: "DEPOSIT" | "WITHDRAWAL"; amount: number; notes: string; portfolioId?: string }>>(docs);
 }
 
 // --- SBP live rates: fetched, never guessed --------------------------------
@@ -1096,7 +1098,7 @@ const MUFAP_NAVS_KEY = "mufapNavs";
 
 async function _getMutualFundsValued(): Promise<ValuedFund[]> {
   if (!(await tryConnect())) return [];
-  const docs = await MutualFundModel.find({ userId: await meId() }).sort({ name: 1 }).lean();
+  const docs = await MutualFundModel.find({ userId: await meId(), ...(await portfolioFilter()) }).sort({ name: 1 }).lean();
   if (docs.length === 0) return [];
   let navs = await fetchAllNavs();
   let navAsOf = new Date().toISOString().slice(0, 10);
@@ -1176,7 +1178,7 @@ export type ValuedSavings = {
 
 async function _getSavingsValued(): Promise<ValuedSavings[]> {
   if (!(await tryConnect())) return [];
-  const docs = await SavingsAccountModel.find({ userId: await meId() }).sort({ name: 1 }).lean();
+  const docs = await SavingsAccountModel.find({ userId: await meId(), ...(await portfolioFilter()) }).sort({ name: 1 }).lean();
   return docs.map((a) => {
     const v = valueSavings({
       ratePercent: a.ratePercent,
@@ -1611,22 +1613,17 @@ async function _getTodaysMovers(): Promise<{ gainers: Mover[]; losers: Mover[] }
 async function computeTodaysMovers(): Promise<{ gainers: Mover[]; losers: Mover[] }> {
   const holdings = await getAllHoldings();
   const active = holdings.filter((h) => (h.currentShares ?? 0) > 0);
-  // Fetch every symbol's EOD in PARALLEL (was a sequential await-loop).
-  const results = await Promise.all(
-    active.map(async (h) => {
-      try {
-        const eod = await fetchEodSeries(h.symbol);
-        if (eod.length < 2) return null;
-        const price = eod[eod.length - 1].close;
-        const prevClose = eod[eod.length - 2].close;
-        if (prevClose > 0) return { symbol: h.symbol, price, prevClose, changePct: price / prevClose - 1 };
-      } catch {
-        /* skip */
-      }
-      return null;
-    })
-  );
-  const movers = results.filter((m): m is Mover => m != null);
+  // One cache-first load for every held name (the portal is not asked once per symbol).
+  const { eodBarsCached } = await import("@/lib/timeseries/eod-cache");
+  const bars = await eodBarsCached(active.map((h) => h.symbol));
+  const movers: Mover[] = [];
+  for (const h of active) {
+    const eod = bars.get(h.symbol);
+    if (!eod || eod.length < 2) continue;
+    const price = eod[eod.length - 1].close;
+    const prevClose = eod[eod.length - 2].close;
+    if (prevClose > 0) movers.push({ symbol: h.symbol, price, prevClose, changePct: price / prevClose - 1 });
+  }
   const sorted = [...movers].sort((a, b) => b.changePct - a.changePct);
   return {
     gainers: sorted.filter((m) => m.changePct > 0).slice(0, 3),

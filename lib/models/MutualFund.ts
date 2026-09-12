@@ -3,6 +3,7 @@ import { Schema, model, models, type InferSchemaType, type Model } from "mongoos
 const MutualFundSchema = new Schema(
   {
     userId: { type: String, default: "", index: true },
+    portfolioId: { type: String, default: "", index: true },
     name: { type: String, required: true, trim: true }, // user-facing label
     mufapName: { type: String, required: true, trim: true }, // exact MUFAP name for NAV lookup
     amc: { type: String, default: "" },

@@ -6,108 +6,107 @@
 @tailwind utilities;
 
 /* ─────────────────────────────────────────────────────────────────────────────
-   The palette is a printed one: warm paper, true ink, and colour spent only
-   where it carries meaning. Gains and losses sit close to ink rather than
-   glowing — a page of numbers should read as a page, not a dashboard, and a
-   loss should not shout across the room. One accent, burnt sienna, and it is
-   used for emphasis and links, never for decoration.
+   The palette is a trading dashboard's: deep navy ground, raised panels, cool
+   grey text, and colour spent on meaning: green for gains and the primary
+   action, red for losses, blue for the benchmark. The variable names are the
+   old ones (paper, ink, rule) so every page keeps working; only their values
+   changed. Dark is the default; the light theme is white panels on grey.
    ───────────────────────────────────────────────────────────────────────── */
-:root {
-  color-scheme: light;
-  --paper: #f4f1ea;
-  --paper-2: #eae5da;
-  --ink: #16150f;
-  --muted: #6b6656;
-  --rule: #ddd7c8;
-  --rule-strong: #b9b1a0;
-  --accent: #8a4b1e;
-  --accent-deep: #63340f;
-  --positive: #2f6b3f;
-  --negative: #9b2c2c;
-  --amber: #a8741c;
-  --inverted-bg: #16150f;
-  --inverted-fg: #f4f1ea;
-
-  /* Chart series, fixed order — never cycled, never reassigned by rank.
-     Chosen as printing inks: separable under colour-vision deficiency without
-     any of them turning fluorescent on paper. --series-* sit on the page;
-     --panel-series-* sit on the inverted ink panel, dark in both themes. */
-  --series-1: #2d5f7c;
-  --series-2: #a85a2c;
-  --series-3: #4a7c59;
-  --series-4: #97781f;
-  --series-5: #7d4f6d;
-  --series-6: #2f6b6b;
-  --series-7: #8c3b3b;
-  --series-8: #56594a;
-
-  /* Sequential ramp, one hue: weight is a magnitude, not a category. */
-  --ramp-1: #3d2410;
-  --ramp-2: #5a3417;
-  --ramp-3: #77451f;
-  --ramp-4: #925628;
-  --ramp-5: #a86c3f;
-  --ramp-6: #bc855c;
-  --ramp-7: #cd9f7c;
-  --ramp-8: #dcb99e;
-
-  /* Valuation zones, best to worst. A four-step scale, so the two greens are
-     deliberately a full step apart rather than shades of each other. */
-  --zone-strong-buy: #234f2e;
-  --zone-buy: #4a7c59;
-  --zone-fair: #a8741c;
-  --zone-expensive: #9b2c2c;
-}
-
 :root, :root[data-theme="dark"] {
-  --panel-series-1: #7fa9c6;
-  --panel-series-2: #d99055;
-  --panel-series-3: #8bb897;
-  --panel-series-4: #c9ad5e;
-  --panel-series-5: #b98aa8;
-  --panel-series-6: #6faaaa;
-  --panel-series-7: #c47b7b;
-  --panel-series-8: #9a9d84;
+  color-scheme: dark;
+  --paper: #0a0f1c;        /* the page */
+  --paper-2: #111a2e;      /* a raised panel */
+  --surface: #0f1729;      /* cards */
+  --surface-2: #162038;    /* hover, inputs */
+  --ink: #e6edf7;
+  --muted: #8d9bb5;
+  --rule: #1c2740;
+  --rule-strong: #2b3a5c;
+  --accent: #22c55e;
+  --accent-deep: #4ade80;
+  --positive: #22c55e;
+  --negative: #ef4444;
+  --amber: #f59e0b;
+  --blue: #3b82f6;
+  --inverted-bg: #162038;
+  --inverted-fg: #e6edf7;
+  --shadow: 0 1px 2px rgba(0,0,0,.35), 0 8px 24px rgba(0,0,0,.25);
+
+  --series-1: #22c55e;
+  --series-2: #3b82f6;
+  --series-3: #a78bfa;
+  --series-4: #f59e0b;
+  --series-5: #22d3ee;
+  --series-6: #f472b6;
+  --series-7: #a3e635;
+  --series-8: #94a3b8;
+
+  --panel-series-1: #22c55e;
+  --panel-series-2: #3b82f6;
+  --panel-series-3: #a78bfa;
+  --panel-series-4: #f59e0b;
+  --panel-series-5: #22d3ee;
+  --panel-series-6: #f472b6;
+  --panel-series-7: #a3e635;
+  --panel-series-8: #94a3b8;
+
+  --ramp-1: #dcfce7;
+  --ramp-2: #bbf7d0;
+  --ramp-3: #86efac;
+  --ramp-4: #4ade80;
+  --ramp-5: #22c55e;
+  --ramp-6: #16a34a;
+  --ramp-7: #15803d;
+  --ramp-8: #166534;
+
+  --zone-strong-buy: #16a34a;
+  --zone-buy: #4ade80;
+  --zone-fair: #f59e0b;
+  --zone-expensive: #ef4444;
 }
 
-:root[data-theme="dark"] {
-  color-scheme: dark;
-  --paper: #14130f;        /* ink, dimmed — the press run at night */
-  --paper-2: #1c1a15;
-  --ink: #ece7da;
-  --muted: #948d7c;
-  --rule: #2e2b23;
-  --rule-strong: #4a4538;
-  --accent: #cf8a4e;
-  --accent-deep: #e0a672;
-  --positive: #7fa66a;
-  --negative: #cc6b5a;
-  --amber: #c99a4a;
-  --inverted-bg: #24211a;  /* inverted cards: lighter than paper so they read as panels */
-  --inverted-fg: #ece7da;
+:root[data-theme="light"] {
+  color-scheme: light;
+  --paper: #f3f5f9;
+  --paper-2: #ffffff;
+  --surface: #ffffff;
+  --surface-2: #f1f4f9;
+  --ink: #0f172a;
+  --muted: #64748b;
+  --rule: #e3e8f0;
+  --rule-strong: #c7d0de;
+  --accent: #16a34a;
+  --accent-deep: #15803d;
+  --positive: #16a34a;
+  --negative: #dc2626;
+  --amber: #d97706;
+  --blue: #2563eb;
+  --inverted-bg: #0f172a;
+  --inverted-fg: #f8fafc;
+  --shadow: 0 1px 2px rgba(15,23,42,.06), 0 8px 24px rgba(15,23,42,.06);
 
-  --series-1: #7fa9c6;
-  --series-2: #d99055;
-  --series-3: #8bb897;
-  --series-4: #c9ad5e;
-  --series-5: #b98aa8;
-  --series-6: #6faaaa;
-  --series-7: #c47b7b;
-  --series-8: #9a9d84;
+  --series-1: #16a34a;
+  --series-2: #2563eb;
+  --series-3: #7c3aed;
+  --series-4: #d97706;
+  --series-5: #0891b2;
+  --series-6: #db2777;
+  --series-7: #65a30d;
+  --series-8: #64748b;
 
-  --ramp-1: #f0d9c4;
-  --ramp-2: #e3c2a4;
-  --ramp-3: #d3aa88;
-  --ramp-4: #c1926e;
-  --ramp-5: #ad7b58;
-  --ramp-6: #986646;
-  --ramp-7: #825336;
-  --ramp-8: #6c4229;
+  --ramp-1: #14532d;
+  --ramp-2: #166534;
+  --ramp-3: #15803d;
+  --ramp-4: #16a34a;
+  --ramp-5: #22c55e;
+  --ramp-6: #4ade80;
+  --ramp-7: #86efac;
+  --ramp-8: #bbf7d0;
 
-  --zone-strong-buy: #5e8f4a;
-  --zone-buy: #8db070;
-  --zone-fair: #c99a4a;
-  --zone-expensive: #cc6b5a;
+  --zone-strong-buy: #15803d;
+  --zone-buy: #22c55e;
+  --zone-fair: #d97706;
+  --zone-expensive: #dc2626;
 }
 
 html, body {
@@ -121,8 +120,8 @@ html, body {
 }
 
 ::selection {
-  background: var(--ink);
-  color: var(--paper);
+  background: var(--accent);
+  color: #06210f;
 }
 
 /* ── Type ────────────────────────────────────────────────────────────────────
@@ -132,22 +131,22 @@ html, body {
    columns of money line up on the decimal.
    ───────────────────────────────────────────────────────────────────────── */
 .font-display {
-  font-family: var(--font-display), "Instrument Serif", Georgia, serif;
-  font-weight: 400;
-  letter-spacing: -0.005em;
+  font-family: var(--font-sans), Roboto, system-ui, sans-serif;
+  font-weight: 600;
+  letter-spacing: -0.015em;
 }
 
 .font-display-italic {
-  font-family: var(--font-display), "Instrument Serif", Georgia, serif;
-  font-weight: 400;
+  font-family: var(--font-sans), Roboto, system-ui, sans-serif;
+  font-weight: 500;
   font-style: italic;
-  letter-spacing: -0.005em;
+  letter-spacing: -0.01em;
 }
 
 /* The masthead. Tight, large, and never bolder than the face was drawn. */
 .masthead {
-  font-family: var(--font-display), "Instrument Serif", Georgia, serif;
-  font-weight: 400;
+  font-family: var(--font-sans), Roboto, system-ui, sans-serif;
+  font-weight: 700;
   letter-spacing: -0.02em;
   line-height: 0.95;
 }
@@ -246,7 +245,7 @@ table {
   transition: background-color 120ms linear;
 }
 .row-hover:hover {
-  background: var(--paper-2);
+  background: var(--surface-2);
 }
 
 /* ── Motion ──────────────────────────────────────────────────────────────────
@@ -345,3 +344,116 @@ table {
   border-top: 1px solid var(--ink);
   margin: 0;
 }
+
+
+/* ── The shell ────────────────────────────────────────────────────────────────
+   A sidebar of icons and labels on the left, a top bar with the market and
+   the portfolio switcher, and the page in a scrolling column. On phones the
+   sidebar becomes a bottom tab bar.
+   ───────────────────────────────────────────────────────────────────────── */
+.card {
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  border-radius: 14px;
+  box-shadow: var(--shadow);
+}
+.card-pad { padding: 18px 20px; }
+
+.stat-card {
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  border-radius: 14px;
+  padding: 16px 18px;
+  min-height: 92px;
+}
+
+.sidebar {
+  position: fixed;
+  top: 0;
+  left: 0;
+  bottom: 0;
+  width: 232px;
+  background: var(--surface);
+  border-right: 1px solid var(--rule);
+  display: flex;
+  flex-direction: column;
+  z-index: 40;
+}
+.sidebar-link {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 9px 12px;
+  border-radius: 10px;
+  color: var(--muted);
+  font-size: 13.5px;
+  font-weight: 500;
+  transition: background-color 120ms linear, color 120ms linear;
+}
+.sidebar-link:hover { background: var(--surface-2); color: var(--ink); }
+.sidebar-link[data-active="true"] { background: var(--surface-2); color: var(--ink); }
+.sidebar-link[data-active="true"] svg { color: var(--accent); }
+.sidebar-link svg { width: 18px; height: 18px; flex: none; }
+
+.topbar {
+  position: sticky;
+  top: 0;
+  z-index: 30;
+  background: color-mix(in srgb, var(--paper) 88%, transparent);
+  backdrop-filter: blur(10px);
+  border-bottom: 1px solid var(--rule);
+}
+
+.tabbar {
+  position: fixed;
+  left: 0; right: 0; bottom: 0;
+  background: var(--surface);
+  border-top: 1px solid var(--rule);
+  z-index: 40;
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  padding-bottom: env(safe-area-inset-bottom);
+}
+.tabbar a {
+  display: flex; flex-direction: column; align-items: center; gap: 3px;
+  padding: 8px 0 6px; font-size: 10px; color: var(--muted); letter-spacing: 0.02em;
+}
+.tabbar a[data-active="true"] { color: var(--accent); }
+.tabbar svg { width: 20px; height: 20px; }
+
+.pill {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 4px 10px; border-radius: 999px; font-size: 12px; font-weight: 500;
+  background: var(--surface-2); color: var(--ink); border: 1px solid var(--rule);
+}
+.pill[data-tone="positive"] { color: var(--positive); background: color-mix(in srgb, var(--positive) 12%, transparent); border-color: transparent; }
+.pill[data-tone="negative"] { color: var(--negative); background: color-mix(in srgb, var(--negative) 12%, transparent); border-color: transparent; }
+.pill[data-tone="muted"] { color: var(--muted); }
+
+.seg {
+  display: inline-flex; background: var(--surface-2); border: 1px solid var(--rule); border-radius: 10px; padding: 2px;
+}
+.seg button {
+  padding: 4px 10px; border-radius: 8px; font-size: 12px; font-weight: 500; color: var(--muted);
+}
+.seg button[data-active="true"] { background: var(--surface); color: var(--ink); box-shadow: var(--shadow); }
+
+.btn-primary {
+  background: var(--accent); color: #06210f; font-weight: 600; border-radius: 10px; padding: 8px 14px; font-size: 13px;
+}
+.btn-primary:hover { filter: brightness(1.06); }
+.btn-ghost {
+  border: 1px solid var(--rule); color: var(--ink); border-radius: 10px; padding: 7px 12px; font-size: 13px; background: var(--surface);
+}
+.btn-ghost:hover { background: var(--surface-2); }
+
+.table-zar { width: 100%; font-size: 13px; }
+.table-zar th { text-align: left; font-size: 11px; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); font-weight: 500; padding: 10px 10px; border-bottom: 1px solid var(--rule); }
+.table-zar td { padding: 10px 10px; border-bottom: 1px solid var(--rule); vertical-align: middle; }
+.table-zar tr:last-child td { border-bottom: 0; }
+.table-zar tbody tr:hover td { background: var(--surface-2); }
+
+.heat { display: grid; grid-template-columns: 52px repeat(12, 1fr) 60px; gap: 3px; font-size: 11px; }
+.heat .cell { border-radius: 6px; padding: 7px 4px; text-align: center; font-family: var(--font-mono), monospace; font-variant-numeric: tabular-nums; }
+
+.avatar { width: 30px; height: 30px; border-radius: 999px; background: var(--surface-2); display: inline-flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 600; color: var(--ink); border: 1px solid var(--rule); }

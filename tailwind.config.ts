@@ -19,12 +19,16 @@ const config: Config = {
         "inverted-fg": "var(--inverted-fg)",
       },
       fontFamily: {
-        display: ["var(--font-display)", "Instrument Serif", "Georgia", "serif"],
+        display: ["var(--font-sans)", "Roboto", "system-ui", "sans-serif"],
         sans: ["var(--font-sans)", "Roboto", "system-ui", "sans-serif"],
         mono: ["var(--font-mono)", "Roboto Mono", "ui-monospace", "monospace"],
       },
       borderRadius: {
         none: "0",
+        DEFAULT: "10px",
+        lg: "14px",
+        xl: "18px",
+        full: "9999px",
       },
       letterSpacing: {
         label: "0.18em",

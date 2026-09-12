@@ -84,6 +84,8 @@ async function recompute(symbol: string) {
 }
 
 export async function POST(req: NextRequest) {
+  const { selectedPortfolio, defaultPortfolio } = await import("@/lib/portfolios");
+  const importPortfolio = (await selectedPortfolio())?._id || (await defaultPortfolio())?._id || "";
   try {
     const body = await req.json().catch(() => ({}));
     const csv: string = body?.csv ?? "";
@@ -160,6 +162,7 @@ export async function POST(req: NextRequest) {
 
       await TransactionModel.create({
       userId: await uid(),
+        portfolioId: importPortfolio,
         symbol: row.symbol, type: row.type, date: new Date(row.date),
         shares: signedShares, pricePerShare: row.pricePerShare, totalAmount,
         fees: row.fees, netAmount, notes: row.notes, ratio: "",
