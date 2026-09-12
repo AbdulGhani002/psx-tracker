@@ -15,24 +15,7 @@ import { sendEmail } from "@/lib/auth/mailer";
 import { getPlaybook } from "@/lib/plan";
 import { assembleWeeklyReport, buildWeeklyTex, weeklySummaryText, weeklyEmailHtml } from "@/lib/statement/weekly";
 import { buildQuantReport, type QuantReport } from "@/lib/quant/report";
-
-const esc = (s: string) => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-
-// The market section of the weekly email: the long-form text, then every
-// chart inline with its caption. Captions carry Telegram's <b>/<i> tags,
-// which are also HTML, so they pass through as they are.
-function quantEmailHtml(q: QuantReport): string {
-  const charts = [...q.indices, ...q.holdings]
-    .map(
-      (it) =>
-        `<div style="margin:18px 0"><img src="cid:${it.symbol}.png" alt="${esc(it.title)}" style="max-width:100%;border:1px solid #d5d8dd"><div style="font-size:13px;margin-top:6px;white-space:pre-line">${it.caption}</div></div>`
-    )
-    .join("");
-  return `<h2 style="margin:28px 0 4px;font-size:20px">Market and model</h2>
-<div style="color:#6b7280;font-size:13px;margin-bottom:14px">${esc(q.date)}${q.model ? ` · model trained ${esc(q.model.trainedOn.slice(0, 10))}, ${q.model.names} names, ${q.model.horizon} sessions ahead` : ""}</div>
-<div style="border:1px solid #d5d8dd;padding:14px 16px;font-size:14px;white-space:pre-line">${esc(q.detail)}</div>
-${charts}`;
-}
+import { quantEmailHtml, quantEmailAttachments } from "@/lib/quant/email";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -147,7 +130,7 @@ export async function POST(req: Request) {
       if (email) {
         try {
           const attachments: Array<{ filename: string; content: Buffer; contentId?: string }> = pdf ? [{ filename, content: pdf }] : [];
-          if (quant) for (const it of [...quant.indices, ...quant.holdings]) attachments.push({ filename: `${it.symbol}.png`, content: it.png, contentId: `${it.symbol}.png` });
+          if (quant) attachments.push(...quantEmailAttachments(quant));
           const ok = await sendEmail(
             email,
             `Weekly plan and charts — ${data.weekLabel}`,

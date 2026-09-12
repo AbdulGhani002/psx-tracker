@@ -86,7 +86,7 @@ export function standingOf(pctile: number | null): NameStanding {
   return pctile >= 0.8 ? "STRONG" : pctile <= 0.2 ? "WEAK" : "MIDDLE";
 }
 
-export type ModelVerdict = "BUY" | "STAGE" | "WATCH" | "HOLD" | "TRIM" | "SELL" | "WAIT" | "AVOID" | "PASS";
+export type ModelVerdict = "BUY" | "STAGE" | "WATCH" | "HOLD" | "TRIM" | "SELL" | "EXIT" | "WAIT" | "AVOID" | "PASS";
 
 export type ModelZone = {
   buyLow: number;
@@ -97,6 +97,23 @@ export type ModelZone = {
   trigger: number | null; // for names below their averages, the level a close must clear first
 };
 
+// The name's place in the portfolio the owner wrote down: a target weight,
+// what it weighs now, and the gap between them in shares at the model's
+// levels. CORE is held with a target, NEW is targeted but not held, EXIT is
+// held at a zero target (to be sold on the model's terms).
+export type PlanRole = "CORE" | "NEW" | "EXIT";
+
+export type PlanInput = {
+  role: PlanRole;
+  targetPct: number;
+  currentPct: number; // of the book: equities plus the cash that can be deployed
+  bandPct: number; // the rebalance band: inside it, nothing to do
+  gapRs: number; // target value minus current value; positive means buy
+  buyShares: number; // whole shares that close the gap at the top of the buy zone
+  sellShares: number; // whole shares that close it at the bottom of the sell zone, or the whole position for an exit
+  index?: { buyHigh: number; buyLow: number; reclaim: number | null } | null; // the KSE-100's own buy zone, and the level that turns the market strong
+};
+
 export type NameRead = {
   verdict: ModelVerdict;
   standing: NameStanding;
@@ -104,6 +121,7 @@ export type NameRead = {
   zone: ModelZone;
   edge: string; // what names ranked here did against the market
   line: string;
+  action: string; // one clause for the list: what to do, how much, where
 };
 
 // The level a falling name must clear before it counts as turning: the
@@ -123,6 +141,8 @@ export function edgeLine(edge: DecileEdge, horizon: number): string {
   return `names ranked in ${where} went on to ${edge.meanRelPct >= 0 ? "beat" : "trail"} the market by ${Math.abs(edge.meanRelPct).toFixed(1)}% per ${horizon} sessions on average, out of sample since 2007`;
 }
 
+const rsFmt = (v: number) => (Math.abs(v) >= 100000 ? `Rs ${(v / 1000).toFixed(0)}k` : `Rs ${Math.round(v).toLocaleString("en-US")}`);
+
 export function readName(args: {
   held: boolean;
   market: MarketState;
@@ -138,6 +158,7 @@ export function readName(args: {
   pDip: number;
   dipUsable: boolean; // the dip record clears the bar
   horizon: number;
+  plan?: PlanInput | null;
 }): NameRead {
   const { held, market, pctile, rank, trend, price, levels, pDip, dipUsable, horizon } = args;
   const standing = standingOf(pctile);
@@ -152,10 +173,79 @@ export function readName(args: {
   const failsAt = `The case fails below ${fmt(levels.fails)}`;
   const dipText = dipUsable ? ` (${odds(pDip)} odds of a 5% dip first)` : "";
   const edge = edgeLine(args.edge ?? null, horizon);
+  const standingWord = standing === "STRONG" ? "Top-fifth name" : standing === "WEAK" ? "Bottom-fifth name" : "Middle-ranked name";
+  const idx = args.plan?.index ?? null;
+  const marketGate = idx
+    ? `once the KSE-100 is back above ${idx.reclaim ? fmt(idx.reclaim) : "its 200-day"} or down in its own buy zone, ${fmt(idx.buyHigh)} to ${fmt(idx.buyLow)}`
+    : "once the index is back above its 200-day";
 
   let verdict: ModelVerdict;
   let line: string;
+  let action: string;
 
+  const plan = args.plan ?? null;
+  if (plan) {
+    const tgt = `${plan.targetPct.toFixed(0)}%`, cur = `${plan.currentPct.toFixed(1)}%`;
+    const weightText = `target ${tgt}, now ${cur}`;
+    if (plan.role === "EXIT") {
+      verdict = "EXIT";
+      if (standing === "WEAK" || (market === "WEAK" && falling)) {
+        line = `Exit (target 0%). ${standingWord} (${rankText})${market === "WEAK" ? " in a weak market" : ""}: sell all ${plan.sellShares} shares now rather than wait for strength. If it does bounce, ${sellZone} is as far as half of paths like this one get.`;
+        action = `sell all ${plan.sellShares} now; do not wait for ${fmt(levels.sellLow)}`;
+      } else {
+        line = `Exit (target 0%). ${standingWord} (${rankText}): sell all ${plan.sellShares} shares into ${sellZone} (half of paths like this one reach ${fmt(levels.sellLow)} within ${horizon} sessions). A close below ${fmt(levels.fails)} sells it anyway.`;
+        action = `sell all ${plan.sellShares} into ${sellZone}; out below ${fmt(levels.fails)}`;
+      }
+      return { verdict, standing, pctile, zone, edge, line, action };
+    }
+
+    const over = plan.currentPct > plan.targetPct + plan.bandPct && plan.sellShares > 0;
+    const under = plan.currentPct < plan.targetPct - plan.bandPct && plan.buyShares > 0;
+    const sizeText = `about ${plan.buyShares.toLocaleString("en-US")} shares (${rsFmt(plan.gapRs)}) close it`;
+
+    if (over) {
+      verdict = "TRIM";
+      line = `Over target (${weightText}). ${standingWord} (${rankText}). Trim about ${plan.sellShares.toLocaleString("en-US")} shares in ${sellZone}${standing === "WEAK" ? ", or sooner: the model ranks it in the bottom fifth" : ""}. ${failsAt}.`;
+      action = `trim ~${plan.sellShares} in ${sellZone}`;
+    } else if (under) {
+      if (standing === "WEAK") {
+        verdict = held ? "HOLD" : "WAIT";
+        line = `Under target (${weightText}) but ${standingWord.toLowerCase()} (${rankText}). Do not add while it ranks here; the gap waits. ${failsAt}.`;
+        action = `no adds while bottom-fifth; gap of ${plan.buyShares} shares waits`;
+      } else if (market === "WEAK") {
+        verdict = "WAIT";
+        line = `Under target (${weightText}): ${sizeText}. ${standingWord} (${rankText}) in a weak market: add only in ${buyZone}, and only ${marketGate}. ${failsAt}. Sell zone ${sellZone}.`;
+        action = `buy ~${plan.buyShares} in ${buyZone}, only ${idx ? `with the KSE-100 above ${idx.reclaim ? fmt(idx.reclaim) : "its 200-day"} or in ${fmt(idx.buyHigh)} to ${fmt(idx.buyLow)}` : "once the index is above its 200-day"}; fails ${fmt(levels.fails)}`;
+      } else if (standing === "STRONG" && falling) {
+        verdict = "WATCH";
+        line = `Under target (${weightText}): ${sizeText}. ${standingWord} (${rankText}) still under its ${t === "DOWNTREND" ? "50- and 200-day" : "50-day"} average: buy on a close above ${zone.trigger ? fmt(zone.trigger) : "its 50-day"}, or in ${buyZone} if it holds there${dipText}. ${failsAt}.`;
+        action = `buy ~${plan.buyShares} on a close above ${zone.trigger ? fmt(zone.trigger) : "the 50-day"} or in ${buyZone}; fails ${fmt(levels.fails)}`;
+      } else if (standing === "STRONG" && dipUsable && pDip >= 0.55) {
+        verdict = "STAGE";
+        line = `Under target (${weightText}): ${sizeText}. ${standingWord} (${rankText}), trend intact, market ${market.toLowerCase()}. ${odds(pDip)} odds of a 5% lower price first, so work the orders in ${buyZone} rather than paying up. Sell zone ${sellZone}. ${failsAt}.`;
+        action = `buy ~${plan.buyShares} in ${buyZone}; fails ${fmt(levels.fails)}`;
+      } else if (standing === "STRONG") {
+        verdict = "BUY";
+        line = `Under target (${weightText}): ${sizeText}. ${standingWord} (${rankText}), trend intact, market ${market.toLowerCase()}. Buy: half now, half in ${buyZone}${dipText}. Sell zone ${sellZone}. ${failsAt}.`;
+        action = `buy ~${plan.buyShares}: half now, half in ${buyZone}; fails ${fmt(levels.fails)}`;
+      } else {
+        verdict = "BUY";
+        line = `Under target (${weightText}): ${sizeText}. ${standingWord} (${rankText}): buy only in ${buyZone}, not at market. ${failsAt}. Sell zone ${sellZone}.`;
+        action = `buy ~${plan.buyShares} in ${buyZone} only; fails ${fmt(levels.fails)}`;
+      }
+    } else {
+      verdict = held ? (inSell && standing !== "STRONG" ? "TRIM" : "HOLD") : "PASS";
+      line = held
+        ? verdict === "TRIM"
+          ? `At target (${weightText}) and already inside its sell zone (${sellZone}). Take a little off. ${failsAt}.`
+          : `At target (${weightText}). ${standingWord} (${rankText}). Nothing to do; trim in ${sellZone}, ${failsAt.charAt(0).toLowerCase() + failsAt.slice(1)}.`
+        : `Targeted at ${tgt} but the gap is inside the band. Nothing to do.`;
+      action = held ? `hold; trim in ${sellZone}; fails ${fmt(levels.fails)}` : "nothing to do";
+    }
+    return { verdict, standing, pctile, zone, edge, line, action };
+  }
+
+  // No plan given: the name on its own merits.
   if (standing === "WEAK") {
     if (held) {
       verdict = market === "WEAK" || falling ? "SELL" : "TRIM";
@@ -170,7 +260,7 @@ export function readName(args: {
   } else if (standing === "STRONG") {
     if (market === "WEAK") {
       verdict = held ? "HOLD" : "WAIT";
-      line = `Top-fifth name (${rankText}) in a weak market. ${held ? "Keep it. Add" : "Buy"} only in ${buyZone}, and only once the index is back above its 200-day. ${failsAt}. Sell zone ${sellZone}.`;
+      line = `Top-fifth name (${rankText}) in a weak market. ${held ? "Keep it. Add" : "Buy"} only in ${buyZone}, and only ${marketGate}. ${failsAt}. Sell zone ${sellZone}.`;
     } else if (falling) {
       verdict = "WATCH";
       line = `Top-fifth name (${rankText}) still under its ${t === "DOWNTREND" ? "50- and 200-day" : "50-day"} average. Buy on a close above ${zone.trigger ? fmt(zone.trigger) : "its 50-day"}, or in ${buyZone} if it holds there${dipText}. ${failsAt}.`;
@@ -192,8 +282,9 @@ export function readName(args: {
       line = `Middle-ranked name (${rankText}). There are stronger names for new money.`;
     }
   }
-  return { verdict, standing, pctile, zone, edge, line };
+  action = `${verdict.toLowerCase()}; buy ${buyZone}, sell ${sellZone}, fails ${fmt(levels.fails)}`;
+  return { verdict, standing, pctile, zone, edge, line, action };
 }
 
 // Sort order for the report: what needs doing first.
-export const VERDICT_RANK: Record<ModelVerdict, number> = { BUY: 0, STAGE: 1, SELL: 2, TRIM: 3, WATCH: 4, WAIT: 5, HOLD: 6, AVOID: 7, PASS: 8 };
+export const VERDICT_RANK: Record<ModelVerdict, number> = { BUY: 0, STAGE: 1, EXIT: 2, SELL: 3, TRIM: 4, WATCH: 5, WAIT: 6, HOLD: 7, AVOID: 8, PASS: 9 };

@@ -1,7 +1,7 @@
 // Single source of truth for the app version + changelog.
 // Bump APP_VERSION and prepend a CHANGELOG entry on every release.
 
-export const APP_VERSION = "9.13.0";
+export const APP_VERSION = "9.14.0";
 
 export const BUILD_DATE =
   process.env.NEXT_PUBLIC_BUILD_DATE ?? "";
@@ -17,6 +17,18 @@ export type ChangelogEntry = {
 
 // Reverse-chronological. Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: "9.14.0",
+    date: "2026-09-12",
+    title: "The list: the model reads your written portfolio and says what to do, how much, and where, name by name and for the index",
+    changes: [
+      "The daily analysis now covers every name in the portfolio you wrote down, held or not, and reads each one against its target. Weights are of the book: your equities plus the cash that can be deployed (the fund and the brokerage balance, less the reserve that never leaves the fund). A name held at a zero target is an exit; a name targeted and not yet held is a new position; the rest are core. Each gets a one-clause action with a size in whole shares at the top of the model's buy zone (or the bottom of its sell zone), and the list closes with a funding line: deployable cash plus exits plus trims against the buys, so you can see the plan pays for itself.",
+      "The verdicts by role. An exit sells all of it now when the name ranks in the bottom fifth or the market is weak and the name is falling, and otherwise into the model's sell zone with the fail level as the backstop. A core name under its target by more than its band is bought: half now and half in the zone when the name is top-fifth with its trend intact and the market strong or mixed; only in the zone when it is middle-ranked; on a close above its turn level when it is top-fifth but still under its averages; and in a weak market it is WAIT, to be bought only in its zone and only once the KSE-100 is back above its 200-day or down in the index's own buy zone. A core name over its target is trimmed in the sell zone; inside its band it is a HOLD. A bottom-fifth name under target is not added to; the gap waits.",
+      "The index gets its own zone. The KSE-100 state table now keeps, for each state, how deep the index's path ran after past days like it: the depth half of paths reached, a quarter, a tenth, and the same for the high. Read at today's volatility that is a buy zone, a fail level and the zone where rallies stall, the same quantiles as a name's, plus the 200-day as the level that turns the market strong. Today: buy 165,850 down to 160,750, the market case fails below 155,650, rallies stall 175,950 to 180,200, strong above 172,093.",
+      "The list goes out on Telegram under the daily message and, when asked ({email:true} on the report run), by email with the table, the long text and every chart inline; the Sunday weekly email carries the same table at the top of its model section. The Analysis page shows target, weight now and the action beside every name, and the KSE-100's zone in the market card.",
+      "The KSE-100 chart caption ran past Telegram's limit and lost its levels line; the strength line is compact now (passes by name, fails with their reading).",
+    ],
+  },
   {
     version: "9.13.0",
     date: "2026-09-11",

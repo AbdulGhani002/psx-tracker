@@ -18,6 +18,11 @@
 // at 60), which is why the table is coarse on purpose.
 
 export const OUTLOOK_QUANTILES = [0.1, 0.25, 0.5, 0.75, 0.9];
+// How deep the path's low ran, in sigmas, at the shares of past paths that
+// ran at least that deep: a half, a quarter, a tenth. The same for the high.
+// These are the index's own buy zone, fail level and sell zone, read the same
+// way as a name's (projection.ts).
+export const DEPTH_SHARES = [0.5, 0.25, 0.1];
 export const DIP_LIMIT = Math.log(0.95); // a 5% lower close on the path
 
 export type IndexBar = { date: string; close: number };
@@ -136,6 +141,8 @@ export type CellStat = {
   pDip: number;
   meanZ: number;
   zq: number[]; // OUTLOOK_QUANTILES, in sigma units
+  lowDepth?: number[]; // DEPTH_SHARES: the depth (sigmas under today) that a half, a quarter, a tenth of paths reached
+  highDepth?: number[]; // the same for the high
 };
 
 export type IndexOutlookModel = {
@@ -155,9 +162,16 @@ function quantile(sorted: number[], q: number): number {
   return sorted[lo] + (sorted[hi] - sorted[lo]) * (pos - lo);
 }
 
+// The plain walk's depths, for a cell with no data at all.
+const WALK_LOW_DEPTH = [0.66, 1.14, 1.62];
+
 function statOf(key: string, states: IndexState[], horizon: number): CellStat {
   const zs = states.map((s) => s.z!).sort((a, b) => a - b);
   const n = states.length;
+  const lows = states.map((s) => -s.minPath! / s.sigmaH).sort((a, b) => a - b);
+  const highs = states.map((s) => s.maxPath! / s.sigmaH).sort((a, b) => a - b);
+  // A share q of paths reached at least depth d means d is the (1 - q) quantile.
+  const reached = (sorted: number[]) => DEPTH_SHARES.map((q) => Math.max(0, quantile(sorted, 1 - q)));
   return {
     key,
     n,
@@ -166,6 +180,8 @@ function statOf(key: string, states: IndexState[], horizon: number): CellStat {
     pDip: n ? states.filter((s) => s.minPath! <= DIP_LIMIT).length / n : 0.3,
     meanZ: n ? zs.reduce((a, b) => a + b, 0) / n : 0,
     zq: OUTLOOK_QUANTILES.map((q) => quantile(zs, q)),
+    lowDepth: n ? reached(lows) : [...WALK_LOW_DEPTH],
+    highDepth: n ? reached(highs) : [...WALK_LOW_DEPTH],
   };
 }
 
@@ -197,25 +213,34 @@ export type CellOutlook = {
   levels: number[]; // the quantiles as index levels
   medianPct: number;
   sigmaH: number;
+  // The index's own zones: half of past paths in this state dipped to buyHigh,
+  // a quarter to buyLow, a tenth to fails; the same shares rose to sellLow and
+  // sellHigh. Missing on a table built before these were kept.
+  zone: { buyHigh: number; buyLow: number; fails: number; sellLow: number; sellHigh: number } | null;
   base: { pUp: number; pDip: number; medianPct: number; periods: number };
   horizon: number;
 };
 
-function blend(child: CellStat | undefined, parent: { pUp: number; pDip: number; meanZ: number; zq: number[] }, shrink: number) {
+type Blended = { pUp: number; pDip: number; meanZ: number; zq: number[]; lowDepth?: number[]; highDepth?: number[] };
+
+function blend(child: CellStat | undefined, parent: Blended, shrink: number): Blended {
   if (!child) return parent;
   const w = child.periods / (child.periods + shrink);
+  const mix = (a?: number[], b?: number[]) => (a && b ? a.map((v, i) => w * v + (1 - w) * b[i]) : a ?? b);
   return {
     pUp: w * child.pUp + (1 - w) * parent.pUp,
     pDip: w * child.pDip + (1 - w) * parent.pDip,
     meanZ: w * child.meanZ + (1 - w) * parent.meanZ,
     zq: child.zq.map((v, i) => w * v + (1 - w) * parent.zq[i]),
+    lowDepth: mix(child.lowDepth, parent.lowDepth),
+    highDepth: mix(child.highDepth, parent.highDepth),
   };
 }
 
 // The outlook for a state, using cells down to `level` (finer cells that
 // have no data fall back to their parent).
 export function cellOutlook(m: IndexOutlookModel, s: Pick<IndexState, "gap200" | "slope200" | "breadth200" | "sigmaH" | "close">, level: CellLevel = 2): CellOutlook {
-  let stat: { pUp: number; pDip: number; meanZ: number; zq: number[] } = m.base;
+  let stat: Blended = m.base;
   let used = m.base.key, usedLevel: CellLevel = 0, periods = m.base.periods;
   for (const l of [0, 1, 2] as CellLevel[]) {
     if (l > level) break;
@@ -229,6 +254,18 @@ export function cellOutlook(m: IndexOutlookModel, s: Pick<IndexState, "gap200" |
     periods = c.periods;
   }
   const levels = stat.zq.map((z) => s.close * Math.exp(z * s.sigmaH));
+  const tick = s.close >= 10000 ? 50 : s.close >= 1000 ? 5 : 1;
+  const r = (v: number) => Math.round(v / tick) * tick;
+  const zone =
+    stat.lowDepth && stat.highDepth
+      ? {
+          buyHigh: r(s.close * Math.exp(-stat.lowDepth[0] * s.sigmaH)),
+          buyLow: r(s.close * Math.exp(-stat.lowDepth[1] * s.sigmaH)),
+          fails: r(s.close * Math.exp(-stat.lowDepth[2] * s.sigmaH)),
+          sellLow: r(s.close * Math.exp(stat.highDepth[0] * s.sigmaH)),
+          sellHigh: r(s.close * Math.exp(stat.highDepth[1] * s.sigmaH)),
+        }
+      : null;
   return {
     key: used,
     label: used === "all" ? "all past states" : cellLabel(used),
@@ -240,6 +277,7 @@ export function cellOutlook(m: IndexOutlookModel, s: Pick<IndexState, "gap200" |
     levels,
     medianPct: (Math.exp(stat.zq[2] * s.sigmaH) - 1) * 100,
     sigmaH: s.sigmaH,
+    zone,
     base: { pUp: m.base.pUp, pDip: m.base.pDip, medianPct: (Math.exp(m.base.zq[2] * s.sigmaH) - 1) * 100, periods: m.base.periods },
     horizon: m.horizon,
   };

@@ -6,7 +6,10 @@ import { runAsUser } from "@/lib/auth/current-user";
 import { uid } from "@/lib/auth/uid";
 import { cronAuthorised } from "@/lib/auth/cron";
 import { sendTelegram, sendTelegramPhotos } from "@/lib/notify/telegram";
+import { sendEmail } from "@/lib/auth/mailer";
+import { getPlaybook } from "@/lib/plan";
 import { buildQuantReport } from "@/lib/quant/report";
+import { quantEmailHtml, quantEmailAttachments } from "@/lib/quant/email";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -23,6 +26,9 @@ export async function POST(req: Request) {
   await connectDb();
   const body: any = await req.json().catch(() => ({}));
   const force = body?.force === true;
+  // {email:true} also mails the list, the text and the charts to the address
+  // the weekly report goes to. The daily run does not pass it.
+  const withEmail = body?.email === true;
   const userIds = await getAllUserIds();
   if (body?.dryRun === true) {
     const id = typeof body.userId === "string" && userIds.includes(body.userId) ? body.userId : userIds[0];
@@ -36,21 +42,21 @@ export async function POST(req: Request) {
       charts: [...report.indices, ...report.holdings].map((it) => ({ symbol: it.symbol, verdict: it.verdict, bytes: it.png.length, caption: it.caption })),
     });
   }
-  const results: Array<{ sent: boolean; reason?: string; charts?: number; errors?: string[] }> = [];
+  const results: Array<{ sent: boolean; reason?: string; charts?: number; emailed?: boolean; errors?: string[] }> = [];
   for (const id of userIds) {
-    results.push(await runAsUser(id, () => runForCurrentUser(force)));
+    results.push(await runAsUser(id, () => runForCurrentUser(force, withEmail)));
   }
   return NextResponse.json({
     ok: true,
     users: userIds.length,
     sent: results.filter((r) => r.sent).length,
     // Why each user did or did not get it, so a silent zero can be read.
-    results: results.map((r, i) => ({ user: userIds[i].slice(-6), sent: r.sent, reason: r.reason ?? null, charts: r.charts ?? 0 })),
+    results: results.map((r, i) => ({ user: userIds[i].slice(-6), sent: r.sent, reason: r.reason ?? null, charts: r.charts ?? 0, emailed: r.emailed ?? false })),
     errors: results.flatMap((r) => r.errors ?? []),
   });
 }
 
-async function runForCurrentUser(force: boolean): Promise<{ sent: boolean; reason?: string; charts?: number; errors?: string[] }> {
+async function runForCurrentUser(force: boolean, withEmail = false): Promise<{ sent: boolean; reason?: string; charts?: number; emailed?: boolean; errors?: string[] }> {
   const settings: any = await getAppSettings();
   const token = settings.telegramBotToken ?? "";
   const chatId = settings.telegramChatId ?? "";
@@ -85,6 +91,20 @@ async function runForCurrentUser(force: boolean): Promise<{ sent: boolean; reaso
     if (r.ok) charts += batch.length;
     else errors.push(`album ${i / 10 + 1} (${batch.map((b) => b.filename).join(",")}): ${r.detail ?? "failed"}`);
   }
+  let emailed = false;
+  if (withEmail) {
+    try {
+      const pb: any = await getPlaybook();
+      const email = String(pb?.weeklyReportEmail ?? "").trim();
+      if (!email) errors.push("email: no address on the playbook");
+      else {
+        emailed = await sendEmail(email, `The model's list and zones, ${report.date}`, quantEmailHtml(report, { heading: "The model's list and zones" }), quantEmailAttachments(report));
+        if (!emailed) errors.push("email: send failed");
+      }
+    } catch (e) {
+      errors.push(`email: ${String(e).slice(0, 160)}`);
+    }
+  }
   if (errors.length) console.log(`[quant-report] ${errors.join(" | ")}`);
-  return { sent: charts > 0, charts, errors };
+  return { sent: charts > 0, charts, emailed, errors };
 }

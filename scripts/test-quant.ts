@@ -341,6 +341,29 @@ function randomWalk(n: number, drift = 0.0003, vol = 0.015, start = 100): EodBar
   check("the verdict line names the zone and the fail level without contradiction", r.line.includes("fails below") && !r.line.includes("add only at the band low"));
   check("the edge line says what names ranked here did", r.edge.includes("top tenth") && r.edge.includes("1.5%"));
   check("a rising name has no trigger", readName({ ...base, pctile: 0.9 }).zone.trigger === null);
+
+  // With the written portfolio: roles, gaps and sizes.
+  const idx = { buyHigh: 166000, buyLow: 162000, reclaim: 172000 };
+  const mk = (role: "CORE" | "NEW" | "EXIT", targetPct: number, currentPct: number, buyShares: number, sellShares: number) => ({ role, targetPct, currentPct, bandPct: 3, gapRs: (targetPct - currentPct) * 10000, buyShares, sellShares, index: idx });
+  const exitWeak = readName({ ...base, pctile: 0.1, market: "WEAK", plan: mk("EXIT", 0, 12, 0, 376) });
+  check("a held name at a zero target is an EXIT", exitWeak.verdict === "EXIT" && exitWeak.action.includes("sell all 376"));
+  check("a bottom-fifth exit sells now, not into strength", exitWeak.line.includes("now rather than wait"));
+  const exitStrong = readName({ ...base, pctile: 0.9, plan: mk("EXIT", 0, 12, 0, 28) });
+  check("a strong exit sells into the sell zone with a fail level", exitStrong.verdict === "EXIT" && exitStrong.line.includes("into") && exitStrong.line.includes("sells it anyway"));
+  const underWeak = readName({ ...base, pctile: 0.9, market: "WEAK", plan: mk("CORE", 25, 5, 500, 0) });
+  check("under target in a weak market: wait, add only in the zone with the index gate", underWeak.verdict === "WAIT" && underWeak.line.includes("about 500 shares") && underWeak.line.includes("172,000") && underWeak.line.includes("166,000"));
+  const underNew = readName({ ...base, pctile: 0.9, market: "WEAK", held: false, plan: mk("NEW", 14, 0, 150, 0) });
+  check("a targeted name not yet held waits in a weak market", underNew.verdict === "WAIT");
+  const underStrong = readName({ ...base, pctile: 0.9, plan: mk("CORE", 25, 5, 500, 0) });
+  check("under target, strong name, strong market: BUY half now", underStrong.verdict === "BUY" && underStrong.line.includes("half now"));
+  const underMiddle = readName({ ...base, pctile: 0.5, plan: mk("CORE", 25, 5, 500, 0) });
+  check("under target, middle rank: buy only in the zone", underMiddle.verdict === "BUY" && underMiddle.line.includes("only in"));
+  const underBottom = readName({ ...base, pctile: 0.1, plan: mk("CORE", 25, 5, 500, 0) });
+  check("under target but bottom fifth: the gap waits", underBottom.verdict === "HOLD" && underBottom.line.includes("Do not add"));
+  const over = readName({ ...base, pctile: 0.5, plan: mk("CORE", 13, 16.4, 0, 40) });
+  check("over target: TRIM about the gap in the sell zone", over.verdict === "TRIM" && over.line.includes("Trim about 40 shares"));
+  const at = readName({ ...base, pctile: 0.5, plan: mk("CORE", 25, 26, 0, 0) });
+  check("inside the band: HOLD", at.verdict === "HOLD" && at.line.startsWith("At target"));
 }
 
 // ------------------------------------------------------------ state table
@@ -375,6 +398,8 @@ function randomWalk(n: number, drift = 0.0003, vol = 0.015, start = 100): EodBar
   check("the 80% band covers about 80%", Math.abs(record.cover80 - 0.8) < 0.08, record.cover80.toFixed(3));
   const tests = strengthTests(st[st.length - 1], 0.6);
   check("eight strength tests, each with a reading", tests.length === 8 && tests.every((t) => t.detail.length > 0));
+  check("the cells carry path depths in order: median under quarter under tenth", Object.values(m.cells).every((c) => c.lowDepth![0] <= c.lowDepth![1] && c.lowDepth![1] <= c.lowDepth![2] && c.highDepth![0] <= c.highDepth![1]));
+  check("the index zone sits in order around the close", !!o.zone && o.zone.fails < o.zone.buyLow && o.zone.buyLow < o.zone.buyHigh && o.zone.buyHigh < st[st.length - 1].close && st[st.length - 1].close < o.zone.sellLow && o.zone.sellLow < o.zone.sellHigh, JSON.stringify(o.zone));
 }
 
 // ------------------------------------------------------------ archive

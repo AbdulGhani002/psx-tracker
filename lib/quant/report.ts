@@ -17,7 +17,7 @@
 
 import "server-only";
 import type { EodBar } from "@/lib/timeseries/psx-eod";
-import { getZoneBoard, getPortfolioSummary, getInflationLive, getSbpLive } from "@/lib/data";
+import { getZoneBoard, getPortfolioSummary, getInflationLive, getSbpLive, getAllHoldings, getAppSettings } from "@/lib/data";
 import { assemblePlan } from "@/lib/plan";
 import { uid } from "@/lib/auth/uid";
 import { renderPriceChart, sma } from "@/lib/charts/price-chart";
@@ -30,7 +30,7 @@ import { loadQuantModel, loadQuantSnapshot, saveQuantSnapshot, mongoBarsCache, t
 import { projectLevels, levelsLine, pathLevels, WALK_CURVE, type Projection, type PathLevels } from "@/lib/quant/projection";
 import { equalWeightIndex } from "@/lib/quant/archive";
 import { indexStates, cellOutlook, strengthTests, type CellOutlook, type StrengthTest } from "@/lib/quant/outlook";
-import { readMarket, readName, triggerFor, edgeLine, VERDICT_RANK, type MarketRead, type ModelVerdict, type ModelZone, type NameStanding, type DecileEdge } from "@/lib/quant/analysis";
+import { readMarket, readName, triggerFor, edgeLine, VERDICT_RANK, type MarketRead, type ModelVerdict, type ModelZone, type NameStanding, type DecileEdge, type PlanInput, type PlanRole } from "@/lib/quant/analysis";
 import type { StrategyResult } from "@/lib/quant/strategy";
 
 export const INDICES: Array<{ symbol: string; title: string }> = [
@@ -65,6 +65,9 @@ export type ModelRecord = {
   zones: ZoneCoverage | null;
 };
 
+// The name's place in the written portfolio, and the model's one-clause action.
+export type ItemPlan = { role: PlanRole; targetPct: number; currentPct: number; currentValue: number; gapRs: number; buyShares: number; sellShares: number; shares: number };
+
 export type ReportItem = {
   symbol: string;
   title: string;
@@ -73,6 +76,8 @@ export type ReportItem = {
   trend: TrendRead | null;
   verdict: Verdict;
   verdictLine: string;
+  action: string;
+  plan: ItemPlan | null;
   standing: NameStanding | null;
   pctile: number | null;
   rank: { pos: number; of: number } | null;
@@ -98,6 +103,9 @@ export type QuantReport = {
   market: MarketRead | null;
   summary: string; // short, for the phone
   detail: string; // long, for the weekly email
+  planList: string; // the list: one line per name and the index, for the phone
+  planHtml: string; // the same as a table, for the email
+  book: { equity: number; cashLike: number; reservePct: number; deployable: number; total: number } | null;
   modelNote: string;
   record: ModelRecord | null;
   strategy: StrategyResult | null;
@@ -130,6 +138,12 @@ export function zoneLine(z: ModelZone): string {
   return `Model zone: buy ${money(z.buyHigh)} down to ${money(z.buyLow)} · sell ${money(z.sellLow)} to ${money(z.sellHigh)} · case fails below ${money(z.fails)}${z.trigger ? ` · turns on a close above ${money(z.trigger)}` : ""}.`;
 }
 
+function indexZoneLine(z: ModelZone, title: string): string {
+  return `${title} zone from past states like this: buy ${money(z.buyHigh)} down to ${money(z.buyLow)} (half of past paths dipped to the top, a quarter to the bottom) · the market case fails below ${money(z.fails)} (a tenth went there) · rallies stall ${money(z.sellLow)} to ${money(z.sellHigh)}${z.trigger ? ` · turns strong above ${money(z.trigger)} (its 200-day)` : ""}.`;
+}
+
+const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+
 // The index outlook in one line: the state, the count, the odds against the
 // base rate, the levels.
 export function outlookLine(o: CellOutlook, dipLevel: number): string {
@@ -137,8 +151,9 @@ export function outlookLine(o: CellOutlook, dipLevel: number): string {
 }
 
 function strengthLine(tests: StrengthTest[]): string {
-  const pass = tests.filter((t) => t.pass).length;
-  return `Strength ${pass} of ${tests.length}: ${tests.map((t) => `${t.pass ? "✓" : "✗"} ${t.name} (${t.detail})`).join("; ")}.`;
+  const pass = tests.filter((t) => t.pass);
+  const fail = tests.filter((t) => !t.pass);
+  return `Strength ${pass.length} of ${tests.length}${pass.length ? `: ✓ ${pass.map((t) => t.name).join(", ")}` : ""}${fail.length ? `; ✗ ${fail.map((t) => `${t.name} (${t.detail})`).join(", ")}` : ""}.`;
 }
 
 // Short captions: what it is, where the model puts it, what to do.
@@ -147,6 +162,7 @@ function captionFor(item: Omit<ReportItem, "png" | "caption">, rec: ModelRecord 
   const lines = [head];
   if (item.verdict === "INDEX") {
     if (item.outlook && item.projection) lines.push(outlookLine(item.outlook, item.projection.dipLevel) + (item.symbol === "KSE100" ? "" : " (the KSE-100's table, read with this index's state.)"));
+    if (item.zone) lines.push(indexZoneLine(item.zone, item.title));
     if (item.strength) lines.push(strengthLine(item.strength));
     if (item.projection) lines.push(levelsLine(item.projection));
   } else {
@@ -155,7 +171,7 @@ function captionFor(item: Omit<ReportItem, "png" | "caption">, rec: ModelRecord 
       lines.push(`${item.edgeLine ? item.edgeLine.charAt(0).toUpperCase() + item.edgeLine.slice(1) + ". " : ""}Odds of a ${DIP_PCT}% dip first ${odds(f.dip)}; half of paths like this one dip ${item.levels.medianLowPct.toFixed(1)}% and rise ${item.levels.medianHighPct.toFixed(1)}% within ${f.horizon} sessions${f.learned ? "" : " (plain walk; this model has no path heads)"}.`);
     }
     if (item.zone) lines.push(zoneLine(item.zone));
-    lines.push(`<b>${item.verdict}</b>: ${item.verdictLine}`);
+    lines.push(`<b>${item.verdict}</b>${item.plan ? ` (target ${item.plan.targetPct.toFixed(0)}%, now ${item.plan.currentPct.toFixed(1)}% of the book)` : ""}: ${item.verdictLine}`);
     if (item.yourZone) lines.push(`<i>Your band: ${item.yourZone}.</i>`);
   }
   return lines.filter(Boolean).join("\n").slice(0, 1024);
@@ -186,7 +202,7 @@ async function contextFor(model: StoredQuantModel, stockBars: Map<string, EodBar
 
 export async function buildQuantReport(): Promise<QuantReport> {
   const today = new Date().toISOString().slice(0, 10);
-  const [board, portfolio, model, plan, inflation, sbp, long, userId, uni] = await Promise.all([
+  const [board, portfolio, model, plan, inflation, sbp, long, userId, uni, holdingDocs, settings] = await Promise.all([
     getZoneBoard().catch(() => null),
     getPortfolioSummary().catch(() => null),
     loadQuantModel().catch(() => null),
@@ -196,16 +212,30 @@ export async function buildQuantReport(): Promise<QuantReport> {
     loadQuantSnapshot<LongValidation>("quant:validation:long").catch(() => null),
     uid().catch(() => ""),
     kse100Symbols().catch(() => ({ symbols: [] as string[], source: "none" })),
+    getAllHoldings().catch(() => []),
+    getAppSettings().catch(() => null as any),
   ]);
   const zoneBySymbol = new Map((board?.rows ?? []).map((r) => [r.symbol, r]));
-  const posBySymbol = new Map((portfolio?.positions ?? []).filter((p) => p.shares > 0).map((p) => [p.symbol, p]));
-  const held = [...posBySymbol.keys()];
+  // Every name in the written portfolio: held, or targeted and not yet held.
+  const posBySymbol = new Map((portfolio?.positions ?? []).filter((p) => p.shares > 0 || (p.targetPercent ?? 0) > 0).map((p) => [p.symbol, p]));
+  const bandBySymbol = new Map(holdingDocs.map((h: any) => [h.symbol, Number(h.rebalanceBand ?? 3)]));
+  const held = [...posBySymbol.values()].filter((p) => p.shares > 0).map((p) => p.symbol);
   const horizon = model?.horizon ?? 20;
+
+  // The book the targets apply to: the equities plus the cash that can be
+  // deployed (the fund and the brokerage balance, less the reserve that never
+  // leaves the fund). An exit's proceeds move within the book, so it does not
+  // change its size.
+  const equityValue = portfolio?.totalValue ?? 0;
+  const cashLike = (plan?.cash.fundValue ?? 0) + (plan?.cash.brokerCash ?? 0);
+  const reservePct = Number(settings?.mfCashReservePct ?? 5);
+  const deployable = Math.max(0, cashLike - (reservePct / 100) * (equityValue + cashLike));
+  const book = { equity: equityValue, cashLike, reservePct, deployable, total: equityValue + deployable };
 
   // The production universe is today's KSE-100 plus whatever is held. The
   // model is scale-free and was trained on a wider, older universe; any name
   // with a year of history can be scored.
-  const symbols = [...new Set([...TRAIN_INDICES, ...uni.symbols, ...held])];
+  const symbols = [...new Set([...TRAIN_INDICES, ...uni.symbols, ...posBySymbol.keys()])];
   const bars = await loadBars(symbols, mongoBarsCache(6));
   const kse = bars.get("KSE100") ?? [];
   const stockBars = new Map([...bars].filter(([s]) => !TRAIN_INDICES.includes(s)));
@@ -371,6 +401,7 @@ export async function buildQuantReport(): Promise<QuantReport> {
     const trend = readTrend(b);
     const zone = zoneBySymbol.get(symbol);
     const pos = posBySymbol.get(symbol);
+    const isHeld = !!pos && pos.shares > 0;
     const forecast = heldName ? forecasts.get(symbol) ?? null : null;
     const pctile = heldName ? pctile5Of(symbol) : null;
     const rank = heldName ? rankOf(symbol) : null;
@@ -379,12 +410,14 @@ export async function buildQuantReport(): Promise<QuantReport> {
 
     let verdict: Verdict = "INDEX";
     let verdictLine = "";
+    let action = "";
     let standing: NameStanding | null = null;
     let modelZone: ModelZone | null = null;
     let levels: PathLevels | null = null;
     let projection: Projection | null = null;
     let outlook: CellOutlook | null = null;
     let strength: StrengthTest[] | null = null;
+    let itemPlan: ItemPlan | null = null;
 
     if (!heldName) {
       const read = symbol === "KSE100" ? kseRead : outlookFor(b);
@@ -398,6 +431,12 @@ export async function buildQuantReport(): Promise<QuantReport> {
         projection.low = outlook.levels[0];
         projection.high = outlook.levels[4];
       }
+      // The index's own zones from the state table, and the 200-day as the
+      // level that turns the market strong when the index sits under it.
+      if (outlook?.zone && projection) {
+        modelZone = { ...outlook.zone, trigger: projection.ma200 && projection.ma200 > last.close ? Math.round(projection.ma200) : null };
+        projection.dipLevel = outlook.zone.fails;
+      }
     } else if (forecast) {
       // The name's centre: the market's median move in its state plus what
       // names ranked here went on to do against the market.
@@ -408,8 +447,32 @@ export async function buildQuantReport(): Promise<QuantReport> {
       projection = projectLevels(b, forecast.horizon, forecast.up, forecast.dip, DIP_PCT, centre);
       if (projection) projection.dipLevel = levels.fails;
       if (projection && market) {
+        // Where the name sits against the written portfolio.
+        let planInput: PlanInput | null = null;
+        if (pos) {
+          const targetPct = pos.targetPercent ?? 0;
+          const currentValue = pos.priceKnown ? pos.marketValue : pos.shares * last.close;
+          const currentPct = book.total > 0 ? (currentValue / book.total) * 100 : 0;
+          const gapRs = (targetPct / 100) * book.total - currentValue;
+          const role: PlanRole = targetPct > 0 ? (isHeld ? "CORE" : "NEW") : "EXIT";
+          const buyShares = gapRs > 0 ? Math.floor(gapRs / levels.buyHigh) : 0;
+          const sellShares = role === "EXIT" ? pos.shares : gapRs < 0 ? Math.min(pos.shares, Math.floor(-gapRs / levels.sellLow)) : 0;
+          const kseZone = kseRead.outlook?.zone ?? null;
+          const kseMa200 = kse.length >= 200 ? kse.slice(-200).reduce((s, x) => s + x.close, 0) / 200 : null;
+          planInput = {
+            role,
+            targetPct,
+            currentPct,
+            bandPct: bandBySymbol.get(symbol) ?? 3,
+            gapRs,
+            buyShares,
+            sellShares,
+            index: kseZone ? { buyHigh: kseZone.buyHigh, buyLow: kseZone.buyLow, reclaim: kseMa200 && kseMa200 > kse[kse.length - 1].close ? Math.round(kseMa200) : null } : null,
+          };
+          itemPlan = { role, targetPct, currentPct, currentValue, gapRs, buyShares, sellShares, shares: pos.shares };
+        }
         const read = readName({
-          held: true,
+          held: isHeld,
           market: market.state,
           pctile,
           rank,
@@ -423,9 +486,11 @@ export async function buildQuantReport(): Promise<QuantReport> {
           pDip: forecast.dip,
           dipUsable,
           horizon: forecast.horizon,
+          plan: planInput,
         });
         verdict = read.verdict;
         verdictLine = read.line;
+        action = read.action;
         standing = read.standing;
         modelZone = read.zone;
       } else {
@@ -453,7 +518,7 @@ export async function buildQuantReport(): Promise<QuantReport> {
       sellZone: modelZone ? { low: modelZone.sellLow, high: modelZone.sellHigh } : undefined,
       avgCost: pos?.avgCost ?? null,
       projection: projection ? { horizon: projection.horizon, median: projection.median, low: projection.low, high: projection.high, dipLevel: projection.dipLevel, dipLabel: heldName ? "FAIL" : "DIP" } : null,
-      footer: `LAST ${last.close.toFixed(2)}  ${pct(dayChangePct, 2)} ON THE DAY${heldName ? `   ${verdict}` : ""}${rank ? `   RANK ${rank.pos}/${rank.of}` : ""}${outlook ? `   ${odds(outlook.pUp)} HIGHER IN ${outlook.horizon}D` : ""}`,
+      footer: `LAST ${last.close.toFixed(2)}  ${pct(dayChangePct, 2)} ON THE DAY${heldName ? `   ${verdict}` : ""}${itemPlan ? `   TARGET ${itemPlan.targetPct.toFixed(0)}% NOW ${itemPlan.currentPct.toFixed(1)}%` : ""}${rank ? `   RANK ${rank.pos}/${rank.of}` : ""}${outlook ? `   ${odds(outlook.pUp)} HIGHER IN ${outlook.horizon}D` : ""}`,
     });
 
     const base = {
@@ -462,6 +527,8 @@ export async function buildQuantReport(): Promise<QuantReport> {
       trend,
       verdict,
       verdictLine,
+      action,
+      plan: itemPlan,
       standing,
       pctile,
       rank,
@@ -493,7 +560,44 @@ export async function buildQuantReport(): Promise<QuantReport> {
     if (item) holdings.push(item);
   }
   const verdictOrder = (vv: Verdict) => (vv === "INDEX" ? 99 : VERDICT_RANK[vv]);
-  holdings.sort((a, b) => verdictOrder(a.verdict) - verdictOrder(b.verdict) || (b.pctile ?? 0) - (a.pctile ?? 0) || a.symbol.localeCompare(b.symbol));
+  holdings.sort((a, b) => verdictOrder(a.verdict) - verdictOrder(b.verdict) || (b.plan?.targetPct ?? 0) - (a.plan?.targetPct ?? 0) || (b.pctile ?? 0) - (a.pctile ?? 0) || a.symbol.localeCompare(b.symbol));
+
+  // --- the list: the index, then every name with its target, weight and action
+  const kseFirst = indices.find((i) => i.symbol === "KSE100");
+  const planLines: string[] = [];
+  if (kseFirst?.zone) {
+    const z = kseFirst.zone;
+    planLines.push(`KSE-100 ${money(kseFirst.last)} · buy ${money(z.buyHigh)} to ${money(z.buyLow)} · fails ${money(z.fails)} · rallies stall ${money(z.sellLow)} to ${money(z.sellHigh)}${z.trigger ? ` · strong above ${money(z.trigger)}` : ""}`);
+  }
+  for (const h of holdings) {
+    const p = h.plan;
+    const w = p ? `${p.targetPct.toFixed(0)}% now ${p.currentPct.toFixed(1)}%` : "";
+    planLines.push(`${h.symbol} ${money(h.last)} · ${w} · <b>${h.verdict}</b>${h.action ? `: ${h.action}` : ""}`);
+  }
+  // Does the plan pay for itself: the cash that can be deployed, the exits
+  // and the trims, against the buys at the top of their zones.
+  const exitsRs = holdings.filter((h) => h.plan?.role === "EXIT").reduce((s, h) => s + (h.plan?.currentValue ?? 0), 0);
+  const trimsRs = holdings.filter((h) => h.verdict === "TRIM" && h.plan && h.zone).reduce((s, h) => s + h.plan!.sellShares * h.zone!.sellLow, 0);
+  const buysRs = holdings.filter((h) => h.plan && h.zone && h.plan.buyShares > 0 && ["BUY", "STAGE", "WATCH", "WAIT"].includes(h.verdict)).reduce((s, h) => s + h.plan!.buyShares * h.zone!.buyHigh, 0);
+  const sources = book.deployable + exitsRs + trimsRs;
+  const k = (v: number) => `Rs ${Math.round(v / 1000).toLocaleString("en-US")}k`;
+  if (holdings.length) {
+    planLines.push(`Funding: ${k(book.deployable)} deployable cash + ${k(exitsRs)} exits + ${k(trimsRs)} trims = ${k(sources)} against buys of ${k(buysRs)}; ${sources >= buysRs ? `${k(sources - buysRs)} stays in the fund` : `${k(buysRs - sources)} short, so the buys are worked in order of rank`}.`);
+  }
+  const planList = planLines.join("\n");
+  const planHtml = holdings.length
+    ? `<table style="border-collapse:collapse;font-size:13px;width:100%"><thead><tr style="text-align:left;border-bottom:2px solid #111">${["Name", "Verdict", "Last", "Target", "Now", "Rank", "Buy zone", "Sell zone", "Fails", "Turns above", "Action"].map((h) => `<th style="padding:6px 8px 6px 0">${h}</th>`).join("")}</tr></thead><tbody>` +
+      (kseFirst?.zone
+        ? `<tr style="border-bottom:1px solid #d5d8dd"><td style="padding:6px 8px 6px 0">KSE-100</td><td></td><td>${money(kseFirst.last)}</td><td></td><td></td><td></td><td>${money(kseFirst.zone.buyHigh)} to ${money(kseFirst.zone.buyLow)}</td><td>${money(kseFirst.zone.sellLow)} to ${money(kseFirst.zone.sellHigh)}</td><td>${money(kseFirst.zone.fails)}</td><td>${kseFirst.zone.trigger ? money(kseFirst.zone.trigger) : ""}</td><td>the market's own zone from past states like this</td></tr>`
+        : "") +
+      holdings
+        .map(
+          (h) =>
+            `<tr style="border-bottom:1px solid #d5d8dd"><td style="padding:6px 8px 6px 0"><b>${h.symbol}</b></td><td><b>${h.verdict}</b></td><td>${money(h.last)}</td><td>${h.plan ? h.plan.targetPct.toFixed(0) + "%" : ""}</td><td>${h.plan ? h.plan.currentPct.toFixed(1) + "%" : ""}</td><td>${h.rank ? `${h.rank.pos} of ${h.rank.of}` : ""}</td><td>${h.zone ? `${money(h.zone.buyHigh)} to ${money(h.zone.buyLow)}` : ""}</td><td>${h.zone ? `${money(h.zone.sellLow)} to ${money(h.zone.sellHigh)}` : ""}</td><td>${h.zone ? money(h.zone.fails) : ""}</td><td>${h.zone?.trigger ? money(h.zone.trigger) : ""}</td><td>${esc(h.action)}</td></tr>`
+        )
+        .join("") +
+      `</tbody></table><div style="color:#6b7280;font-size:12px;margin-top:8px">Weights are of the book: equities Rs ${Math.round(book.equity).toLocaleString("en-US")} plus deployable cash Rs ${Math.round(book.deployable).toLocaleString("en-US")} (fund and brokerage Rs ${Math.round(book.cashLike).toLocaleString("en-US")} less the ${book.reservePct}% reserve). Buy sizes are whole shares at the top of the buy zone; the zones are the model's, half of paths like this one reach the top of the buy zone, a quarter its bottom, a tenth the fail level.</div>`
+    : "";
 
   // --- the market and the model, in words ------------------------------------
   const kseItem = indices.find((i) => i.symbol === "KSE100");
@@ -563,7 +667,7 @@ export async function buildQuantReport(): Promise<QuantReport> {
 
   const byVerdict = (vv: ModelVerdict) => holdings.filter((h) => h.verdict === vv).map((h) => h.symbol);
   const says: string[] = [];
-  for (const vv of ["BUY", "STAGE", "SELL", "TRIM", "WATCH", "WAIT"] as ModelVerdict[]) {
+  for (const vv of ["BUY", "STAGE", "EXIT", "SELL", "TRIM", "WATCH", "WAIT"] as ModelVerdict[]) {
     const names = byVerdict(vv);
     if (names.length) says.push(`${vv} ${names.join(", ")}`);
   }
@@ -571,8 +675,8 @@ export async function buildQuantReport(): Promise<QuantReport> {
   const ranked = holdings.filter((h) => h.rank).sort((a, b) => a.rank!.pos - b.rank!.pos);
   const rankShort = ranked.length >= 2 ? `Rank of ${ranked[0].rank!.of}: ${ranked.map((h) => `${h.symbol} ${h.rank!.pos}`).join(" · ")}.` : "";
 
-  const summary = [`<b>Analysis ${today}</b>`, idxShort, marketShort, outlookShort, saysShort, rankShort, macroShort]
-    .filter((l) => l !== "")
+  const summary = [`<b>Analysis ${today}</b>`, idxShort, marketShort, outlookShort, saysShort, rankShort, macroShort, "", `<b>The list</b> (target, weight now, the model's action):`, planList]
+    .filter((l, i) => l !== "" || i === 7)
     .join("\n")
     .slice(0, 4096);
 
@@ -600,6 +704,9 @@ export async function buildQuantReport(): Promise<QuantReport> {
     saysShort,
     rankShort,
     "",
+    "The list (target, weight now, the model's action):",
+    planList.replace(/<\/?b>/g, ""),
+    "",
     ...holdingLines,
   ]
     .filter((l) => l !== "")
@@ -612,6 +719,9 @@ export async function buildQuantReport(): Promise<QuantReport> {
     market,
     summary,
     detail,
+    planList,
+    planHtml,
+    book,
     modelNote,
     record: rec,
     strategy,

@@ -31,7 +31,7 @@ function Chart({ item }: { item: StoredReportItem }) {
   );
 }
 
-const TONE: Record<string, "positive" | "negative" | "default"> = { BUY: "positive", STAGE: "positive", SELL: "negative", TRIM: "negative", WATCH: "default", WAIT: "default", HOLD: "default", AVOID: "negative", PASS: "default" };
+const TONE: Record<string, "positive" | "negative" | "default"> = { BUY: "positive", STAGE: "positive", SELL: "negative", EXIT: "negative", TRIM: "negative", WATCH: "default", WAIT: "default", HOLD: "default", AVOID: "negative", PASS: "default" };
 
 export default async function AnalysisPage() {
   const userId = await uid();
@@ -76,6 +76,12 @@ export default async function AnalysisPage() {
               </div>
             )}
             {market?.outlookLine && <div className="mt-3 text-[15px] leading-relaxed">{market.outlookLine}</div>}
+            {kse?.zone && (
+              <div className="mt-2 text-[15px] leading-relaxed">
+                KSE-100 zone from past states like this: buy <span className="font-mono">{money(kse.zone.buyHigh)}</span> down to <span className="font-mono">{money(kse.zone.buyLow)}</span> (half of past paths dipped to the top, a quarter to the bottom); the market case fails below <span className="font-mono">{money(kse.zone.fails)}</span>; rallies stall <span className="font-mono">{money(kse.zone.sellLow)}</span> to <span className="font-mono">{money(kse.zone.sellHigh)}</span>
+                {kse.zone.trigger ? <> ; the market turns strong above <span className="font-mono">{money(kse.zone.trigger)}</span> (its 200-day)</> : null}.
+              </div>
+            )}
             {tests.length > 0 && (
               <div className="mt-4 flex flex-wrap gap-2">
                 {tests.map((t) => (
@@ -101,7 +107,7 @@ export default async function AnalysisPage() {
             )}
           </Card>
 
-          <Section number="01" title="Your names, by the model" description="Sorted by what needs doing. Rank is the name's place today among every name in the universe on the model's rank score (its fifth is taken over the last five sessions, so one session at a boundary does not flip a verdict); edge is what names ranked there went on to do against the market per 20 sessions, out of sample since 2007. The zones are quantiles of the model's path curve for the name: half of paths like this one reach the top of the buy zone, a quarter its bottom, a tenth the fail level; the same for the sell zone.">
+          <Section number="01" title="The list: your portfolio, by the model" description={`Every name you hold or have a target for, sorted by what needs doing. Target and now are weights of the book${report.book ? ` (equities Rs ${Math.round(report.book.equity).toLocaleString("en-US")} plus deployable cash Rs ${Math.round(report.book.deployable).toLocaleString("en-US")})` : ""}; a name held at a zero target is an exit. Rank is the name's place today among every name in the universe on the model's rank score (its fifth is taken over the last five sessions); edge is what names ranked there went on to do against the market per 20 sessions, out of sample since 2007. The zones are quantiles of the model's path curve: half of paths like this one reach the top of the buy zone, a quarter its bottom, a tenth the fail level; the same for the sell zone. Buy sizes are whole shares at the top of the buy zone.`}>
             <div className="overflow-x-auto">
               <table className="w-full text-[13px]">
                 <thead>
@@ -109,9 +115,10 @@ export default async function AnalysisPage() {
                     <th className="py-2 pr-3">Name</th>
                     <th className="py-2 pr-3">Verdict</th>
                     <th className="py-2 pr-3">Last</th>
+                    <th className="py-2 pr-3">Target</th>
+                    <th className="py-2 pr-3">Now</th>
                     <th className="py-2 pr-3">Rank</th>
                     <th className="py-2 pr-3">Edge</th>
-                    <th className="py-2 pr-3">5% dip first</th>
                     <th className="py-2 pr-3">Buy zone</th>
                     <th className="py-2 pr-3">Sell zone</th>
                     <th className="py-2 pr-3">Fails</th>
@@ -127,9 +134,10 @@ export default async function AnalysisPage() {
                         {h.verdict}
                       </td>
                       <td className="py-2 pr-3 font-mono">{money(h.last)} <span className="text-muted">({pct(h.dayChangePct)})</span></td>
+                      <td className="py-2 pr-3 font-mono">{h.plan ? `${h.plan.targetPct.toFixed(0)}%` : "–"}</td>
+                      <td className="py-2 pr-3 font-mono">{h.plan ? `${h.plan.currentPct.toFixed(1)}%` : "–"}</td>
                       <td className="py-2 pr-3 font-mono">{h.rank ? `${h.rank.pos} of ${h.rank.of}` : "–"}</td>
                       <td className="py-2 pr-3 font-mono">{h.edge ? pct(h.edge.meanRelPct) : "–"}</td>
-                      <td className="py-2 pr-3 font-mono">{h.forecast ? odds(h.forecast.dip) : "–"}</td>
                       <td className="py-2 pr-3 font-mono">{h.zone ? `${money(h.zone.buyHigh)} to ${money(h.zone.buyLow)}` : "–"}</td>
                       <td className="py-2 pr-3 font-mono">{h.zone ? `${money(h.zone.sellLow)} to ${money(h.zone.sellHigh)}` : "–"}</td>
                       <td className="py-2 pr-3 font-mono">{h.zone ? money(h.zone.fails) : "–"}</td>
@@ -143,7 +151,7 @@ export default async function AnalysisPage() {
             <div className="mt-6 space-y-3">
               {report.holdings.map((h) => (
                 <div key={h.symbol} className="text-[14px] leading-relaxed">
-                  <span className="font-mono font-semibold">{h.symbol}</span> <span className="font-semibold">{h.verdict}</span>: {h.verdictLine}
+                  <span className="font-mono font-semibold">{h.symbol}</span> <span className="font-semibold">{h.verdict}</span>{h.action ? <span className="font-mono text-[13px]"> [{h.action}]</span> : null}: {h.verdictLine}
                   {h.edgeLine ? <span className="text-muted"> {h.edgeLine.charAt(0).toUpperCase() + h.edgeLine.slice(1)}.</span> : null}
                 </div>
               ))}
