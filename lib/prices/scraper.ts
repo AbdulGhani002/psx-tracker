@@ -77,8 +77,13 @@ export class PSXScraperFetcher implements PriceFetcher {
     };
   }
 
+  // Once the portal has refused three names in a row, it is left alone for
+  // ten minutes rather than paying the timeouts on every page.
+  private static blockedUntil = 0;
+
   async fetchBatch(symbols: string[]): Promise<Map<string, PriceQuote>> {
     const out = new Map<string, PriceQuote>();
+    if (Date.now() < PSXScraperFetcher.blockedUntil) return out;
     let misses = 0;
     for (const s of symbols) {
       const q = await this.fetchPrice(s);
@@ -88,6 +93,7 @@ export class PSXScraperFetcher implements PriceFetcher {
       } else if (++misses >= 3 && out.size === 0) {
         // Three straight failures with nothing back: the portal is not
         // answering this address today. Stop asking; the caller falls back.
+        PSXScraperFetcher.blockedUntil = Date.now() + 10 * 60 * 1000;
         break;
       }
       await new Promise((r) => setTimeout(r, this.delayMs));
