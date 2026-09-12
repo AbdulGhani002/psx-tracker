@@ -125,7 +125,12 @@ async function _getRisk(): Promise<RiskView | null> {
     const r = rets(closes);
     series.push(r);
     const r60 = r.slice(-60);
-    const beta = idxR.length > 40 ? (() => { const c = corr(r, idxR); const s = std(r), si = std(idxR); return si > 0 ? (c * s) / si : null; })() : null;
+    let beta: number | null = null;
+    if (idxR.length > 40) {
+      const rho: number = corr(r, idxR);
+      const sr = std(r), si = std(idxR);
+      beta = si > 0 ? (rho * sr) / si : null;
+    }
     const last250 = b.slice(-250).map((x) => x.close);
     const val20 = b.slice(-20).reduce((s, x) => s + x.close * x.volume, 0) / Math.max(1, Math.min(20, b.length));
     const vol20 = b.slice(-20).reduce((s, x) => s + x.volume, 0) / Math.max(1, Math.min(20, b.length));
