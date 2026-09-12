@@ -26,9 +26,13 @@ export async function POST(req: Request) {
   await connectDb();
   const body: any = await req.json().catch(() => ({}));
   const force = body?.force === true;
-  // {email:true} also mails the list, the text and the charts to the address
-  // the weekly report goes to. The daily run does not pass it.
-  const withEmail = body?.email === true;
+  // {email:true} also mails the list, the text and the KSE-100 chart to the
+  // address the weekly report goes to ({email:"full"} adds every chart; the
+  // Sunday email carries them anyway). The daily run does not pass it.
+  const withEmail = body?.email === true || body?.email === "full" || body?.email === "light";
+  const fullEmail = body?.email === "full";
+  // {telegram:false} builds and emails without sending the phone the album again.
+  const skipTelegram = body?.telegram === false;
   const userIds = await getAllUserIds();
   if (body?.dryRun === true) {
     const id = typeof body.userId === "string" && userIds.includes(body.userId) ? body.userId : userIds[0];
@@ -44,7 +48,7 @@ export async function POST(req: Request) {
   }
   const results: Array<{ sent: boolean; reason?: string; charts?: number; emailed?: boolean; errors?: string[] }> = [];
   for (const id of userIds) {
-    results.push(await runAsUser(id, () => runForCurrentUser(force, withEmail)));
+    results.push(await runAsUser(id, () => runForCurrentUser(force, withEmail, fullEmail, skipTelegram)));
   }
   return NextResponse.json({
     ok: true,
@@ -56,7 +60,7 @@ export async function POST(req: Request) {
   });
 }
 
-async function runForCurrentUser(force: boolean, withEmail = false): Promise<{ sent: boolean; reason?: string; charts?: number; emailed?: boolean; errors?: string[] }> {
+async function runForCurrentUser(force: boolean, withEmail = false, fullEmail = false, skipTelegram = false): Promise<{ sent: boolean; reason?: string; charts?: number; emailed?: boolean; errors?: string[] }> {
   const settings: any = await getAppSettings();
   const token = settings.telegramBotToken ?? "";
   const chatId = settings.telegramChatId ?? "";
@@ -81,10 +85,12 @@ async function runForCurrentUser(force: boolean, withEmail = false): Promise<{ s
   // refusal is written down: a report that silently stops arriving is worse
   // than one that says why.
   const errors: string[] = [];
-  const s = await sendTelegram(token, chatId, report.summary);
-  if (!s.ok) errors.push(`summary: ${s.detail ?? "failed"}`);
   let charts = 0;
-  const all = [...report.indices, ...report.holdings];
+  const all = skipTelegram ? [] : [...report.indices, ...report.holdings];
+  if (!skipTelegram) {
+    const s = await sendTelegram(token, chatId, report.summary);
+    if (!s.ok) errors.push(`summary: ${s.detail ?? "failed"}`);
+  }
   for (let i = 0; i < all.length; i += 10) {
     const batch = all.slice(i, i + 10).map((it) => ({ png: it.png, caption: it.caption, filename: `${it.symbol}.png` }));
     const r = await sendTelegramPhotos(token, chatId, batch);
@@ -98,7 +104,7 @@ async function runForCurrentUser(force: boolean, withEmail = false): Promise<{ s
       const email = String(pb?.weeklyReportEmail ?? "").trim();
       if (!email) errors.push("email: no address on the playbook");
       else {
-        emailed = await sendEmail(email, `The model's list and zones, ${report.date}`, quantEmailHtml(report, { heading: "The model's list and zones" }), quantEmailAttachments(report));
+        emailed = await sendEmail(email, `The model's list and zones, ${report.date}`, quantEmailHtml(report, { heading: "The model's list and zones", light: !fullEmail }), quantEmailAttachments(report, !fullEmail));
         if (!emailed) errors.push("email: send failed");
       }
     } catch (e) {

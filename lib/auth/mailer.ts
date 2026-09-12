@@ -48,6 +48,10 @@ export async function sendEmail(
       console.log(`[mailer] resend rejected ${res.status}: ${(await res.text().catch(() => "")).slice(0, 300)}`);
       return false;
     }
+    // The id is what Resend's dashboard is searched by when a message that
+    // was accepted here never turns up in an inbox.
+    const okBody: any = await res.json().catch(() => null);
+    console.log(`[mailer] accepted by resend: id ${okBody?.id ?? "?"}, to ${to.replace(/^(.{3}).*(@.*)$/, "$1***$2")}, subject "${subject}", ${attachments.length} attachment(s)`);
     return true;
   } catch (e) {
     console.log(`[mailer] send failed: ${String(e).slice(0, 200)}`);

@@ -7,8 +7,11 @@ import type { QuantReport } from "./report";
 
 const esc = (s: string) => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 
-export function quantEmailHtml(q: QuantReport, opts: { heading?: string } = {}): string {
-  const charts = [...q.indices, ...q.holdings]
+// `light` keeps only the KSE-100 chart: an email with thirteen inline images
+// tends to land in spam, and the list is the point of it.
+export function quantEmailHtml(q: QuantReport, opts: { heading?: string; light?: boolean } = {}): string {
+  const items = opts.light ? q.indices.filter((i) => i.symbol === "KSE100") : [...q.indices, ...q.holdings];
+  const charts = items
     .map(
       (it) =>
         `<div style="margin:18px 0"><img src="cid:${it.symbol}.png" alt="${esc(it.title)}" style="max-width:100%;border:1px solid #d5d8dd"><div style="font-size:13px;margin-top:6px;white-space:pre-line">${it.caption}</div></div>`
@@ -24,6 +27,7 @@ ${charts}`;
 }
 
 // The attachments the HTML refers to by content id.
-export function quantEmailAttachments(q: QuantReport): Array<{ filename: string; content: Buffer; contentId: string }> {
-  return [...q.indices, ...q.holdings].map((it) => ({ filename: `${it.symbol}.png`, content: it.png, contentId: `${it.symbol}.png` }));
+export function quantEmailAttachments(q: QuantReport, light = false): Array<{ filename: string; content: Buffer; contentId: string }> {
+  const items = light ? q.indices.filter((i) => i.symbol === "KSE100") : [...q.indices, ...q.holdings];
+  return items.map((it) => ({ filename: `${it.symbol}.png`, content: it.png, contentId: `${it.symbol}.png` }));
 }
