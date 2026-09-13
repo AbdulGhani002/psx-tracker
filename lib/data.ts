@@ -1275,6 +1275,12 @@ async function _getAppSettings(): Promise<AppSettings> {
     telegramBotToken: (doc as any)?.telegramBotToken ?? "",
     telegramChatId: (doc as any)?.telegramChatId ?? "",
     alertsEnabled: (doc as any)?.alertsEnabled ?? false,
+    autoDividends: (doc as any)?.autoDividends ?? DEFAULT_SETTINGS.autoDividends,
+    autoBonus: (doc as any)?.autoBonus ?? DEFAULT_SETTINGS.autoBonus,
+    zakatOnDividends: (doc as any)?.zakatOnDividends ?? DEFAULT_SETTINGS.zakatOnDividends,
+    bonusTaxWithheld: (doc as any)?.bonusTaxWithheld ?? DEFAULT_SETTINGS.bonusTaxWithheld,
+    bonusTaxFiler: (doc as any)?.bonusTaxFiler ?? DEFAULT_SETTINGS.bonusTaxFiler,
+    bonusTaxNonFiler: (doc as any)?.bonusTaxNonFiler ?? DEFAULT_SETTINGS.bonusTaxNonFiler,
   } as AppSettings;
 }
 

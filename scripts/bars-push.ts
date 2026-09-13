@@ -18,6 +18,8 @@
 import { writeFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { fetchEodBars, type EodBar } from "../lib/timeseries/psx-eod";
+import { fetchPayouts, type PsxPayout } from "../lib/prices/payouts";
+import { fetchFundamentals } from "../lib/prices/fundamentals";
 import { kse100Symbols, TRAIN_INDICES } from "../lib/quant/universe";
 import { loadArchive, appendLive } from "../lib/quant/archive";
 
@@ -58,7 +60,25 @@ async function main() {
     await sleep(350);
   }
   if (archive) console.log(`${fromArchive} series from the archive, ${appended} live closes appended.`);
-  const bundle = { fetchedAt: new Date().toISOString(), series };
+  // Payout boards (dividends, bonuses, rights with their book closures) for
+  // the held names, so the server can record entitlements without reaching
+  // the portal itself.
+  const payouts: Record<string, PsxPayout[]> = {};
+  const faceValues: Record<string, number> = {};
+  for (const s of [...new Set([...held, ...extra])]) {
+    try {
+      const rows = await fetchPayouts(s);
+      if (rows) payouts[s] = rows;
+      await sleep(400);
+      const f = await fetchFundamentals(s).catch(() => null);
+      if (f?.faceValue && f.faceValue > 0) faceValues[s] = f.faceValue;
+    } catch {
+      /* the board is optional; bars still ship */
+    }
+    await sleep(400);
+  }
+  console.log(`Payout boards for ${Object.keys(payouts).length} of ${new Set([...held, ...extra]).size} held names.`);
+  const bundle = { fetchedAt: new Date().toISOString(), series, payouts, faceValues };
   writeFileSync(out, JSON.stringify(bundle));
   const last = series.KSE100?.[series.KSE100.length - 1];
   console.log(`Wrote ${out} (${(statSync(out).size / 1024 / 1024).toFixed(1)} MiB): ${Object.keys(series).length} series, ${failed} failed, KSE-100 to ${last?.date ?? "?"}, in ${((Date.now() - t0) / 1000).toFixed(0)}s.`);

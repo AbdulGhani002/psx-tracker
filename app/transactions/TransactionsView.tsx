@@ -151,7 +151,16 @@ export function TransactionsView({ transactions, symbols }: Props) {
         </Link>
       ),
     },
-    { key: "type", header: "Type", render: (t) => <Badge tone={TYPE_LABEL[t.type]?.tone ?? "default"}>{TYPE_LABEL[t.type]?.text ?? t.type}</Badge> },
+    {
+      key: "type",
+      header: "Type",
+      render: (t) => (
+        <span className="inline-flex items-center gap-1.5">
+          <Badge tone={TYPE_LABEL[t.type]?.tone ?? "default"}>{TYPE_LABEL[t.type]?.text ?? t.type}</Badge>
+          {t.source === "auto" && <span className="pill" data-tone="muted" title="Recorded from the PSX announcement; a warrant replaces it">Auto</span>}
+        </span>
+      ),
+    },
     { key: "shares", header: "Shares", align: "right", mono: true, render: (t) => fmtNum(Math.abs(t.shares)) },
     { key: "price", header: "Price", align: "right", mono: true, render: (t) => fmtRs(t.pricePerShare, true) },
     { key: "fees", header: "Fees", align: "right", mono: true, render: (t) => <span className="text-muted">{fmtRs(t.fees)}</span> },

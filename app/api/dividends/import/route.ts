@@ -78,6 +78,39 @@ export async function POST(req: NextRequest) {
         }
 
         const fees = it.taxDeducted + it.zakatDeducted;
+        // The corporate-actions job may have written this dividend already
+        // from the announcement; the warrant's exact figures take its place.
+        const paid = new Date(it.paymentDate);
+        const autoRow = await TransactionModel.findOne({
+          userId: await uid(),
+          symbol: it.symbol,
+          type: "DIVIDEND",
+          source: "auto",
+          deletedAt: null,
+          pricePerShare: { $gte: it.ratePerSecurity - 0.011, $lte: it.ratePerSecurity + 0.011 },
+          date: { $gte: new Date(paid.getTime() - 90 * 86400000), $lte: new Date(paid.getTime() + 10 * 86400000) },
+        });
+        if (autoRow) {
+          autoRow.set({
+            date: paid,
+            shares: it.shares,
+            pricePerShare: it.ratePerSecurity,
+            totalAmount: it.grossAmount,
+            fees,
+            netAmount: it.amountPaid,
+            notes: (it.dividendType ? `${it.dividendType} dividend` : "Dividend") + (it.financialYear ? ` FY${it.financialYear}` : "") + ` (warrant ${it.warrantNo}, replaced the automatic record)`,
+            warrantNo: it.warrantNo,
+            taxDeducted: it.taxDeducted,
+            zakatDeducted: it.zakatDeducted,
+            financialYear: it.financialYear ?? autoRow.financialYear,
+            dividendType: it.dividendType ?? autoRow.dividendType,
+            source: "warrant",
+          });
+          await autoRow.save();
+          await recompute(it.symbol);
+          imported.push({ warrantNo: it.warrantNo, symbol: it.symbol, id: String(autoRow._id) });
+          continue;
+        }
         const created = await TransactionModel.create({
       userId: await uid(),
           symbol: it.symbol,
@@ -97,6 +130,7 @@ export async function POST(req: NextRequest) {
           zakatDeducted: it.zakatDeducted,
           financialYear: it.financialYear ?? "",
           dividendType: it.dividendType ?? "",
+          source: "warrant",
         });
 
         await recompute(it.symbol);

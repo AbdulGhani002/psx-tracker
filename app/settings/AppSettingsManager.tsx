@@ -29,6 +29,12 @@ type Settings = {
   telegramBotToken: string;
   telegramChatId: string;
   alertsEnabled: boolean;
+  autoDividends: boolean;
+  autoBonus: boolean;
+  zakatOnDividends: string;
+  bonusTaxWithheld: boolean;
+  bonusTaxFiler: number;
+  bonusTaxNonFiler: number;
 };
 
 export function AppSettingsManager({ initial, telegramConfigured }: { initial: Settings; telegramConfigured?: boolean }) {
@@ -135,6 +141,25 @@ export function AppSettingsManager({ initial, telegramConfigured }: { initial: S
           </div>
         </div>
         {testMsg && <div className="text-[12px] mt-2" style={{ color: testMsg.ok ? "var(--positive)" : "var(--negative)" }}>{testMsg.text}</div>}
+      </div>
+
+      <div className="mt-6 pt-4 border-t border-rule">
+        <div className="text-[14px] font-semibold">Automatic recording</div>
+        <p className="text-[12.5px] text-muted mt-1 mb-3">
+          Dividends and bonus shares announced on the exchange are written to the ledger on their book-closure date from the shares you held, at your filer rate. A warrant uploaded later replaces the figures.
+        </p>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-4">
+          <Toggle label="Record dividends" value={s.autoDividends ?? true} onChange={(v) => set("autoDividends", v)} hint="On the book-closure date, gross less withholding." />
+          <Toggle label="Record bonus shares" value={s.autoBonus ?? true} onChange={(v) => set("autoBonus", v)} hint="Whole shares only; the fraction is paid in cash by the company." />
+          <div>
+            <div className="text-[13px] font-medium">Zakat on dividends</div>
+            <div className="seg mt-1.5">
+              <button type="button" data-active={(s.zakatOnDividends ?? "none") === "none"} onClick={() => set("zakatOnDividends", "none")}>None (declaration filed)</button>
+              <button type="button" data-active={s.zakatOnDividends === "paidUp"} onClick={() => set("zakatOnDividends", "paidUp")}>2.5% of paid-up value</button>
+            </div>
+          </div>
+          <Toggle label="Bonus shares withheld for tax" value={s.bonusTaxWithheld ?? true} onChange={(v) => set("bonusTaxWithheld", v)} hint={`Companies keep ${s.filerStatus === "non-filer" ? s.bonusTaxNonFiler ?? 20 : s.bonusTaxFiler ?? 10}% of a bonus issue against the tax on it.`} />
+        </div>
       </div>
 
       <div className="flex items-center gap-3 mt-6 pt-4 border-t border-rule">

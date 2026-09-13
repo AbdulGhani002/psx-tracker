@@ -81,6 +81,8 @@ export type Transaction = {
   zakatDeducted?: number;
   financialYear?: string;
   dividendType?: string;
+  source?: string;
+  actionKey?: string | null;
   deletedAt?: Date | string | null;
   createdAt: Date | string;
   updatedAt: Date | string;

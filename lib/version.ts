@@ -1,7 +1,7 @@
 // Single source of truth for the app version + changelog.
 // Bump APP_VERSION and prepend a CHANGELOG entry on every release.
 
-export const APP_VERSION = "11.1.0";
+export const APP_VERSION = "11.2.0";
 
 export const BUILD_DATE =
   process.env.NEXT_PUBLIC_BUILD_DATE ?? "";
@@ -17,6 +17,16 @@ export type ChangelogEntry = {
 
 // Reverse-chronological. Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: "11.2.0",
+    date: "2026-09-13",
+    title: "Dividends and bonus shares record themselves from the exchange's announcements",
+    changes: [
+      "A daily job reads the payout board for every held name and, on the book-closure date, writes the dividend from the shares held on the record date (trades up to three business days before the closure, T+2), at the announced rate, with withholding at your filer rate and zakat as set. Bonus shares are credited the same way, less the shares a company withholds against the tax on them. Each entitlement is written once; a warrant uploaded later, or a figure typed into Add trade, replaces the automatic row instead of doubling it. A Telegram line goes out for anything recorded.",
+      "The exchange's portal refuses the server most days, so the laptop's daily push now carries the payout boards along with the bars and triggers the recording; the server also tries the portal itself twice a day. The Payouts tab shows what is announced, what will be recorded, what was, and rights issues that need a decision.",
+      "Settings, under Automatic recording: dividends on or off, bonus shares on or off, zakat on dividends (none with a declaration on file, or 2.5% of paid-up value), and the bonus-share withholding. Ledger rows the job wrote carry an Auto pill.",
+    ],
+  },
   {
     version: "11.1.0",
     date: "2026-09-13",

@@ -52,6 +52,13 @@ const AppSettingsSchema = new Schema(
     telegramBotToken: { type: String, default: "" },
     telegramChatId: { type: String, default: "" },
     alertsEnabled: { type: Boolean, default: false },
+    // Automatic recording from PSX announcements (lib/corporate-actions).
+    autoDividends: { type: Boolean, default: true },
+    autoBonus: { type: Boolean, default: true },
+    zakatOnDividends: { type: String, default: "none" }, // "none" (declaration on file) | "paidUp" (2.5% of face value, deducted from the dividend)
+    bonusTaxWithheld: { type: Boolean, default: true }, // companies withhold 10% (filer) / 20% of bonus shares for tax
+    bonusTaxFiler: { type: Number, default: 10 },
+    bonusTaxNonFiler: { type: Number, default: 20 },
   },
   { timestamps: true }
 );
@@ -86,4 +93,10 @@ export const DEFAULT_SETTINGS = {
   telegramBotToken: "",
   telegramChatId: "",
   alertsEnabled: false,
+  autoDividends: true,
+  autoBonus: true,
+  zakatOnDividends: "none" as string,
+  bonusTaxWithheld: true,
+  bonusTaxFiler: 10,
+  bonusTaxNonFiler: 20,
 };

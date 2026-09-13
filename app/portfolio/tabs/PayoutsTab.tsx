@@ -7,6 +7,8 @@ import { DividendUploader } from "@/app/dividends/DividendUploader";
 import { StackedPayoutBars, AssetBars, type MonthStack } from "@/components/charts/DividendBars";
 import { getAllTransactions, getAllHoldings, getDividendForecast } from "@/lib/data";
 import { getYields } from "@/lib/analytics/dashboard";
+import { getAnnouncedActions } from "@/lib/corporate-actions";
+import { cycleLabel } from "@/lib/corporate-actions";
 import { fmtRs, fmtDate, fmtNum } from "@/lib/format";
 import type { Transaction } from "@/lib/types";
 
@@ -18,7 +20,7 @@ const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "
 const fmtK = (v: number) => (v >= 1e6 ? `Rs ${(v / 1e6).toFixed(2)}M` : v >= 1e3 ? `Rs ${(v / 1e3).toFixed(2)}K` : `Rs ${v.toFixed(0)}`);
 
 export async function PayoutsTab() {
-  const [allTx, holdings, yields, forecast] = await Promise.all([getAllTransactions(), getAllHoldings(), getYields().catch(() => null), getDividendForecast().catch(() => null)]);
+  const [allTx, holdings, yields, forecast, announced] = await Promise.all([getAllTransactions(), getAllHoldings(), getYields().catch(() => null), getDividendForecast().catch(() => null), getAnnouncedActions().catch(() => ({ upcoming: [], recorded: [] }))]);
   const dividends = allTx.filter((t) => t.type === "DIVIDEND");
   const bonuses = allTx.filter((t) => t.type === "BONUS");
   const gross = dividends.reduce((s, t) => s + t.totalAmount, 0);
@@ -150,8 +152,51 @@ export async function PayoutsTab() {
         </Card>
       )}
 
+      {(announced.upcoming.length > 0 || announced.recorded.length > 0) && (
+        <Card className="mt-3" title="Announced on the exchange" eyebrow="Recorded on the book-closure date from the shares you held; a warrant replaces the figures" action={<Link href="/settings" className="text-[12px] link-underline">Settings</Link>}>
+          {announced.upcoming.length > 0 && (
+            <div className="overflow-x-auto -mx-2">
+              <table className="table-zar">
+                <thead><tr><th>Book closure</th><th>Name</th><th>Payout</th><th className="text-right">Shares held</th><th className="text-right">Per share</th><th className="text-right">Gross</th><th className="text-right">Net</th><th>Status</th></tr></thead>
+                <tbody>
+                  {announced.upcoming.map((a) => (
+                    <tr key={`${a.symbol}-${a.type}-${a.bookClosure}`}>
+                      <td className="mono-num">{fmtDate(a.bookClosure)}</td>
+                      <td><Link href={`/holdings/${a.symbol}`} className="font-semibold hover:text-[var(--accent-deep)]">{a.symbol}</Link></td>
+                      <td>{a.type === "DIVIDEND" ? `${cycleLabel(a.cycle) || "Cash"} dividend ${a.pctOfFace}%` : a.type === "BONUS" ? `Bonus ${a.pctOfFace}%` : `Right ${a.pctOfFace}%`}</td>
+                      <td className="text-right mono-num">{a.shares.toLocaleString()}</td>
+                      <td className="text-right mono-num">{a.type === "RIGHT" ? "–" : a.type === "BONUS" ? `${a.bonusCredited} sh` : a.rate.toFixed(2)}</td>
+                      <td className="text-right mono-num">{a.type === "DIVIDEND" ? fmtRs(a.gross) : "–"}</td>
+                      <td className="text-right mono-num" style={{ color: a.type === "DIVIDEND" ? "var(--positive)" : undefined }}>{a.type === "DIVIDEND" ? fmtRs(a.net) : "–"}</td>
+                      <td>
+                        <span className="pill" data-tone={a.status === "recorded" ? "positive" : a.status === "upcoming" ? "muted" : "negative"}>
+                          {a.status === "recorded" ? "Recorded" : a.status === "upcoming" ? (a.type === "RIGHT" ? "Record when subscribed" : "Will record") : a.type === "RIGHT" ? "Subscribe or let lapse" : "Not entitled"}
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+          {announced.recorded.length > 0 && (
+            <div className="mt-3">
+              <div className="text-[12px] text-muted mb-1.5">Recorded automatically, newest first</div>
+              <div className="hairline-list">
+                {announced.recorded.slice(0, 8).map((r) => (
+                  <div key={r.id} className="flex items-center justify-between gap-3 text-[12.5px]">
+                    <div className="min-w-0 truncate"><span className="font-semibold">{r.symbol}</span> <span className="text-muted">{r.type === "DIVIDEND" ? `dividend ${r.rate.toFixed(2)} x ${r.shares.toLocaleString()}` : `bonus ${r.shares.toLocaleString()} shares`}</span></div>
+                    <div className="flex items-center gap-3 shrink-0"><span className="mono-num" style={{ color: r.type === "DIVIDEND" ? "var(--positive)" : undefined }}>{r.type === "DIVIDEND" ? fmtRs(r.net) : ""}</span><span className="text-[11px]" style={{ color: "var(--faint)" }}>{fmtDate(r.date)}</span></div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </Card>
+      )}
+
       {upcoming.length > 0 && (
-        <Card className="mt-3" title="Coming up" eyebrow="Expected from each name's own payout record; a forecast, not an announcement">
+        <Card className="mt-3" title="Expected later" eyebrow="From each name's own payout record; a forecast, not an announcement">
           <div className="overflow-x-auto -mx-2">
             <table className="table-zar">
               <thead><tr><th>Expected</th><th>Name</th><th className="text-right">Per share</th><th className="text-right">Shares</th><th className="text-right">Gross</th><th>Confidence</th></tr></thead>

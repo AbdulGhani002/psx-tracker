@@ -30,6 +30,12 @@ const patchSchema = z.object({
   telegramBotToken: z.string().optional(),
   telegramChatId: z.string().optional(),
   alertsEnabled: z.boolean().optional(),
+  autoDividends: z.boolean().optional(),
+  autoBonus: z.boolean().optional(),
+  zakatOnDividends: z.enum(["none", "paidUp"]).optional(),
+  bonusTaxWithheld: z.boolean().optional(),
+  bonusTaxFiler: z.number().min(0).max(100).optional(),
+  bonusTaxNonFiler: z.number().min(0).max(100).optional(),
 });
 
 // Never return the raw bot token to the client. Replace it with a flag.

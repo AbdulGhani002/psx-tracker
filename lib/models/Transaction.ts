@@ -23,6 +23,12 @@ const TransactionSchema = new Schema(
     zakatDeducted: { type: Number, default: 0 },
     financialYear: { type: String, default: "" },
     dividendType: { type: String, default: "" },
+    // Where the row came from: "" (typed in), "warrant", "import", or "auto"
+    // (written by the corporate-actions job from a PSX announcement).
+    source: { type: String, default: "" },
+    // For auto rows: symbol:type:bookClosure:pct, unique per user so the job
+    // never writes the same entitlement twice.
+    actionKey: { type: String },
     // Soft-delete marker. null (or absent on legacy docs) = active. A Date means
     // the row is in the Trash and must be excluded from every calculation.
     deletedAt: { type: Date, default: null },
@@ -43,6 +49,10 @@ TransactionSchema.index({ userId: 1, deletedAt: 1, date: -1, createdAt: -1 });
 TransactionSchema.index(
   { userId: 1, warrantNo: 1 },
   { unique: true, partialFilterExpression: { warrantNo: { $type: "string" } } }
+);
+TransactionSchema.index(
+  { userId: 1, actionKey: 1 },
+  { unique: true, partialFilterExpression: { actionKey: { $type: "string" } } }
 );
 
 export type Transaction = InferSchemaType<typeof TransactionSchema> & { _id: string };

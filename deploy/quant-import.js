@@ -34,6 +34,26 @@ const mongoose = require("mongoose");
     if (ops.length) await col.bulkWrite(ops, { ordered: false });
     const kse = data.series.KSE100;
     console.log(`bars: ${ops.length} series written, fetched ${data.fetchedAt}${kse ? `, KSE-100 to ${kse[kse.length - 1].date}` : ""}`);
+    // Payout boards, when the bundle carries them: one fundamentals document
+    // per symbol, the shape lib/corporate-actions.ts and the forecast read.
+    if (data.payouts && typeof data.payouts === "object") {
+      const funds = mongoose.connection.db.collection("fundamentals");
+      const fv = data.faceValues || {};
+      let n = 0;
+      for (const [symbol, rows] of Object.entries(data.payouts)) {
+        if (!Array.isArray(rows)) continue;
+        const payouts = rows
+          .filter((p) => p && p.pctOfFace > 0)
+          .map((p) => ({ date: p.announceDate || p.bookClosureStart || null, bookClosure: p.bookClosureStart || null, pctOfFace: p.pctOfFace, cycle: p.cycle || "", payoutType: p.payoutType || "cash" }));
+        await funds.updateOne(
+          { symbol },
+          { $set: { payouts, fetchedAt: new Date(), updatedAt: new Date(), ...(fv[symbol] > 0 ? { faceValue: fv[symbol] } : {}) }, $setOnInsert: { symbol, sector: "", annual: [], source: "psx-dps", createdAt: new Date() } },
+          { upsert: true }
+        );
+        n++;
+      }
+      console.log(`payouts: boards for ${n} symbols written`);
+    }
     await mongoose.disconnect();
     return;
   }

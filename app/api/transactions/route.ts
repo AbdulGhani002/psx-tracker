@@ -152,6 +152,27 @@ export async function POST(req: NextRequest) {
       netAmount = 0;
     }
 
+    // A dividend or bonus the corporate-actions job already wrote from the
+    // announcement is replaced by what the user types, not doubled.
+    if (parsed.type === "DIVIDEND" || parsed.type === "BONUS") {
+      const when = new Date(parsed.date);
+      const autoRow = await TransactionModel.findOne({
+        userId: await uid(),
+        symbol: parsed.symbol,
+        type: parsed.type,
+        source: "auto",
+        deletedAt: null,
+        ...(parsed.type === "DIVIDEND" ? { pricePerShare: { $gte: parsed.pricePerShare - 0.011, $lte: parsed.pricePerShare + 0.011 } } : {}),
+        date: { $gte: new Date(when.getTime() - 90 * 86400000), $lte: new Date(when.getTime() + 15 * 86400000) },
+      });
+      if (autoRow) {
+        autoRow.set({ date: when, shares: Math.abs(signedShares), pricePerShare: parsed.pricePerShare, totalAmount, fees: parsed.fees, netAmount, notes: parsed.notes || `${autoRow.notes} (figures typed in)`, source: "" });
+        await autoRow.save();
+        await recomputeHolding(parsed.symbol);
+        return NextResponse.json({ ...autoRow.toObject(), replacedAuto: true }, { status: 201 });
+      }
+    }
+
     const created = await TransactionModel.create({
       userId: await uid(),
       portfolioId: await portfolioFor(parsed.portfolioId),
