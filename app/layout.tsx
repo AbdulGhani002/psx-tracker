@@ -1,6 +1,7 @@
 import "./globals.css";
+import { Suspense } from "react";
 import type { Metadata } from "next";
-import { Roboto, Roboto_Mono } from "next/font/google";
+import { IBM_Plex_Sans } from "next/font/google";
 import { AppShell } from "@/components/layout/AppShell";
 import { ThemeScript } from "@/components/layout/ThemeToggle";
 import { NoNumberScroll } from "@/components/ui/NoNumberScroll";
@@ -13,10 +14,8 @@ import { indexTickers } from "@/lib/timeseries/eod-cache";
 import { UserModel } from "@/lib/models/User";
 import { connectDb } from "@/lib/db";
 
-// One family for words, one for figures. Roboto carries every word read,
-// Roboto Mono every number, so columns of money line up on the decimal.
-const sans = Roboto({ subsets: ["latin"], weight: ["300", "400", "500", "700"], display: "swap", variable: "--font-sans" });
-const mono = Roboto_Mono({ subsets: ["latin"], weight: ["400", "500"], display: "swap", variable: "--font-mono" });
+// One family for words and figures alike, with tabular numerals.
+const sans = IBM_Plex_Sans({ subsets: ["latin"], weight: ["400", "500", "600", "700"], display: "swap", variable: "--font-sans" });
 
 export const metadata: Metadata = {
   title: "PSX Portfolio",
@@ -24,12 +23,29 @@ export const metadata: Metadata = {
 };
 
 export const viewport = {
-  themeColor: "#0a0f1c",
+  themeColor: "#ffffff",
 };
 
 // What the shell needs about the signed-in user: nothing when there is none
 // (the auth screens), else the market line, the portfolios and the initial.
 async function shellData() {
+  // A design preview on a machine with no database: the shell with sample
+  // market lines and portfolios. Never in production.
+  if (process.env.NODE_ENV !== "production" && process.env.DEV_PREVIEW === "1" && !process.env.DEV_PREVIEW_USER) {
+    return {
+      authed: true as const,
+      tickers: [
+        { symbol: "KSE100", label: "KSE-100", level: 170511.85, change: 1646.81, changePct: 0.975, date: "2026-09-11" },
+        { symbol: "KMI30", label: "KMI-30", level: 243201.4, change: 3807.2, changePct: 1.59, date: "2026-09-11" },
+      ],
+      portfolios: [
+        { _id: "p1", name: "Main", color: "#3ddc97", isDefault: true },
+        { _id: "p2", name: "Trading book", color: "#7c9cff", isDefault: false },
+      ],
+      selected: "all",
+      initial: "A",
+    };
+  }
   const uid = await getCurrentUserId();
   if (!uid) return { authed: false as const, tickers: [], portfolios: [], selected: "all", initial: "" };
   const [tickers, portfolios, selected, user] = await Promise.all([
@@ -47,7 +63,7 @@ async function shellData() {
 export default async function RootLayout({ children }: { children: React.ReactNode }) {
   const shell = await shellData();
   return (
-    <html lang="en" className={`${sans.variable} ${mono.variable}`}>
+    <html lang="en" className={sans.variable} data-theme="light">
       <head>
         <ThemeScript />
       </head>
@@ -56,9 +72,11 @@ export default async function RootLayout({ children }: { children: React.ReactNo
         <PwaRegister />
         {shell.authed && <CommandPalette />}
         {shell.authed && <QuickAdd />}
-        <AppShell authed={shell.authed} tickers={shell.tickers} portfolios={shell.portfolios} selected={shell.selected} initial={shell.initial}>
-          {children}
-        </AppShell>
+        <Suspense fallback={null}>
+          <AppShell authed={shell.authed} tickers={shell.tickers} portfolios={shell.portfolios} selected={shell.selected} initial={shell.initial}>
+            {children}
+          </AppShell>
+        </Suspense>
       </body>
     </html>
   );

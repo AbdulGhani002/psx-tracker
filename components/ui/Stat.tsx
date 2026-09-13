@@ -31,7 +31,7 @@ export function Stat({ label, value, hint, tone = "default", size = "md", delta,
     <div>
       <div className="text-[11.5px] text-muted font-medium">{label}</div>
       <div className="flex items-baseline gap-2 flex-wrap mt-1.5">
-        <div className="mono-num" style={{ fontSize: px, color: TONE_COLOR[tone], lineHeight: 1.05, fontWeight: 600 }}>
+        <div className="fig" style={{ fontSize: px, color: TONE_COLOR[tone], lineHeight: 1.05 }}>
           {value}
         </div>
         {delta && (
@@ -55,7 +55,7 @@ export function StatLead({ label, value, tone = "default", detail }: { label: Re
   return (
     <div className="fade-in-up">
       <div className="text-[12px] text-muted font-medium">{label}</div>
-      <div className="mono-num mt-2" style={{ fontSize: "clamp(32px, 5vw, 44px)", color: TONE_COLOR[tone], lineHeight: 1, fontWeight: 600 }}>
+      <div className="fig mt-2" style={{ fontSize: "clamp(32px, 5vw, 44px)", color: TONE_COLOR[tone], lineHeight: 1 }}>
         {value}
       </div>
       {detail && <div className="mt-2 text-[13px] text-muted">{detail}</div>}

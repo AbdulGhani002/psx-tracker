@@ -21,30 +21,27 @@ type Item = {
 };
 
 const PAGES: Item[] = [
-  { id: "p-overview", label: "Overview", hint: "net worth, attribution", group: "Pages", href: "/" },
-  { id: "p-analytics", label: "Analytics", hint: "time-weighted returns, drawdowns, daily profit, yields", group: "Pages", href: "/analytics" },
-  { id: "p-holdings", label: "Holdings", hint: "every position", group: "Pages", href: "/holdings" },
-  { id: "p-risk", label: "Risk", hint: "value at risk, correlations, stress tests", group: "Pages", href: "/risk" },
-  { id: "p-tax", label: "Tax & Zakat", hint: "capital gains, withholding, zakat by tax year", group: "Pages", href: "/tax" },
-  { id: "p-calc", label: "Calculators", hint: "ROI, CAGR, SIP, deductions, position size", group: "Pages", href: "/calculators" },
-  { id: "p-decisions", label: "Decisions", hint: "sell discipline, scorecard", group: "Pages", href: "/decisions" },
-  { id: "p-wealth", label: "Wealth", hint: "statement of assets", group: "Pages", href: "/wealth" },
-  { id: "p-transactions", label: "Transactions", hint: "the ledger", group: "Pages", href: "/transactions" },
-  { id: "p-funds", label: "Mutual funds & savings", hint: "iSave, cash discipline", group: "Pages", href: "/funds" },
-  { id: "p-dividends", label: "Dividends", hint: "warrants and payouts", group: "Pages", href: "/dividends" },
-  { id: "p-rebalance", label: "Rebalance", hint: "targets vs actual, deployment", group: "Pages", href: "/rebalance" },
-  { id: "p-analysis", label: "Analysis", hint: "the model's market read, verdicts and zones, charts", group: "Pages", href: "/analysis" },
-  { id: "p-rotation", label: "Sector rotation", hint: "where money is moving", group: "Pages", href: "/rotation" },
-  { id: "p-report", label: "Statement (PDF)", hint: "printable", group: "Pages", href: "/report" },
+  { id: "p-overview", label: "Overview", hint: "net worth, today, portfolios", group: "Pages", href: "/" },
+  { id: "p-portfolio", label: "Portfolio", hint: "holdings and the figures", group: "Pages", href: "/portfolio" },
+  { id: "p-portfolios", label: "All portfolios", hint: "each book on a card", group: "Pages", href: "/portfolios" },
+  { id: "p-analytics", label: "Analytics", hint: "returns, profitability, diversification, report", group: "Pages", href: "/portfolio?tab=analytics" },
+  { id: "p-trades", label: "Trade history", hint: "closed trades and the ledger", group: "Pages", href: "/portfolio?tab=trades" },
+  { id: "p-payouts", label: "Payouts", hint: "dividends, tax, zakat, yields", group: "Pages", href: "/portfolio?tab=payouts" },
+  { id: "p-cash", label: "Cash", hint: "deposits, withdrawals, funds, savings", group: "Pages", href: "/portfolio?tab=cash" },
+  { id: "p-cgt", label: "CGT", hint: "capital gains tax by tax year", group: "Pages", href: "/portfolio?tab=cgt" },
+  { id: "p-zakat", label: "Zakat", hint: "what is due and what was paid", group: "Pages", href: "/zakat" },
+  { id: "p-watchlist", label: "Watchlists", hint: "names you follow, buy and sell bands", group: "Pages", href: "/watchlist" },
+  { id: "p-rebalance", label: "Rebalance", hint: "target allocation, deployment", group: "Pages", href: "/rebalance" },
+  { id: "p-analysis", label: "Model", hint: "the model's market read, verdicts and zones", group: "Pages", href: "/analysis" },
   { id: "p-changelog", label: "Changelog", hint: "what changed, and why", group: "Pages", href: "/changelog" },
-  { id: "p-settings", label: "Settings", hint: "tax, alerts, backup", group: "Pages", href: "/settings" },
+  { id: "p-settings", label: "Settings", hint: "portfolios, tax, alerts, backup", group: "Pages", href: "/settings" },
 ];
 
 const ACTIONS: Item[] = [
   { id: "a-buy", label: "Record a buy", hint: "add to a position, without leaving the page", group: "Actions", href: "/transactions/new", event: "psx:quick-add" },
   { id: "a-full", label: "Record a sell or a new position", hint: "the full form, with its plan and decision gates", group: "Actions", href: "/transactions/new" },
   { id: "a-import", label: "Import trades", hint: "CSV or contract note", group: "Actions", href: "/transactions/import" },
-  { id: "a-dividend", label: "Upload a dividend warrant", hint: "parse a CDC PDF", group: "Actions", href: "/dividends" },
+  { id: "a-dividend", label: "Upload a dividend warrant", hint: "parse a CDC PDF", group: "Actions", href: "/portfolio?tab=payouts" },
 ];
 
 // Subsequence match: "ahc" finds AHCL, "muref" finds MUREB, "rebal" finds

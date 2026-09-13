@@ -40,12 +40,12 @@ export default function Error({ error, reset }: { error: Error & { digest?: stri
       <div className="flex gap-3 justify-center">
         <button
           onClick={() => window.location.reload()}
-          className="border border-ink px-4 py-2 label-cap hover:bg-[var(--ink)] hover:text-[var(--paper)] transition-colors"
+          className="btn-ghost"
         >
           Reload
         </button>
         {!isStaleBuild && (
-          <button onClick={reset} className="border border-rule px-4 py-2 label-cap hover:border-ink transition-colors">
+          <button onClick={reset} className="btn-ghost">
             Try again
           </button>
         )}

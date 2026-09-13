@@ -95,7 +95,7 @@ export function DisclosedModelEditor({ symbol, initial }: Props) {
             type="date"
             value={asOf}
             onChange={(e) => setAsOf(e.target.value)}
-            className="w-full bg-transparent border-b border-ink text-[14px] py-1.5 font-mono focus:outline-none focus:border-[var(--accent-deep)]"
+            className="field w-full text-[14px] font-mono"
           />
         </div>
       </div>

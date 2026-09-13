@@ -6,8 +6,6 @@ import Link from "next/link";
 import { Table, type Column } from "@/components/ui/Table";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
-import { Select } from "@/components/ui/Select";
-import { TextInput } from "@/components/ui/TextInput";
 import { fmtRs, fmtNum, fmtDate } from "@/lib/format";
 import { TRANSACTION_TYPES, type Transaction } from "@/lib/types";
 
@@ -133,50 +131,48 @@ export function TransactionsView({ transactions, symbols }: Props) {
     URL.revokeObjectURL(url);
   }
 
+  const TYPE_LABEL: Record<string, { text: string; tone: "accent" | "negative" | "positive" | "amber" | "default" }> = {
+    BUY: { text: "Buy", tone: "accent" },
+    SELL: { text: "Sell", tone: "negative" },
+    DIVIDEND: { text: "Dividend", tone: "positive" },
+    BONUS: { text: "Bonus", tone: "amber" },
+    RIGHT: { text: "Right", tone: "amber" },
+    SPLIT: { text: "Split", tone: "default" },
+  };
+
   const columns: Column<Transaction>[] = [
-    { key: "date", header: "Date", render: (t) => <span className="font-mono text-[12px]">{fmtDate(t.date)}</span> },
-    { key: "symbol", header: "Symbol", render: (t) => <span className="font-mono font-medium">{t.symbol}</span> },
+    { key: "date", header: "Date", render: (t) => <span className="mono-num text-[12px] text-muted">{fmtDate(t.date)}</span> },
     {
-      key: "type",
-      header: "Type",
+      key: "symbol",
+      header: "Symbol",
       render: (t) => (
-        <Badge
-          tone={
-            t.type === "BUY" || t.type === "RIGHT"
-              ? "accent"
-              : t.type === "SELL"
-              ? "negative"
-              : t.type === "DIVIDEND"
-              ? "positive"
-              : "amber"
-          }
-        >
-          {t.type}
-        </Badge>
+        <Link href={`/holdings/${t.symbol}`} className="font-semibold hover:text-[var(--accent)]">
+          {t.symbol}
+        </Link>
       ),
     },
+    { key: "type", header: "Type", render: (t) => <Badge tone={TYPE_LABEL[t.type]?.tone ?? "default"}>{TYPE_LABEL[t.type]?.text ?? t.type}</Badge> },
     { key: "shares", header: "Shares", align: "right", mono: true, render: (t) => fmtNum(Math.abs(t.shares)) },
     { key: "price", header: "Price", align: "right", mono: true, render: (t) => fmtRs(t.pricePerShare, true) },
-    { key: "fees", header: "Fees", align: "right", mono: true, render: (t) => fmtRs(t.fees) },
-    { key: "net", header: "Net Amount", align: "right", mono: true, render: (t) => fmtRs(t.netAmount) },
-    { key: "notes", header: "Notes", render: (t) => <span className="text-[12px] text-muted">{t.notes}</span> },
+    { key: "fees", header: "Fees", align: "right", mono: true, render: (t) => <span className="text-muted">{fmtRs(t.fees)}</span> },
+    {
+      key: "net",
+      header: "Net",
+      align: "right",
+      mono: true,
+      render: (t) => <span style={{ color: t.type === "DIVIDEND" || t.type === "SELL" ? "var(--positive)" : undefined }}>{fmtRs(t.netAmount)}</span>,
+    },
+    { key: "notes", header: "Notes", render: (t) => <span className="text-[12px] text-muted line-clamp-1 max-w-[220px]">{t.notes}</span> },
     {
       key: "actions",
       header: "",
       align: "right",
       render: (t) => (
-        <div className="flex items-center justify-end gap-3">
-          <Link
-            href={`/transactions/${String(t._id)}/edit`}
-            className="font-mono text-[10px] uppercase tracking-stat text-muted hover:text-[var(--accent-deep)]"
-          >
+        <div className="flex items-center justify-end gap-1">
+          <Link href={`/transactions/${String(t._id)}/edit`} className="text-[12px] text-muted hover:text-ink px-2 py-1 rounded-lg hover:bg-[var(--surface-3)]">
             Edit
           </Link>
-          <button
-            onClick={() => onDelete(t)}
-            disabled={deleting === String(t._id)}
-            className="font-mono text-[10px] uppercase tracking-stat text-muted hover:text-[var(--negative)]"
-          >
+          <button onClick={() => onDelete(t)} disabled={deleting === String(t._id)} className="text-[12px] text-muted hover:text-[var(--negative)] px-2 py-1 rounded-lg hover:bg-[var(--surface-3)]">
             {deleting === String(t._id) ? "…" : "Delete"}
           </button>
         </div>
@@ -184,140 +180,82 @@ export function TransactionsView({ transactions, symbols }: Props) {
     },
   ];
 
+  const pageBtn = "text-[12px] px-2.5 py-1 rounded-lg disabled:opacity-30 hover:bg-[var(--surface-2)]";
+
   return (
-    <div className="space-y-5">
+    <div className="space-y-4">
       {undo && (
-        <div
-          className="flex items-center justify-between px-4 py-3 border"
-          style={{ borderColor: "var(--rule)", background: "var(--paper-2)" }}
-        >
+        <div className="card card-pad flex items-center justify-between gap-3 !py-3">
           <span className="text-[13px]">
-            Moved <span className="font-mono">{undo.label}</span> to Trash.
+            Moved <span className="font-semibold">{undo.label}</span> to Trash.
           </span>
-          <div className="flex items-center gap-4">
-            <button
-              onClick={onUndo}
-              disabled={restoring}
-              className="font-mono text-[11px] uppercase tracking-stat hover:text-[var(--accent-deep)]"
-              style={{ color: "var(--accent)" }}
-            >
+          <div className="flex items-center gap-2">
+            <button onClick={onUndo} disabled={restoring} className="btn-ghost !py-1 text-[12px]" style={{ color: "var(--accent)" }}>
               {restoring ? "Restoring…" : "Undo"}
             </button>
-            <button
-              onClick={() => setUndo(null)}
-              className="font-mono text-[11px] uppercase tracking-stat text-muted hover:text-[var(--ink)]"
-            >
+            <button onClick={() => setUndo(null)} className="text-[12px] text-muted hover:text-ink px-2">
               Dismiss
             </button>
           </div>
         </div>
       )}
 
-      <div className="flex justify-end">
-        <Link
-          href="/transactions/trash"
-          className="font-mono text-[11px] uppercase tracking-stat text-muted hover:text-[var(--accent-deep)]"
-        >
-          View Trash
-        </Link>
-      </div>
-
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-5 items-end">
-        <Select
-          label="Filter by symbol"
-          value={symbolFilter}
-          onChange={(v) => refilter(() => setSymbolFilter(v))}
-          options={[{ value: "", label: "All symbols" }, ...symbols.map((s) => ({ value: s, label: s }))]}
-        />
-        <Select
-          label="Filter by type"
-          value={typeFilter}
-          onChange={(v) => refilter(() => setTypeFilter(v))}
-          options={[{ value: "", label: "All types" }, ...TRANSACTION_TYPES.map((t) => ({ value: t, label: t }))]}
-        />
-        <TextInput
-          label="Search"
-          value={query}
-          onChange={(e) => refilter(() => setQuery(e.target.value))}
-          placeholder="Symbol, note or date"
-        />
-        <div className="flex justify-end">
-          <Button variant="outline" onClick={exportCsv}>
-            Export CSV
-          </Button>
+      <div className="flex flex-wrap items-center gap-2">
+        <div className="field !min-h-[36px] w-[150px] relative">
+          <select value={symbolFilter} onChange={(e) => refilter(() => setSymbolFilter(e.target.value))} className="!py-1.5 text-[13px]">
+            <option value="">All symbols</option>
+            {symbols.map((s) => (
+              <option key={s} value={s}>{s}</option>
+            ))}
+          </select>
+          <svg className="field-arrow" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="m6 9 6 6 6-6" /></svg>
+        </div>
+        <div className="seg">
+          <button type="button" data-active={typeFilter === ""} onClick={() => refilter(() => setTypeFilter(""))}>All</button>
+          {TRANSACTION_TYPES.map((t) => (
+            <button key={t} type="button" data-active={typeFilter === t} onClick={() => refilter(() => setTypeFilter(t))}>{TYPE_LABEL[t]?.text ?? t}</button>
+          ))}
+        </div>
+        <div className="field !min-h-[36px] w-[220px]">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" className="text-muted shrink-0" aria-hidden><circle cx="11" cy="11" r="7" /><path d="m20 20-3.5-3.5" /></svg>
+          <input value={query} onChange={(e) => refilter(() => setQuery(e.target.value))} placeholder="Symbol, note or date" className="!py-1.5 text-[13px]" />
+        </div>
+        <div className="ml-auto flex items-center gap-2">
+          <Link href="/transactions/trash" className="text-[12px] text-muted hover:text-ink px-2">Trash</Link>
+          <Button variant="outline" onClick={exportCsv} className="!py-1.5 text-[12px]">Export CSV</Button>
         </div>
       </div>
 
-      <Table
-        columns={columns}
-        rows={visible}
-        rowKey={(t) => String(t._id)}
-        empty={
-          transactions.length === 0 ? "No transactions. Add your first one." : "Nothing matches those filters."
-        }
-      />
+      <div className="-mx-2">
+        <Table columns={columns} rows={visible} rowKey={(t) => String(t._id)} empty={transactions.length === 0 ? "No transactions. Add your first one." : "Nothing matches those filters."} />
+      </div>
 
       {filtered.length > 0 && (
-        <div className="flex flex-wrap items-center justify-between gap-4 pt-1">
+        <div className="flex flex-wrap items-center justify-between gap-3 pt-1">
           <span className="text-[12px] text-muted">
             {pageSize === 0 ? (
-              <>
-                All <span className="font-mono">{filtered.length.toLocaleString()}</span> records
-              </>
+              <>All <span className="mono-num">{filtered.length.toLocaleString()}</span> records</>
             ) : (
               <>
-                <span className="font-mono">{((current - 1) * pageSize + 1).toLocaleString()}</span>
-                {" to "}
-                <span className="font-mono">{Math.min(current * pageSize, filtered.length).toLocaleString()}</span>
-                {" of "}
-                <span className="font-mono">{filtered.length.toLocaleString()}</span>
+                <span className="mono-num">{((current - 1) * pageSize + 1).toLocaleString()}</span> to <span className="mono-num">{Math.min(current * pageSize, filtered.length).toLocaleString()}</span> of <span className="mono-num">{filtered.length.toLocaleString()}</span>
               </>
             )}
-            {filtered.length !== transactions.length && (
-              <span> · filtered from {transactions.length.toLocaleString()}</span>
-            )}
+            {filtered.length !== transactions.length && <span> · filtered from {transactions.length.toLocaleString()}</span>}
           </span>
 
-          <div className="flex items-center gap-4">
-            <div className="flex items-center gap-2">
-              <span className="font-mono text-[10px] uppercase tracking-stat text-muted">Per page</span>
+          <div className="flex items-center gap-3">
+            <div className="seg">
               {PAGE_SIZES.map((n) => (
-                <button
-                  key={n}
-                  onClick={() => {
-                    setPageSize(n);
-                    setPage(1);
-                  }}
-                  className="font-mono text-[11px] hover:text-[var(--accent-deep)]"
-                  style={{
-                    color: pageSize === n ? "var(--ink)" : "var(--muted)",
-                    fontWeight: pageSize === n ? 600 : 400,
-                  }}
-                >
-                  {n === 0 ? "all" : n}
+                <button key={n} type="button" data-active={pageSize === n} onClick={() => { setPageSize(n); setPage(1); }}>
+                  {n === 0 ? "All" : n}
                 </button>
               ))}
             </div>
-
             {pageCount > 1 && (
-              <div className="flex items-center gap-3">
-                <button
-                  onClick={() => setPage(current - 1)}
-                  disabled={current <= 1}
-                  className="font-mono text-[11px] uppercase tracking-stat disabled:opacity-30 hover:text-[var(--accent-deep)]"
-                >
-                  Prev
-                </button>
-                <span className="font-mono text-[11px] text-muted">
-                  {current} / {pageCount}
-                </span>
-                <button
-                  onClick={() => setPage(current + 1)}
-                  disabled={current >= pageCount}
-                  className="font-mono text-[11px] uppercase tracking-stat disabled:opacity-30 hover:text-[var(--accent-deep)]"
-                >
-                  Next
-                </button>
+              <div className="flex items-center gap-1">
+                <button onClick={() => setPage(current - 1)} disabled={current <= 1} className={pageBtn}>Prev</button>
+                <span className="text-[12px] text-muted mono-num px-1">{current} / {pageCount}</span>
+                <button onClick={() => setPage(current + 1)} disabled={current >= pageCount} className={pageBtn}>Next</button>
               </div>
             )}
           </div>

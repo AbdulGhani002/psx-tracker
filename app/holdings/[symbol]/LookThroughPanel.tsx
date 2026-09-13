@@ -350,9 +350,9 @@ export function LookThroughPanel({ symbol, initial, result, known }: { symbol: s
                 <button className="label-cap hover:text-[var(--accent-deep)] mt-2" onClick={addUnlisted}>+ Add unlisted holding</button>
               </div>
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4 pt-3">
-                <label className="block"><span className="label-cap">Other unlisted lump (Rs)</span><input className="w-full bg-transparent border-b border-ink text-[14px] py-1 font-mono" type="number" value={c.unlistedValuePkr || ""} onChange={(e) => setC((p) => ({ ...p, unlistedValuePkr: Number(e.target.value) }))} /></label>
-                <label className="block"><span className="label-cap">Net debt (Rs)</span><input className="w-full bg-transparent border-b border-ink text-[14px] py-1 font-mono" type="number" value={c.netDebtPkr || ""} onChange={(e) => setC((p) => ({ ...p, netDebtPkr: Number(e.target.value) }))} /></label>
-                <label className="block"><span className="label-cap">Shares outstanding (0 = auto)</span><input className="w-full bg-transparent border-b border-ink text-[14px] py-1 font-mono" type="number" value={c.sharesOutstanding || ""} onChange={(e) => setC((p) => ({ ...p, sharesOutstanding: Number(e.target.value) }))} /></label>
+                <label className="block"><span className="label-cap">Other unlisted lump (Rs)</span><input className="field w-full text-[14px] font-mono" type="number" value={c.unlistedValuePkr || ""} onChange={(e) => setC((p) => ({ ...p, unlistedValuePkr: Number(e.target.value) }))} /></label>
+                <label className="block"><span className="label-cap">Net debt (Rs)</span><input className="field w-full text-[14px] font-mono" type="number" value={c.netDebtPkr || ""} onChange={(e) => setC((p) => ({ ...p, netDebtPkr: Number(e.target.value) }))} /></label>
+                <label className="block"><span className="label-cap">Shares outstanding (0 = auto)</span><input className="field w-full text-[14px] font-mono" type="number" value={c.sharesOutstanding || ""} onChange={(e) => setC((p) => ({ ...p, sharesOutstanding: Number(e.target.value) }))} /></label>
               </div>
             </div>
           )}

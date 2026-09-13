@@ -175,7 +175,7 @@ export function HoldingSettings({ symbol, initial, transactionCount }: Props) {
               value={rationale}
               onChange={(e) => setRationale(e.target.value)}
               rows={2}
-              className="w-full bg-transparent border-b border-ink text-[14px] py-1.5 focus:outline-none resize-none"
+              className="field w-full text-[14px] resize-none"
               placeholder="Why is this position weighted at this %?"
             />
           </div>
@@ -185,7 +185,7 @@ export function HoldingSettings({ symbol, initial, transactionCount }: Props) {
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
               rows={3}
-              className="w-full bg-transparent border-b border-ink text-[14px] py-1.5 focus:outline-none resize-none"
+              className="field w-full text-[14px] resize-none"
               placeholder="Anything to remember about this position."
             />
           </div>

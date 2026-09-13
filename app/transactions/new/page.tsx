@@ -14,7 +14,6 @@ export default async function NewTransactionPage({ searchParams }: Props) {
   return (
     <div>
       <PageHeader
-        eyebrow="New transaction"
         title="Record what happened."
         subtitle="Buys, sells, dividends, bonuses, rights, and splits all flow into your cost basis and P/L."
       />

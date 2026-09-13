@@ -834,6 +834,13 @@ async function _getCashSummary(): Promise<CashSummary> {
   return computeCashBalance(txs as any, entries as any, { cgtRatePct });
 }
 
+export async function getZakatPayments() {
+  if (!(await tryConnect())) return [];
+  const { ZakatPaymentModel } = await import("./models/ZakatPayment");
+  const docs = await ZakatPaymentModel.find({ userId: await meId(), ...(await portfolioFilter()) }).sort({ date: -1, createdAt: -1 }).lean();
+  return plain<Array<{ _id: string; date: string; amount: number; notes: string; portfolioId?: string }>>(docs);
+}
+
 export async function getCashEntries() {
   if (!(await tryConnect())) return [];
   const docs = await CashEntryModel.find({ userId: await meId(), ...(await portfolioFilter()) }).sort({ date: -1, createdAt: -1 }).lean();

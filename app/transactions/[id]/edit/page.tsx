@@ -36,7 +36,6 @@ export default async function EditTransactionPage({ params }: { params: { id: st
         </Link>
       </div>
       <PageHeader
-        eyebrow="Edit transaction"
         title={`${plain.type} · ${plain.symbol}`}
         subtitle="Editing recomputes the holding's avg cost, total cost, realised P/L and dividends automatically."
       />

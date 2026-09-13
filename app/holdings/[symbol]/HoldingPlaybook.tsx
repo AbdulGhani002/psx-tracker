@@ -136,7 +136,7 @@ export function HoldingPlaybook({ symbol, currentPercent, initial }: Props) {
           value={thesis}
           onChange={(e) => setThesis(e.target.value)}
           rows={2}
-          className="w-full bg-transparent border-b border-ink text-[14px] py-1.5 focus:outline-none resize-none"
+          className="field w-full text-[14px] resize-none"
           placeholder="What this company is and why you own it."
         />
       </div>

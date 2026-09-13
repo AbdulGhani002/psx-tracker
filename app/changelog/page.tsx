@@ -8,7 +8,7 @@ export default function ChangelogPage() {
     <div>
       <PageHeader
         eyebrow={`Version ${APP_VERSION}`}
-        title="What changed, and when."
+        title="Changelog"
         subtitle={
           BUILD_DATE
             ? `Built ${BUILD_DATE}${BUILD_SHA ? ` · ${BUILD_SHA}` : ""}.`

@@ -1,12 +1,10 @@
-import { PageHeader } from "@/components/layout/PageHeader";
-import { Section } from "@/components/layout/Section";
+import Link from "next/link";
 import { SetupBanner } from "@/components/layout/SetupBanner";
 import { SbpRatesManager } from "./SbpRatesManager";
 import { AppSettingsManager } from "./AppSettingsManager";
 import { BackupManager } from "./BackupManager";
 import { PortfoliosManager } from "./PortfoliosManager";
 import { listPortfolios } from "@/lib/portfolios";
-import { ThemeToggle } from "@/components/layout/ThemeToggle";
 import { Card } from "@/components/ui/Card";
 import { getSbpRates, getAppSettings, checkDataAvailability } from "@/lib/data";
 import { SBP_POLICY_RATE_DEFAULTS } from "@/lib/timeseries/sbp-rate";
@@ -18,83 +16,39 @@ export default async function SettingsPage() {
   const avail = await checkDataAvailability();
   const [rates, appSettings, portfolios] = await Promise.all([getSbpRates(), getAppSettings(), listPortfolios().catch(() => [])]);
   const usingDefaults = rates.length === 0;
-  const defaults = SBP_POLICY_RATE_DEFAULTS.map((s) => ({
-    effectiveDate: s.from,
-    rate: s.rate,
-  }));
+  const defaults = SBP_POLICY_RATE_DEFAULTS.map((s) => ({ effectiveDate: s.from, rate: s.rate }));
 
   return (
-    <div>
-      <PageHeader
-        eyebrow="Settings"
-        title="Knobs you control."
-        subtitle="Reference rates and app configuration. Changes here flow into the dashboard benchmark and projections."
-      />
+    <div className="space-y-3">
       {!avail.available && <SetupBanner reason={avail.reason} />}
 
-      <Section number="00" title="Portfolios" display="One account, several books." description="Keep a broker account, a family member's money or a trading book apart. The switcher in the top bar filters every page to one of them or shows them all together.">
+      <Card title="Portfolios" eyebrow="One account, several books" action={<Link href="/portfolios" className="text-[12px] link-underline">See all</Link>}>
+        <p className="text-[12.5px] text-muted mb-3">Keep a broker account, a family member&apos;s money or a trading book apart. The switcher in the top bar shows one of them or all together.</p>
         <PortfoliosManager initial={portfolios} />
-      </Section>
+      </Card>
 
-      <Section number="01" title="Appearance" display="Light or dark.">
-        <Card>
-          <div className="flex items-center justify-between">
-            <p className="text-[14px] text-muted">Toggle the theme. Charts and panels follow.</p>
-            <ThemeToggle />
-          </div>
-        </Card>
-      </Section>
+      <Card title="Tax and trading" eyebrow="Filer status, tax rates, brokerage">
+        <p className="text-[12.5px] text-muted mb-3">These feed the CGT tab, the rebalance concentration cap and the trade form&apos;s fee estimate. Check rates against the current FBR schedule and your broker.</p>
+        <AppSettingsManager initial={{ ...appSettings, telegramBotToken: "" }} telegramConfigured={!!appSettings.telegramBotToken} />
+      </Card>
 
-      <Section
-        number="02"
-        title="Tax & trading config"
-        display="Your filer status, tax rates, PMEX costs."
-        description="These feed the tax report, the rebalance concentration cap, and PMEX P/L. Verify rates against the current FBR / your broker schedule."
-      >
-        <AppSettingsManager
-          initial={{ ...appSettings, telegramBotToken: "" }}
-          telegramConfigured={!!appSettings.telegramBotToken}
-        />
-      </Section>
+      <Card title="SBP policy rate" eyebrow="The risk-free line">
+        <p className="text-[12.5px] text-muted mb-3">The risk-free benchmark compounds the SBP policy rate. Add the new rate when the MPC changes it; the benchmark updates on its own. Source: sbp.org.pk/m_policy.</p>
+        <SbpRatesManager initialRates={rates} usingDefaults={usingDefaults} defaults={defaults} />
+      </Card>
 
-      <Section
-        number="03"
-        title="SBP policy rate"
-        display="The risk-free line, your numbers."
-        description="The dashboard's risk-free benchmark compounds the SBP policy rate. SBP changes it at MPC meetings (~every 6 weeks). Add the new rate here each time it changes — the benchmark updates automatically. Source: sbp.org.pk/m_policy."
-      >
-        <SbpRatesManager
-          initialRates={rates}
-          usingDefaults={usingDefaults}
-          defaults={defaults}
-        />
-      </Section>
-
-      <Section
-        number="04"
-        title="Data & backup"
-        display="Export everything, restore anytime."
-        description="Download a full JSON snapshot of your data, or restore from one. Your only safety net against data loss — do this regularly."
-      >
+      <Card title="Data and backup" eyebrow="Export everything, restore any time">
+        <p className="text-[12.5px] text-muted mb-3">Download a full JSON snapshot of your data, or restore from one.</p>
         <BackupManager />
-      </Section>
+      </Card>
 
-      <Section number="05" title="Build" display="What you're running.">
+      <Card title="Build" eyebrow="What you are running" action={<Link href="/changelog" className="text-[12px] link-underline">Changelog</Link>}>
         <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-          <div>
-            <div className="label-cap">Version</div>
-            <div className="font-mono mono-num text-[16px] mt-1">v{APP_VERSION}</div>
-          </div>
-          <div>
-            <div className="label-cap">Build date</div>
-            <div className="font-mono mono-num text-[16px] mt-1">{BUILD_DATE || "—"}</div>
-          </div>
-          <div>
-            <div className="label-cap">Commit</div>
-            <div className="font-mono mono-num text-[16px] mt-1">{BUILD_SHA || "—"}</div>
-          </div>
+          <div><div className="label-cap">Version</div><div className="mono-num text-[15px] font-medium mt-1">v{APP_VERSION}</div></div>
+          <div><div className="label-cap">Build date</div><div className="mono-num text-[15px] font-medium mt-1">{BUILD_DATE || "–"}</div></div>
+          <div><div className="label-cap">Commit</div><div className="mono-num text-[15px] font-medium mt-1">{BUILD_SHA || "–"}</div></div>
         </div>
-      </Section>
+      </Card>
     </div>
   );
 }

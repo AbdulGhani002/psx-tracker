@@ -251,7 +251,7 @@ export function EditTransactionForm({ id, symbol, initial }: Props) {
               <button
                 type="button"
                 onClick={fixSharesFromGross}
-                className="font-mono text-[10px] uppercase tracking-button border border-[var(--rule)] hover:border-ink px-2 py-1"
+                className="btn-ghost !px-2 !py-1 text-[11px]"
                 style={{ color: "var(--accent-deep)" }}
               >
                 ↳ Fix shares from gross
@@ -261,7 +261,7 @@ export function EditTransactionForm({ id, symbol, initial }: Props) {
               <button
                 type="button"
                 onClick={fixRateFromGross}
-                className="font-mono text-[10px] uppercase tracking-button border border-[var(--rule)] hover:border-ink px-2 py-1"
+                className="btn-ghost !px-2 !py-1 text-[11px]"
                 style={{ color: "var(--accent-deep)" }}
               >
                 ↳ Fix rate from gross

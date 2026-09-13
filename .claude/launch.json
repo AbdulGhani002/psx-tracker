@@ -6,7 +6,8 @@
       "runtimeExecutable": "npm",
       "runtimeArgs": ["run", "dev"],
       "port": 3010,
-      "cwd": "C:\\CC\\Code\\psx-tracker-v2"
+      "cwd": "C:\\CC\\Code\\psx-tracker-v2",
+      "env": { "DEV_PREVIEW": "1" }
     }
   ]
 }

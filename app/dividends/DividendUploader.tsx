@@ -783,7 +783,7 @@ function FieldHelpers({
           key={i}
           type="button"
           onClick={h.onClick}
-          className="font-mono text-[10px] uppercase tracking-button border border-[var(--rule)] hover:border-ink px-2 py-1 transition-colors"
+          className="btn-ghost !px-2 !py-1 text-[11px]"
           style={{ color: "var(--accent-deep)" }}
         >
           ↳ {h.label}

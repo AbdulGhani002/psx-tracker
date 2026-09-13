@@ -104,6 +104,13 @@ export type PortfolioCard = {
   change30Pct: number | null; // the equities held today, priced 30 sessions ago
   spark: number[]; // equity value over the last 30 sessions at today's shares
   names: number;
+  invested: number; // cost of the shares held
+  unrealized: number;
+  realized: number;
+  dividends: number;
+  totalReturn: number;
+  dayProfit: number; // today's move on the shares held
+  dayPct: number | null;
 };
 
 // Each portfolio valued on its own: positions from its own rows at today's
@@ -120,30 +127,35 @@ async function _getPortfolioCards(): Promise<PortfolioCard[]> {
   const savingsById = new Map(savingsValued.map((a: any) => [String(a._id ?? a.id), a.balance ?? 0]));
   const out: PortfolioCard[] = [];
   const allSymbols = new Set<string>();
-  const perPortfolio: Array<{ p: PortfolioView; shares: Map<string, number> }> = [];
+  const perPortfolio: Array<{ p: PortfolioView; shares: Map<string, number>; invested: number; realized: number; dividends: number }> = [];
   for (const p of portfolios) {
     const txs = await TransactionModel.find({ userId: uid, deletedAt: null, ...filterFor(p) }).sort({ date: 1, createdAt: 1 }).lean();
     const bySymbol = new Map<string, any[]>();
     for (const t of txs) (bySymbol.get(t.symbol) ?? bySymbol.set(t.symbol, []).get(t.symbol)!).push(t);
     const shares = new Map<string, number>();
+    let invested = 0, realized = 0, dividends = 0;
     for (const [s, list] of bySymbol) {
       const d = deriveFromTransactions(list as any);
+      realized += d.realizedPL;
+      dividends += d.dividendsReceived;
       if (d.shares > 0) {
         shares.set(s, d.shares);
+        invested += d.totalCost;
         allSymbols.add(s);
       }
     }
-    perPortfolio.push({ p, shares });
+    perPortfolio.push({ p, shares, invested, realized, dividends });
   }
   const bars = await eodBarsCached([...allSymbols]);
-  for (const { p, shares } of perPortfolio) {
-    let equity = 0, equity30 = 0;
+  for (const { p, shares, invested, realized, dividends } of perPortfolio) {
+    let equity = 0, equity30 = 0, prev = 0;
     const spark = new Array<number>(30).fill(0);
     for (const [s, n] of shares) {
       const b = bars.get(s);
       if (!b || b.length === 0) continue;
       const last = b[b.length - 1].close;
       equity += n * last;
+      prev += n * (b[b.length - 2]?.close ?? last);
       const back = b[Math.max(0, b.length - 31)].close;
       equity30 += n * back;
       const tail = b.slice(-30);
@@ -152,7 +164,24 @@ async function _getPortfolioCards(): Promise<PortfolioCard[]> {
     const inPf = (doc: any) => (p.isDefault ? !doc.portfolioId || doc.portfolioId === p._id : doc.portfolioId === p._id);
     const fundsTotal = funds.filter(inPf).reduce((s, f) => s + (fundValueById.get(String(f._id)) ?? 0), 0);
     const savingsTotal = savings.filter(inPf).reduce((s, a) => s + (savingsById.get(String(a._id)) ?? 0), 0);
-    out.push({ portfolio: p, equity, funds: fundsTotal, savings: savingsTotal, total: equity + fundsTotal + savingsTotal, change30Pct: equity30 > 0 ? (equity / equity30 - 1) * 100 : null, spark, names: shares.size });
+    const unrealized = equity - invested;
+    out.push({
+      portfolio: p,
+      equity,
+      funds: fundsTotal,
+      savings: savingsTotal,
+      total: equity + fundsTotal + savingsTotal,
+      change30Pct: equity30 > 0 ? (equity / equity30 - 1) * 100 : null,
+      spark,
+      names: shares.size,
+      invested,
+      unrealized,
+      realized,
+      dividends,
+      totalReturn: unrealized + realized + dividends,
+      dayProfit: equity - prev,
+      dayPct: prev > 0 ? ((equity - prev) / prev) * 100 : null,
+    });
   }
   return out;
 }

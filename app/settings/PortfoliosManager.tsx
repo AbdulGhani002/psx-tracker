@@ -9,9 +9,9 @@ import { useRouter } from "next/navigation";
 
 type P = { _id: string; name: string; broker: string; kind: string; color: string; isDefault: boolean; notes: string };
 
-const COLORS = ["#22c55e", "#3b82f6", "#a78bfa", "#f59e0b", "#22d3ee", "#f472b6", "#a3e635", "#94a3b8"];
+const COLORS = ["#16a34a", "#26a69a", "#3b82f6", "#f59e0b", "#8b5cf6", "#ec4899", "#0ea5e9", "#64748b"];
 
-export function PortfoliosManager({ initial }: { initial: P[] }) {
+export function PortfoliosManager({ initial, only }: { initial: P[]; only?: string }) {
   const router = useRouter();
   const [rows, setRows] = useState<P[]>(initial);
   const [name, setName] = useState("");
@@ -72,13 +72,13 @@ export function PortfoliosManager({ initial }: { initial: P[] }) {
     }
   }
 
-  const input = "rounded-lg px-3 py-2 text-[13px] w-full";
-  const inputStyle = { background: "var(--surface-2)", border: "1px solid var(--rule)", color: "var(--ink)" } as const;
+  const input = "field text-[13px] !min-h-[36px]";
+  const inputStyle = {} as const;
 
   return (
     <div id="portfolios">
       <div className="space-y-2">
-        {rows.map((p) => (
+        {rows.filter((p) => !only || p._id === only).map((p) => (
           <div key={p._id} className="card card-pad flex items-center gap-3 flex-wrap">
             <div className="flex items-center gap-1.5">
               {COLORS.map((c) => (
@@ -99,7 +99,7 @@ export function PortfoliosManager({ initial }: { initial: P[] }) {
           </div>
         ))}
       </div>
-      <div className="card card-pad mt-3">
+      {!only && <div className="card card-pad mt-3">
         <div className="text-[13px] font-medium mb-2">New portfolio</div>
         <div className="flex gap-2 flex-wrap">
           <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Name, e.g. Trading book" className={`${input} max-w-[220px]`} style={inputStyle} />
@@ -115,7 +115,8 @@ export function PortfoliosManager({ initial }: { initial: P[] }) {
         </div>
         <div className="text-[11.5px] text-muted mt-2">Trades, cash, funds and savings each carry a portfolio. New rows go to the portfolio the pages are showing, or the default. The Rebalance targets describe the whole book.</div>
         {error && <div className="text-[12px] mt-2" style={{ color: "var(--negative)" }}>{error}</div>}
-      </div>
+      </div>}
+      {only && error && <div className="text-[12px] mt-2" style={{ color: "var(--negative)" }}>{error}</div>}
     </div>
   );
 }

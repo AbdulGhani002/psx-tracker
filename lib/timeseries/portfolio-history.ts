@@ -44,6 +44,19 @@ function isoNDaysAgo(n: number): string {
   return d.toISOString().slice(0, 10);
 }
 
+// Money put in, net: what buys and rights cost less what sells returned, up
+// to the date. The dashed line under the value line.
+function netInvestedAt(date: string, txs: Transaction[]): number {
+  let v = 0;
+  for (const tx of txs) {
+    const txDate = new Date(tx.date).toISOString().slice(0, 10);
+    if (txDate > date) continue;
+    if (tx.type === "BUY" || tx.type === "RIGHT") v += Math.abs(tx.netAmount || tx.totalAmount || 0);
+    else if (tx.type === "SELL") v -= Math.abs(tx.netAmount || tx.totalAmount || 0);
+  }
+  return Math.max(0, v);
+}
+
 function sharesHeldAt(date: string, txs: Transaction[]): Map<string, number> {
   const out = new Map<string, number>();
   for (const tx of txs) {
@@ -133,6 +146,7 @@ export type NetWorthExtras = {
 export type BenchmarkPoint = {
   date: string;
   portfolioValue: number;
+  invested: number; // net money put in, for the dashed line
   portfolio: number | null; // indexed to 100 (price only)
   portfolioTR: number | null; // total return: price + dividends reinvested
   portfolioReal: number | null; // total return adjusted for inflation (real)
@@ -242,6 +256,7 @@ export async function buildBenchmarkSeries({
   type Raw = {
     date: string;
     portfolioValue: number;
+    invested: number;
     kse: number | null;
     kmi: number | null;
     usd: number | null;
@@ -271,6 +286,7 @@ export async function buildBenchmarkSeries({
     return {
       date,
       portfolioValue: pVal,
+      invested: netInvestedAt(date, transactions),
       kse: kseIdx.get(date) ?? null,
       kmi: closeOnOrBefore(kmiIdx, kmiDates, date),
       usd: usdHere,
@@ -440,6 +456,7 @@ export async function buildBenchmarkSeries({
   const points: BenchmarkPoint[] = trimmed.map((r, i) => ({
     date: r.date,
     portfolioValue: r.portfolioValue,
+    invested: r.invested,
     portfolio: twr[i] ?? null,
     portfolioTR: tr[i] ?? null,
     portfolioReal: real[i] ?? null,

@@ -18,10 +18,13 @@ export const ALL = "all";
 
 export type PortfolioView = { _id: string; name: string; broker: string; kind: string; color: string; isDefault: boolean; notes: string };
 
-const PALETTE = ["#22c55e", "#3b82f6", "#a78bfa", "#f59e0b", "#22d3ee", "#f472b6", "#a3e635", "#94a3b8"];
+const PALETTE = ["#16a34a", "#26a69a", "#3b82f6", "#f59e0b", "#8b5cf6", "#ec4899", "#0ea5e9", "#64748b"];
+// Colours stored before the palette changed map onto the new one.
+const LEGACY: Record<string, string> = { "#22c55e": PALETTE[0], "#3ddc97": PALETTE[0], "#7c9cff": PALETTE[2], "#a78bfa": PALETTE[4], "#e6c17a": PALETTE[3], "#22d3ee": PALETTE[6], "#5fd4d6": PALETTE[1], "#f472b6": PALETTE[5], "#ff6b6b": PALETTE[5], "#c39bff": PALETTE[4], "#a3e635": PALETTE[0], "#f0a35e": PALETTE[3], "#94a3b8": PALETTE[7], "#8b93a7": PALETTE[7] };
+const colourOf = (c: string | undefined, i = 0) => (c && (LEGACY[c.toLowerCase()] ?? c)) || PALETTE[i % PALETTE.length];
 
 function plain(p: any): PortfolioView {
-  return { _id: String(p._id), name: p.name, broker: p.broker ?? "", kind: p.kind ?? "mixed", color: p.color || PALETTE[0], isDefault: !!p.isDefault, notes: p.notes ?? "" };
+  return { _id: String(p._id), name: p.name, broker: p.broker ?? "", kind: p.kind ?? "mixed", color: colourOf(p.color), isDefault: !!p.isDefault, notes: p.notes ?? "" };
 }
 
 // Every portfolio the user has; the default one is created on first read so
@@ -53,7 +56,7 @@ export async function listPortfolios(): Promise<PortfolioView[]> {
     await PortfolioModel.updateOne({ _id: docs[0]._id }, { $set: { isDefault: true } }).catch(() => {});
     (docs[0] as any).isDefault = true;
   }
-  return docs.map((d, i) => ({ ...plain(d), color: (d as any).color || PALETTE[i % PALETTE.length] }));
+  return docs.map((d, i) => ({ ...plain(d), color: colourOf((d as any).color, i) }));
 }
 
 export async function defaultPortfolio(): Promise<PortfolioView | null> {

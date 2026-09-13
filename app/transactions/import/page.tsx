@@ -13,7 +13,6 @@ export default function ImportPage() {
         <Link href="/transactions" className="label-cap hover:text-[var(--accent-deep)]">← Transactions</Link>
       </div>
       <PageHeader
-        eyebrow="Import"
         title="Bring in your history at once."
         subtitle="Drop broker contract-note PDFs straight in — every note is reconciled against its own totals before anything imports. Or paste a CSV (symbol, type, date, shares, price, fees, notes). Preview first, then import — holdings and cost basis recompute automatically."
       />

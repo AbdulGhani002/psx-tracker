@@ -17,3 +17,20 @@ export async function POST(req: NextRequest) {
   res.cookies.set(PORTFOLIO_COOKIE, id, { path: "/", httpOnly: false, sameSite: "lax", maxAge: 60 * 60 * 24 * 365 });
   return res;
 }
+
+// The same as a link: /api/portfolios/select?id=<id|all>&next=/portfolio
+export async function GET(req: NextRequest) {
+  if (!(await getCurrentUserId())) return NextResponse.redirect(new URL("/login", req.url));
+  const id = req.nextUrl.searchParams.get("id") || ALL;
+  const next = req.nextUrl.searchParams.get("next") || "/portfolio";
+  if (id !== ALL) {
+    const all = await listPortfolios();
+    if (!all.some((p) => p._id === id)) return NextResponse.redirect(new URL("/portfolios", req.url));
+  }
+  const host = req.headers.get("x-forwarded-host") ?? req.headers.get("host");
+  const proto = req.headers.get("x-forwarded-proto") ?? (host?.startsWith("localhost") ? "http" : "https");
+  const target = host ? `${proto}://${host}${next.startsWith("/") ? next : "/portfolio"}` : new URL(next, req.url).toString();
+  const res = NextResponse.redirect(target);
+  res.cookies.set(PORTFOLIO_COOKIE, id, { path: "/", httpOnly: false, sameSite: "lax", maxAge: 60 * 60 * 24 * 365 });
+  return res;
+}

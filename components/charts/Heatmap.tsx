@@ -7,8 +7,9 @@ const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "
 function shade(r: number | undefined): { bg: string; fg: string } {
   if (r == null) return { bg: "var(--surface-2)", fg: "var(--muted)" };
   const a = Math.min(1, Math.abs(r) / 0.12); // 12% saturates
-  const alpha = 0.15 + a * 0.75;
-  return r >= 0 ? { bg: `color-mix(in srgb, var(--positive) ${Math.round(alpha * 100)}%, transparent)`, fg: "var(--ink)" } : { bg: `color-mix(in srgb, var(--negative) ${Math.round(alpha * 100)}%, transparent)`, fg: "var(--ink)" };
+  const alpha = 0.1 + a * 0.5;
+  const tone = r >= 0 ? "var(--positive)" : "var(--negative)";
+  return { bg: `color-mix(in srgb, ${tone} ${Math.round(alpha * 100)}%, transparent)`, fg: a > 0.5 ? "var(--ink)" : tone };
 }
 
 export function Heatmap({ table, years, title }: { table: MonthlyTable; years?: number; title?: string }) {

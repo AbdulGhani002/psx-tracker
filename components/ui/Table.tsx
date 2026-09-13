@@ -26,7 +26,7 @@ export function Table<T>({ columns, rows, rowKey, empty, onRowClick }: Props<T>)
             {columns.map((c) => (
               <th
                 key={c.key}
-                className="px-3 py-2.5 text-[11px] uppercase tracking-[0.06em] text-muted font-medium"
+                className="px-3 py-2.5 text-[11px] uppercase tracking-[0.06em] text-muted font-semibold"
                 style={{ textAlign: c.align ?? "left", width: c.width }}
               >
                 {c.header}
@@ -45,7 +45,7 @@ export function Table<T>({ columns, rows, rowKey, empty, onRowClick }: Props<T>)
             rows.map((row) => (
               <tr
                 key={rowKey(row)}
-                className={`border-b border-rule ${onRowClick ? "cursor-pointer hover:bg-[var(--paper-2)]" : ""}`}
+                className={`border-b border-rule ${onRowClick ? "cursor-pointer hover:bg-[var(--surface-2)]" : ""}`}
                 onClick={onRowClick ? () => onRowClick(row) : undefined}
               >
                 {columns.map((c) => (

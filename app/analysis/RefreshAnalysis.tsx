@@ -52,7 +52,7 @@ export function RefreshAnalysis() {
 
   return (
     <div className="flex items-center gap-3">
-      <button type="button" onClick={run} disabled={busy} className="label-cap border border-ink px-3 py-1.5 hover:bg-ink hover:text-[var(--paper)] disabled:opacity-50">
+      <button type="button" onClick={run} disabled={busy} className="btn-ghost text-[12px] disabled:opacity-50">
         {busy ? `Building… ${seconds}s` : "Rebuild now"}
       </button>
       {error && <span className="text-[13px]" style={{ color: "var(--negative)" }}>{error}</span>}

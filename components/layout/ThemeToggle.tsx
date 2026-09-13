@@ -1,48 +1,6 @@
-"use client";
-
-import { useEffect, useState } from "react";
-
-export function ThemeToggle({ compact = false }: { compact?: boolean }) {
-  const [theme, setTheme] = useState<"light" | "dark">("dark");
-
-  useEffect(() => {
-    const saved = (typeof window !== "undefined" && localStorage.getItem("theme")) as
-      | "light"
-      | "dark"
-      | null;
-    if (saved === "dark" || saved === "light") setTheme(saved);
-    else {
-      const current = document.documentElement.getAttribute("data-theme");
-      setTheme(current === "light" ? "light" : "dark");
-    }
-  }, []);
-
-  function toggle() {
-    const next = theme === "dark" ? "light" : "dark";
-    setTheme(next);
-    document.documentElement.setAttribute("data-theme", next);
-    try {
-      localStorage.setItem("theme", next);
-    } catch {
-      /* ignore */
-    }
-  }
-
-  return (
-    <button
-      onClick={toggle}
-      aria-label="Toggle theme"
-      className={`label-cap transition-colors hover:text-ink ${compact ? "" : "border border-ink px-3 py-1.5"}`}
-      title={theme === "dark" ? "Switch to light" : "Switch to dark"}
-    >
-      {theme === "dark" ? "☾ Dark" : "☀ Light"}
-    </button>
-  );
-}
-
-// Inline script (runs before paint) to apply the saved theme and avoid a flash.
+// The app is light only. The script pins the attribute so anything that once
+// keyed on it (and a browser that saved "dark" earlier) renders light.
 export function ThemeScript() {
-  // Dark is the default; only a saved "light" flips it.
-  const js = `(function(){try{var t=localStorage.getItem('theme');document.documentElement.setAttribute('data-theme',t==='light'?'light':'dark');}catch(e){document.documentElement.setAttribute('data-theme','dark');}})();`;
+  const js = `document.documentElement.setAttribute('data-theme','light');`;
   return <script dangerouslySetInnerHTML={{ __html: js }} />;
 }

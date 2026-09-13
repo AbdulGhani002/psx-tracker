@@ -1,9 +1,9 @@
 // A small line-icon set for the shell. Each icon is a 24-unit box drawn with
 // the current colour, so the sidebar tints them by state.
-type P = { className?: string };
+type P = { className?: string; style?: React.CSSProperties };
 
 const base = (props: P, children: React.ReactNode) => (
-  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className={props.className} aria-hidden>
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" className={props.className} style={props.style} aria-hidden>
     {children}
   </svg>
 );
@@ -35,6 +35,13 @@ export const Icon = {
   menu: (p: P) => base(p, <><path d="M4 7h16M4 12h16M4 17h16" /></>),
   search: (p: P) => base(p, <><circle cx="11" cy="11" r="7" /><path d="m20 20-3.5-3.5" /></>),
   trend: (p: P) => base(p, <><path d="m3 17 6-6 4 4 8-8" /><path d="M14 7h7v7" /></>),
+  briefcase: (p: P) => base(p, <><rect x="3" y="7" width="18" height="13" rx="2" /><path d="M8 7V5a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" /><path d="M3 12h18" /></>),
+  sidebar: (p: P) => base(p, <><rect x="3" y="4" width="18" height="16" rx="2" /><path d="M9 4v16" /></>),
+  bell: (p: P) => base(p, <><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9" /><path d="M10 21a2 2 0 0 0 4 0" /></>),
+  grid: (p: P) => base(p, <><rect x="3" y="3" width="7" height="7" rx="1.5" /><rect x="14" y="3" width="7" height="7" rx="1.5" /><rect x="3" y="14" width="7" height="7" rx="1.5" /><rect x="14" y="14" width="7" height="7" rx="1.5" /></>),
+  more: (p: P) => base(p, <><circle cx="5" cy="12" r="1.2" /><circle cx="12" cy="12" r="1.2" /><circle cx="19" cy="12" r="1.2" /></>),
+  arrowUpRight: (p: P) => base(p, <><path d="M7 17 17 7" /><path d="M8 7h9v9" /></>),
+  arrowDownRight: (p: P) => base(p, <><path d="M7 7l10 10" /><path d="M17 8v9H8" /></>),
 };
 
 export type IconName = keyof typeof Icon;

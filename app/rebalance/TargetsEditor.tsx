@@ -212,7 +212,7 @@ export function TargetsEditor({ initial, strictZones }: Props) {
                     step={0.5}
                     min={0}
                     max={100}
-                    className="w-20 bg-transparent border-b border-ink text-right font-mono mono-num text-[13px] py-1 focus:outline-none"
+                    className="field w-20 text-right font-mono mono-num text-[13px]"
                   />
                   <span className="ml-1 text-muted text-[11px]">%</span>
                 </td>
@@ -224,7 +224,7 @@ export function TargetsEditor({ initial, strictZones }: Props) {
                     step={0.5}
                     min={0}
                     max={50}
-                    className="w-16 bg-transparent border-b border-ink text-right font-mono mono-num text-[13px] py-1 focus:outline-none"
+                    className="field w-16 text-right font-mono mono-num text-[13px]"
                   />
                   <span className="ml-1 text-muted text-[11px]">%</span>
                 </td>

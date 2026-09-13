@@ -15,7 +15,6 @@ export default async function TrashPage() {
   return (
     <div>
       <PageHeader
-        eyebrow="Transactions / Trash"
         title="Recently deleted."
         subtitle="Soft-deleted transactions are kept here. They do not affect any holding, dividend, tax, or cash figure. Restore one to bring it back, or delete it forever."
       >

@@ -18,7 +18,6 @@ export default async function WatchlistPage() {
   return (
     <div>
       <PageHeader
-        eyebrow="Watchlist"
         title="The price you decided on, before the day arrives."
         subtitle="Buy and sell bands set in advance, checked every half hour, pushed to Telegram when one is reached."
       />

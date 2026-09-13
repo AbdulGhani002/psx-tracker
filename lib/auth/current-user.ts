@@ -17,6 +17,9 @@ export function runAsUser<T>(userId: string, fn: () => Promise<T>): Promise<T> {
 export async function getCurrentUserId(): Promise<string | null> {
   const override = userStore.getStore();
   if (override) return override;
+  // A development machine looking at a copy of the data acts as one user
+  // without a session. Ignored in production builds.
+  if (process.env.NODE_ENV !== "production" && process.env.DEV_PREVIEW_USER) return process.env.DEV_PREVIEW_USER;
   try {
     const token = cookies().get(SESSION_COOKIE)?.value;
     const session = await verifySession(token);

@@ -3,6 +3,7 @@
 import { Suspense, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/Button";
+import { LogoMark } from "@/components/layout/Logo";
 
 export const dynamic = "force-dynamic";
 
@@ -27,30 +28,35 @@ function ResetForm() {
     setBusy(false);
   }
 
-  const inputCls = "w-full bg-transparent border-b border-ink py-2.5 text-[15px] font-mono focus:outline-none focus:border-[var(--accent-deep)]";
+  const inputCls = "field text-[15px]";
 
   return (
-    <div className="min-h-screen flex flex-col items-center justify-center px-6" style={{ background: "var(--paper)" }}>
-      <div className="w-full max-w-[380px]">
-        <h1 className="font-display text-[32px] text-center mb-6">Set a new password</h1>
+    <div className="min-h-screen flex flex-col items-center justify-center px-6 py-10 login-bg">
+      <div className="w-full max-w-[400px]">
+        <div className="flex flex-col items-center mb-8">
+          <LogoMark size={52} />
+          <h1 className="text-[28px] font-bold tracking-[-0.03em] leading-none mt-6">Set a new password</h1>
+        </div>
+        <div className="card card-pad">
         {!token ? (
           <p className="text-[13px] text-center text-muted">This reset link is missing its token. Request a new one from the login page.</p>
         ) : done ? (
           <div className="text-center">
             <p className="text-[14px]" style={{ color: "var(--positive)" }}>Password updated.</p>
-            <a href="/login" className="label-cap hover:text-[var(--accent-deep)] inline-block mt-4">Go to sign in →</a>
+            <a href="/login" className="text-[13px] link-underline inline-block mt-4">Go to sign in</a>
           </div>
         ) : (
-          <form onSubmit={submit} className="space-y-6">
+          <form onSubmit={submit} className="space-y-5">
             <div>
               <label className="label-cap block mb-1.5">New password</label>
               <input type="password" autoComplete="new-password" required value={password} onChange={(e) => setPassword(e.target.value)} className={inputCls} />
               <p className="text-[11px] text-muted mt-1">At least 8 characters.</p>
             </div>
-            {error && <div className="text-[13px] py-2 px-3 border" style={{ color: "var(--negative)", borderColor: "var(--negative)" }}>{error}</div>}
-            <Button type="submit" variant="solid" disabled={busy} className="w-full py-3">{busy ? "Saving…" : "Set new password"}</Button>
+            {error && <div className="text-[13px] py-2.5 px-3 rounded-lg" style={{ color: "var(--negative)", background: "color-mix(in srgb, var(--negative) 10%, transparent)" }}>{error}</div>}
+            <Button type="submit" variant="solid" disabled={busy} className="w-full !py-3 text-[14px]">{busy ? "Saving…" : "Set new password"}</Button>
           </form>
         )}
+        </div>
       </div>
     </div>
   );

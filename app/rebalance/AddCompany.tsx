@@ -73,7 +73,7 @@ export function AddCompany() {
             placeholder="e.g. OGDC"
             onChange={(e) => setSymbol(e.target.value.toUpperCase())}
             onKeyDown={(e) => e.key === "Enter" && add()}
-            className="w-40 bg-transparent border-b border-ink py-1.5 font-mono uppercase text-[14px] focus:outline-none focus:border-[var(--accent-deep)]"
+            className="field w-40 font-mono uppercase text-[14px]"
           />
         </div>
         <div>
@@ -87,7 +87,7 @@ export function AddCompany() {
             step={0.5}
             onChange={(e) => setTarget(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && add()}
-            className="w-24 bg-transparent border-b border-ink py-1.5 text-right font-mono mono-num text-[14px] focus:outline-none focus:border-[var(--accent-deep)]"
+            className="field w-24 text-right font-mono mono-num text-[14px]"
           />
         </div>
         <Button variant="solid" onClick={add} disabled={busy || !symbol.trim()}>

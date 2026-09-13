@@ -1,7 +1,7 @@
 // Single source of truth for the app version + changelog.
 // Bump APP_VERSION and prepend a CHANGELOG entry on every release.
 
-export const APP_VERSION = "10.0.0";
+export const APP_VERSION = "11.0.0";
 
 export const BUILD_DATE =
   process.env.NEXT_PUBLIC_BUILD_DATE ?? "";
@@ -17,6 +17,20 @@ export type ChangelogEntry = {
 
 // Reverse-chronological. Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: "11.0.0",
+    date: "2026-09-13",
+    title: "A Zar clone: one light theme in Sarmaaya's colours, portfolios with their own tabs, and the pages that were not a portfolio tracker removed",
+    changes: [
+      "The app is drawn the way Sarmaaya's Zar draws it, in Zar's light palette only: a pale grey page, white cards with a hairline border, navy text, IBM Plex Sans throughout, green for gains and the brand, red for losses, a teal value line with the money put in dashed in blue under it, and the one dark button. The dark theme is gone. The mark is a green P whose bowl opens into a rising line; the app icons and the login page carry it.",
+      "The sidebar is Zar's menu: Overview, Portfolios (opened to the list of your portfolios, each a link to its page), Watchlists, Rebalance, Zakat, Model and Settings, with a collapse to an icon rail. The top bar carries the page title, the KSE-100 with its change and the KMI-30, the portfolio chip with its initials, Add trade and the account.",
+      "The Overview is Zar's: total net worth, today's P&L, total return, invested and available cash across the top; the market value line with the invested line and 1M to ALL tabs beside the asset allocation; a card per portfolio with its value, today's move, a sparkline and its invested, unrealised and total return; then top gainers and losers, recent activity, the performance heatmap and what moved the book.",
+      "A portfolio has its own page with Zar's tabs. Holding: ten figures (investment value, unrealised gain, today's return, dividends, dividend tax, available cash, realised gain, total return, deductions, CGT), the market value chart, the holdings donut and the active holdings table with a Columns menu, export, search and a Sell button per row. Analytics: Returns, Profitability, Diversification and Report views. Trade history: closed trades with their realised P&L beside the ledger. Payouts: the dividend summary, income over time stacked by asset, the total per asset, a month-by-year table, yields, what is coming and the warrants. Cash: deposits, withdrawals and the brokerage balance with an Add / Withdraw form, then the funds and savings accounts. CGT: each disposal with its slab and tax and the deductions of the year. Zakat: dividend zakat plus portfolio zakat, and the payments you record against it. Rebalance and Settings.",
+      "Zakat payments are recorded now, from the Zakat tab or the Zakat page, and shown against what is due.",
+      "Removed, because a portfolio tracker does not need them: Plan, Decisions, Wealth, Sector rotation, the Statement page, Calculators and the standalone Risk page (its figures sit under Analytics). The old addresses for holdings, transactions, analytics, dividends, funds, tax and risk redirect into the portfolio tabs. The Model page stays; the Telegram and email reports are unchanged.",
+      "Portfolio cards carry invested, unrealised, realised, dividends, total return and the day's move for each portfolio; the benchmark series carries the net money invested on each day for the dashed line.",
+    ],
+  },
   {
     version: "10.0.0",
     date: "2026-09-12",

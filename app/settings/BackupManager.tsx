@@ -81,7 +81,7 @@ export function BackupManager() {
               browser reuses your login. */}
           <a
             href="/api/backup"
-            className="inline-flex items-center justify-center px-4 py-2 text-[12px] font-medium uppercase tracking-button bg-ink text-paper border border-ink hover:bg-[var(--accent-deep)] hover:border-[var(--accent-deep)] transition-colors"
+            className="btn-primary inline-flex items-center justify-center"
           >
             Download backup
           </a>

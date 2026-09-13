@@ -26,7 +26,7 @@ export function RefreshPrices() {
       <button
         onClick={refresh}
         disabled={busy}
-        className="label-cap border border-ink px-3 py-1.5 hover:bg-ink hover:text-paper transition-colors disabled:opacity-50"
+        className="btn-ghost text-[12px] disabled:opacity-50"
       >
         {busy ? "Refreshing…" : "↻ Refresh prices"}
       </button>

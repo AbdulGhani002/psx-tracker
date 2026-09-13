@@ -11,29 +11,22 @@ type Props = Omit<React.InputHTMLAttributes<HTMLInputElement>, "onChange" | "val
   large?: boolean;
 };
 
-export const NumberInput = forwardRef<HTMLInputElement, Props>(function NumberInput(
-  { label, value, onChange, suffix, hint, large = false, className = "", ...rest },
-  ref
-) {
+export const NumberInput = forwardRef<HTMLInputElement, Props>(function NumberInput({ label, value, onChange, suffix, hint, large = false, className = "", ...rest }, ref) {
   return (
     <div className="space-y-1.5">
       {label && <label className="label-cap block">{label}</label>}
-      <div className="relative flex items-center border-b border-ink">
+      <div className="field" data-size={large ? "lg" : undefined}>
         <input
           ref={ref}
           type="number"
           value={value}
           onChange={(e) => onChange(e.target.value === "" ? 0 : Number(e.target.value))}
-          className={`flex-1 bg-transparent font-mono mono-num ${
-            large ? "text-[22px] py-2" : "text-[15px] py-1.5"
-          } focus:outline-none ${className}`}
+          className={`font-mono mono-num ${className}`}
           {...rest}
         />
-        {suffix && (
-          <span className="font-mono text-[12px] text-muted ml-1">{suffix}</span>
-        )}
+        {suffix && <span className="suffix">{suffix}</span>}
       </div>
-      {hint && <div className="text-[11px] text-muted font-mono">{hint}</div>}
+      {hint && <div className="text-[11px] text-muted">{hint}</div>}
     </div>
   );
 });

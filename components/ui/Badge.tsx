@@ -5,21 +5,19 @@ type Props = {
   tone?: Tone;
 };
 
-const STYLES: Record<Tone, { bg: string; fg: string }> = {
-  default: { bg: "transparent", fg: "var(--ink)" },
-  positive: { bg: "transparent", fg: "var(--positive)" },
-  negative: { bg: "transparent", fg: "var(--negative)" },
-  amber: { bg: "transparent", fg: "var(--accent-deep)" },
-  accent: { bg: "transparent", fg: "var(--accent-deep)" },
+// A small tinted pill. The tone is the text colour on a wash of the same.
+const FG: Record<Tone, string> = {
+  default: "var(--muted)",
+  positive: "var(--positive)",
+  negative: "var(--negative)",
+  amber: "var(--gold)",
+  accent: "var(--accent)",
 };
 
 export function Badge({ children, tone = "default" }: Props) {
-  const s = STYLES[tone];
+  const fg = FG[tone];
   return (
-    <span
-      className="inline-flex items-center font-mono text-[10px] uppercase tracking-stat border px-1.5 py-0.5"
-      style={{ background: s.bg, color: s.fg, borderColor: s.fg }}
-    >
+    <span className="inline-flex items-center rounded-full text-[11px] font-semibold px-2 py-0.5 tracking-[0.01em]" style={{ color: fg, background: `color-mix(in srgb, ${fg} 12%, transparent)` }}>
       {children}
     </span>
   );

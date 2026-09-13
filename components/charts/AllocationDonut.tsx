@@ -49,8 +49,8 @@ export function AllocationDonut({
   const GAP = 1.2; // px gap between arcs
 
   return (
-    <div className="flex flex-col sm:flex-row items-center gap-6">
-      <svg viewBox="0 0 180 180" width={180} height={180} className="shrink-0">
+    <div className="flex flex-col sm:flex-row items-center gap-5">
+      <svg viewBox="0 0 180 180" width={150} height={150} className="shrink-0">
         <g transform={`rotate(-90 ${cx} ${cy})`}>
           {display.map((s, i) => {
             const frac = s.value / total;
@@ -90,16 +90,14 @@ export function AllocationDonut({
         )}
       </svg>
 
-      <ul className="flex-1 min-w-0 w-full grid grid-cols-1 gap-y-1 text-[12px]">
+      <ul className="flex-1 min-w-0 w-full grid grid-cols-1 gap-y-0.5 text-[12px]">
         {display.map((s, i) => (
-          <li key={s.label} className="flex items-baseline justify-between border-b border-rule py-1.5 gap-3">
-            <span className="flex items-baseline gap-2 min-w-0">
-              <span className="inline-block w-2.5 h-2.5 mt-0.5 shrink-0 rounded-sm" style={{ background: PALETTE[i % PALETTE.length] }} />
-              <span className="truncate">{s.label}</span>
+          <li key={s.label} className="flex items-center justify-between py-1 gap-3" title={fmtRs(s.value)}>
+            <span className="flex items-center gap-2 min-w-0">
+              <span className="inline-block w-2 h-2 shrink-0 rounded-full" style={{ background: PALETTE[i % PALETTE.length] }} />
+              <span className="text-muted leading-tight">{s.label}</span>
             </span>
-            <span className="font-mono mono-num shrink-0">
-              {fmtPct(s.value / total, 1)} <span className="text-muted ml-2">{fmtRs(s.value)}</span>
-            </span>
+            <span className="mono-num shrink-0 font-medium">{fmtPct(s.value / total, 1)}</span>
           </li>
         ))}
       </ul>

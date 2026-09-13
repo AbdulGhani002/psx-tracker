@@ -19,15 +19,15 @@ const config: Config = {
         "inverted-fg": "var(--inverted-fg)",
       },
       fontFamily: {
-        display: ["var(--font-sans)", "Roboto", "system-ui", "sans-serif"],
-        sans: ["var(--font-sans)", "Roboto", "system-ui", "sans-serif"],
-        mono: ["var(--font-mono)", "Roboto Mono", "ui-monospace", "monospace"],
+        display: ["var(--font-sans)", "IBM Plex Sans", "system-ui", "sans-serif"],
+        sans: ["var(--font-sans)", "IBM Plex Sans", "system-ui", "sans-serif"],
+        mono: ["var(--font-sans)", "IBM Plex Sans", "system-ui", "sans-serif"],
       },
       borderRadius: {
         none: "0",
-        DEFAULT: "10px",
-        lg: "14px",
-        xl: "18px",
+        DEFAULT: "8px",
+        lg: "10px",
+        xl: "12px",
         full: "9999px",
       },
       letterSpacing: {
