@@ -8,7 +8,6 @@ import { TradesTab } from "./tabs/TradesTab";
 import { PayoutsTab } from "./tabs/PayoutsTab";
 import { CashTab } from "./tabs/CashTab";
 import { CgtTab } from "./tabs/CgtTab";
-import { ZakatTab } from "./tabs/ZakatTab";
 import { RebalanceTab } from "./tabs/RebalanceTab";
 import { SettingsTab } from "./tabs/SettingsTab";
 
@@ -26,7 +25,6 @@ const TABS = [
   { key: "payouts", label: "Payouts" },
   { key: "cash", label: "Cash" },
   { key: "cgt", label: "CGT" },
-  { key: "zakat", label: "Zakat" },
   { key: "rebalance", label: "Rebalance" },
   { key: "settings", label: "Settings" },
 ] as const;
@@ -74,7 +72,6 @@ export default async function PortfolioPage({ searchParams }: { searchParams: Po
         {tab === "payouts" && <PayoutsTab />}
         {tab === "cash" && <CashTab />}
         {tab === "cgt" && <CgtTab search={searchParams} />}
-        {tab === "zakat" && <ZakatTab />}
         {tab === "rebalance" && <RebalanceTab />}
         {tab === "settings" && <SettingsTab />}
       </Suspense>

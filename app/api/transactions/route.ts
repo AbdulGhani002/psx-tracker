@@ -114,37 +114,17 @@ export async function POST(req: NextRequest) {
         );
       }
 
-      // ENFORCEMENT: a SELL cannot be recorded without a logged decision.
-      if (!parsed.decision) {
-        return NextResponse.json(
-          {
-            error: "decision_required",
-            detail: "Selling requires a rationale and a falsifier — the decision is logged with the trade, or the trade doesn't happen.",
-          },
-          { status: 400 }
-        );
-      }
-      // Behavioural guard: anchoring to cost. Doesn't block — makes you look,
-      // then proceed with acknowledgeGuards.
-      const anchor = detectCostAnchoring(parsed.decision.rationale, avgCostBefore);
-      if (anchor && !parsed.decision.acknowledgeGuards) {
-        return NextResponse.json({ error: "guard_warnings", warnings: [anchor] }, { status: 409 });
+      // A decision may be logged with a sale; it is no longer required. When
+      // one is given, the cost-anchoring guard still asks for a second look.
+      if (parsed.decision) {
+        const anchor = detectCostAnchoring(parsed.decision.rationale, avgCostBefore);
+        if (anchor && !parsed.decision.acknowledgeGuards) {
+          return NextResponse.json({ error: "guard_warnings", warnings: [anchor] }, { status: 409 });
+        }
       }
     }
 
-    // ENFORCEMENT: opening a NEW position requires a plan (classification,
-    // ceiling, one falsifiable invalidator). Adding to an existing one doesn't.
     const isNewPosition = parsed.type === "BUY" && (!holding || (holding.currentShares ?? 0) <= 0);
-    if (isNewPosition && !((holding as any)?.plan?.fvHigh > 0) && !parsed.plan) {
-      return NextResponse.json(
-        {
-          error: "plan_required",
-          detail: "New position: set its class, your price ceiling, and one falsifiable invalidator — before emotion, not after.",
-        },
-        { status: 400 }
-      );
-    }
-
     if (!holding) {
       // Brand new symbol — look it up on PSX so we don't store garbage metadata.
       const info = await getCompanyInfo(parsed.symbol);

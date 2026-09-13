@@ -16,9 +16,9 @@ export function Heatmap({ table, years, title }: { table: MonthlyTable; years?: 
   const ys = years ? table.years.slice(0, years) : table.years;
   if (ys.length === 0) return <div className="text-[12px] text-muted">No months yet.</div>;
   return (
-    <div className="overflow-x-auto">
+    <div>
       {title && <div className="label-cap mb-2">{title}</div>}
-      <div className="heat" style={{ minWidth: 720 }}>
+      <div className="heat">
         <div />
         {MONTHS.map((m) => (
           <div key={m} className="text-center text-muted pb-1">{m}</div>
@@ -80,10 +80,10 @@ export function MonthlyBars({ a, b, months = 24, labelA = "Portfolio", labelB = 
           const bw = slot * 0.32;
           return (
             <g key={k}>
-              <rect x={x0} y={Math.min(y(va), zero)} width={bw} height={Math.abs(y(va) - zero)} fill={va >= 0 ? "var(--positive)" : "var(--negative)"} rx="2">
+              <rect x={x0} y={Math.min(y(va), zero)} width={bw} height={Math.abs(y(va) - zero)} fill={va >= 0 ? "var(--teal)" : "var(--negative)"} rx="2">
                 <title>{`${k} ${labelA}: ${(va * 100).toFixed(2)}%`}</title>
               </rect>
-              <rect x={x0 + bw + 2} y={Math.min(y(vb), zero)} width={bw} height={Math.abs(y(vb) - zero)} fill="var(--blue)" opacity="0.75" rx="2">
+              <rect x={x0 + bw + 2} y={Math.min(y(vb), zero)} width={bw} height={Math.abs(y(vb) - zero)} fill="#f59e0b" opacity="0.85" rx="2">
                 <title>{`${k} ${labelB}: ${(vb * 100).toFixed(2)}%`}</title>
               </rect>
               {(i % Math.ceil(keys.length / 12) === 0 || i === keys.length - 1) && (

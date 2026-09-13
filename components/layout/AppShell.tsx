@@ -21,7 +21,6 @@ const MENU: NavItem[] = [
   { href: "/portfolio", label: "Portfolios", icon: "briefcase", title: "Portfolio", subtitle: "Holdings, trades, payouts, cash and tax" },
   { href: "/watchlist", label: "Watchlists", icon: "eye", title: "Watchlists", subtitle: "Names you follow and the levels you set" },
   { href: "/rebalance", label: "Rebalance", icon: "target", title: "Rebalance", subtitle: "Target allocation and the trades that reach it" },
-  { href: "/zakat", label: "Zakat", icon: "moon", title: "Zakat", subtitle: "What is due on the portfolio, and what was paid" },
   { href: "/analysis", label: "Model", icon: "brain", title: "Model", subtitle: "Buy and sell zones from the learned model" },
 ];
 const SETTINGS: NavItem = { href: "/settings", label: "Settings", icon: "gear", title: "Settings", subtitle: "Portfolios, tax status, alerts and backup" };

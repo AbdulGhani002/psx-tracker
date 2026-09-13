@@ -2,7 +2,7 @@
 // Caches ONLY immutable build assets (/_next/static, fonts, icons) cache-first —
 // they're content-hashed so this can never go stale. Pages and API calls are NOT
 // intercepted: financial data always comes from the network, never a stale cache.
-const CACHE = "psx-static-v1";
+const CACHE = "psx-static-v2";
 
 self.addEventListener("install", () => self.skipWaiting());
 

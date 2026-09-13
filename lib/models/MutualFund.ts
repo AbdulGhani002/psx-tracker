@@ -35,6 +35,24 @@ const MutualFundSchema = new Schema(
       default: () => ({}),
     },
     notes: { type: String, default: "" },
+    // Units bought and redeemed through the trade form, newest last. The
+    // position above is the running result; this is the record.
+    trades: {
+      type: [
+        new Schema(
+          {
+            date: { type: Date, required: true },
+            side: { type: String, required: true, enum: ["BUY", "REDEEM"] },
+            units: { type: Number, required: true },
+            nav: { type: Number, required: true },
+            amount: { type: Number, required: true },
+            notes: { type: String, default: "" },
+          },
+          { _id: true, timestamps: false }
+        ),
+      ],
+      default: [],
+    },
   },
   { timestamps: true }
 );

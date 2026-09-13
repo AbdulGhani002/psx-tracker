@@ -29,7 +29,6 @@ const PAGES: Item[] = [
   { id: "p-payouts", label: "Payouts", hint: "dividends, tax, zakat, yields", group: "Pages", href: "/portfolio?tab=payouts" },
   { id: "p-cash", label: "Cash", hint: "deposits, withdrawals, funds, savings", group: "Pages", href: "/portfolio?tab=cash" },
   { id: "p-cgt", label: "CGT", hint: "capital gains tax by tax year", group: "Pages", href: "/portfolio?tab=cgt" },
-  { id: "p-zakat", label: "Zakat", hint: "what is due and what was paid", group: "Pages", href: "/zakat" },
   { id: "p-watchlist", label: "Watchlists", hint: "names you follow, buy and sell bands", group: "Pages", href: "/watchlist" },
   { id: "p-rebalance", label: "Rebalance", hint: "target allocation, deployment", group: "Pages", href: "/rebalance" },
   { id: "p-analysis", label: "Model", hint: "the model's market read, verdicts and zones", group: "Pages", href: "/analysis" },

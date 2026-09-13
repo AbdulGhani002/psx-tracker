@@ -8,6 +8,9 @@ import { Sparkline } from "@/components/ui/Sparkline";
 import { NetWorthChart } from "@/components/dashboard/NetWorthChart";
 import { StackedPayoutBars, AssetBars } from "@/components/charts/DividendBars";
 import { HoldingsTable, type HoldingRow } from "@/app/holdings/HoldingsTable";
+import { Sunburst } from "@/components/charts/Sunburst";
+import { CompareChart } from "@/components/charts/CompareChart";
+import { AddTradeForm } from "@/app/transactions/new/AddTradeForm";
 import { monthlyTable, type MonthlyCell } from "@/lib/analytics/performance";
 
 // The overview and the holding tab on sample data, for looking at the design
@@ -35,7 +38,7 @@ function series(n: number, start: number, drift: number, vol: number, seed = 7) 
 const rs = (v: number) => `Rs ${Math.round(v).toLocaleString("en-US")}`;
 const signed = (v: number) => `${v >= 0 ? "+" : "-"}Rs ${Math.abs(Math.round(v)).toLocaleString("en-US")}`;
 
-export default function PreviewPage({ searchParams }: { searchParams?: { view?: string } }) {
+export default function PreviewPage({ searchParams }: { searchParams?: { view?: string; symbol?: string; type?: string; asset?: string } }) {
   if (process.env.NODE_ENV === "production" || process.env.DEV_PREVIEW !== "1") notFound();
   const pts = series(365, 1180000, 0.0007, 0.014);
   const cells: MonthlyCell[] = [];
@@ -117,6 +120,46 @@ export default function PreviewPage({ searchParams }: { searchParams?: { view?: 
           </Card>
         </div>
         <Card className="mt-3"><HoldingsTable rows={rows} staleAfterDays={7} /></Card>
+      </div>
+    );
+  }
+
+  if (view === "trade") {
+    return (
+      <div>
+        <div className="mb-3">
+          <div className="text-[18px] font-semibold leading-tight">Add trade</div>
+          <div className="text-[12px] text-muted mt-0.5">A stock or a mutual fund. Buys, sells, dividends, bonuses, rights and splits flow into cost and P&amp;L.</div>
+        </div>
+        <AddTradeForm
+          held={names.map((n) => ({ symbol: n[0], name: n[1], sector: n[2], shares: n[3], price: n[5] }))}
+          funds={[{ _id: "f1", name: "MCB Cash Management Optimizer", mufapName: "MCB Cash Management Optimizer", amc: "MCB Investments", units: 2311.4, nav: 100.0 }]}
+          portfolios={[{ _id: "p1", name: "Main", isDefault: true }, { _id: "p2", name: "Trading book", isDefault: false }]}
+          defaultPortfolioId="p1"
+          brokeragePct={0.15}
+          initial={{ symbol: searchParams?.symbol, type: searchParams?.type, asset: searchParams?.asset }}
+        />
+      </div>
+    );
+  }
+
+  if (view === "analytics") {
+    const leaves = rows.map((r) => ({ symbol: r.symbol, sector: r.sector, value: r.marketValue, pct: r.unrealizedPct }));
+    return (
+      <div>
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 stagger">
+          <StatCard label="Time-weighted return (1Y)" value="+17.20%" tone="positive" delta="KSE +12.4%" deltaTone="muted" />
+          <StatCard label="Money-weighted (XIRR)" value="+27.40%" tone="positive" />
+          <StatCard label="Annualised (CAGR)" value="+21.10%" delta="vol 25.3%" deltaTone="muted" />
+          <StatCard label="Max drawdown" value="-29.0%" tone="negative" delta="Sharpe 0.71" deltaTone="muted" />
+        </div>
+        <Card className="mt-3" title="Portfolio against the markets"><CompareChart /></Card>
+        <div className="grid grid-cols-1 xl:grid-cols-3 gap-3 mt-3">
+          <Card title="Holdings" action={<span className="text-[12px] text-muted">By sector and name</span>}><Sunburst leaves={leaves} centreValue="+0.88%" centreLabel="Today" centreTone="var(--positive)" /></Card>
+          <Card title="Sectors"><AllocationDonut slices={[{ label: "Banks", value: 160686 }, { label: "Oil & Gas", value: 149422 }, { label: "Food", value: 54540 }, { label: "Pharma", value: 37000 }, { label: "Inv. Banks", value: 11212 }, { label: "Auto Parts", value: 9880 }]} centerValue="6" centerLabel="sectors" /></Card>
+          <Card title="Names"><AllocationDonut slices={rows.map((r) => ({ label: r.symbol, value: r.marketValue }))} centerValue="6" centerLabel="names" /></Card>
+        </div>
+        <Card className="mt-3" title="Portfolio, month by month"><Heatmap table={table} /></Card>
       </div>
     );
   }

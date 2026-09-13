@@ -834,13 +834,6 @@ async function _getCashSummary(): Promise<CashSummary> {
   return computeCashBalance(txs as any, entries as any, { cgtRatePct });
 }
 
-export async function getZakatPayments() {
-  if (!(await tryConnect())) return [];
-  const { ZakatPaymentModel } = await import("./models/ZakatPayment");
-  const docs = await ZakatPaymentModel.find({ userId: await meId(), ...(await portfolioFilter()) }).sort({ date: -1, createdAt: -1 }).lean();
-  return plain<Array<{ _id: string; date: string; amount: number; notes: string; portfolioId?: string }>>(docs);
-}
-
 export async function getCashEntries() {
   if (!(await tryConnect())) return [];
   const docs = await CashEntryModel.find({ userId: await meId(), ...(await portfolioFilter()) }).sort({ date: -1, createdAt: -1 }).lean();
@@ -1045,6 +1038,7 @@ export type ValuedFund = {
   // null when MUFAP has no figure — the UI then shows the manual value, marked.
   liveAnnualYieldPct: number | null;
   liveYieldAsOf: string;
+  trades: Array<{ date: string; side: string; units: number; nav: number; amount: number; notes: string }>;
 } & FundValuation;
 
 // --- Fund yields: persistent + self-refreshing -------------------------------
@@ -1167,6 +1161,7 @@ async function _getMutualFundsValued(): Promise<ValuedFund[]> {
       navAsOf,
       liveAnnualYieldPct,
       liveYieldAsOf: returns?.asOf ?? "",
+      trades: (((f as any).trades ?? []) as any[]).map((t) => ({ date: new Date(t.date).toISOString().slice(0, 10), side: String(t.side), units: Number(t.units), nav: Number(t.nav), amount: Number(t.amount), notes: String(t.notes ?? "") })),
     });
   }
   return out;

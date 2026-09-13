@@ -7,7 +7,6 @@ import { RebalanceView } from "./RebalanceView";
 import { TargetsEditor } from "./TargetsEditor";
 import { AddCompany } from "./AddCompany";
 import { DeploymentPlan } from "./DeploymentPlan";
-import { StandInPanel } from "./StandInPanel";
 import { getPortfolioSummary, getAllHoldings, getDeploymentPlan, getAppSettings, checkDataAvailability } from "@/lib/data";
 import { fmtRs } from "@/lib/format";
 
@@ -74,12 +73,6 @@ export async function RebalanceBody() {
           watchedCount={plan.board.rows.length}
         />
       </Card>
-
-      {plan.standIns.length > 0 && (
-        <Card className="mt-3" title="Stand-ins" eyebrow="A peer held for the sector while the name you want sits above its buy band">
-          <StandInPanel rows={plan.standIns as any} />
-        </Card>
-      )}
 
       <Card className="mt-3" title="Rebalance your portfolio" eyebrow="Enter the cash you have and it is deployed against your targets in whole shares">
         <RebalanceView positions={relevant} totalValue={summary.totalValue} availableCashBalance={0} />

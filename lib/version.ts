@@ -1,7 +1,7 @@
 // Single source of truth for the app version + changelog.
 // Bump APP_VERSION and prepend a CHANGELOG entry on every release.
 
-export const APP_VERSION = "11.0.0";
+export const APP_VERSION = "11.1.0";
 
 export const BUILD_DATE =
   process.env.NEXT_PUBLIC_BUILD_DATE ?? "";
@@ -17,6 +17,18 @@ export type ChangelogEntry = {
 
 // Reverse-chronological. Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: "11.1.0",
+    date: "2026-09-13",
+    title: "Company logos, mutual funds in Add trade, analytics drawn as charts, and the zakat and stand-in features removed",
+    changes: [
+      "Every company on the exchange has a logo where one could be found: scripts/fetch-logos.py reads the symbol list and each company's website from the PSX data portal, takes the site's own icon, and stores it under public/logos. The holdings table, the trade form's search and the analytics tables show it; names without one keep the two-letter mark.",
+      "Add trade takes a stock or a mutual fund. Stock: Buy, Sell, Dividend, Bonus, Right or Split as tabs, a company search over the whole exchange with logos and your holdings first, quantity with a Max for sales or a rupee amount for buys, the market price filled in, deductions worked out at your broker's rate, and a strip with the trade value, deductions, net and the estimated P&L of a sale. Mutual fund: buy or redeem units of any MUFAP fund by rupees or units at its NAV; the position and its average cost move and the trade is kept on the Cash tab. A sale no longer demands a written decision and a new position no longer demands a plan.",
+      "Analytics is charts now: the portfolio against the KSE-100, KMI-30, gold, the dollar, the S&P 500, NASDAQ, Dow, Nikkei 225, Sensex, FTSE and DAX on one indexed line chart with chips to switch each on; a holdings wheel by sector and name coloured by gain and loss; sector and name donuts; profit by name; the risk table, correlations and stress tests, all with a label instead of a paragraph. The month-by-month heatmaps fill their card, so no scrollbar.",
+      "Removed: the Zakat page and tab, and the stand-in feature (a name held in place of another, such as ABL for MEBL); the link on the holding was cleared.",
+      "The service worker registers in production only, so development no longer serves a stale bundle.",
+    ],
+  },
   {
     version: "11.0.0",
     date: "2026-09-13",
