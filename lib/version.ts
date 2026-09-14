@@ -1,7 +1,7 @@
 // Single source of truth for the app version + changelog.
 // Bump APP_VERSION and prepend a CHANGELOG entry on every release.
 
-export const APP_VERSION = "11.2.0";
+export const APP_VERSION = "11.2.1";
 
 export const BUILD_DATE =
   process.env.NEXT_PUBLIC_BUILD_DATE ?? "";
@@ -17,6 +17,14 @@ export type ChangelogEntry = {
 
 // Reverse-chronological. Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: "11.2.1",
+    date: "2026-09-14",
+    title: "The fund counts: invested, total return and today's P&L cover the whole book",
+    changes: [
+      "Invested, Total return and Today's P&L on the Overview, the Holding tab, the Analytics cards, the report and the portfolio cards now take in the money-market fund and any savings account, not the shares alone: what the units cost is invested, their gain over cost is return, and a money-market fund's daily income is part of the day. Each card says how much is shares and how much is funds.",
+    ],
+  },
   {
     version: "11.2.0",
     date: "2026-09-13",

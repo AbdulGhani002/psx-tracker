@@ -3,7 +3,7 @@ import { connectDb } from "@/lib/db";
 import { getAllUserIds } from "@/lib/data";
 import { runAsUser } from "@/lib/auth/current-user";
 import { cronAuthorised } from "@/lib/auth/cron";
-import { getToday, getPortfolioCards, getRecentActivity, getPerformance, getAllocation, getYields } from "@/lib/analytics/dashboard";
+import { getToday, getPortfolioCards, getRecentActivity, getPerformance, getAllocation, getYields, getBookFigures } from "@/lib/analytics/dashboard";
 import { getRisk } from "@/lib/analytics/risk";
 import { getFbrPack } from "@/lib/data";
 import { listPortfolios } from "@/lib/portfolios";
@@ -37,7 +37,8 @@ export async function POST(req: Request) {
     await time("portfolios", listPortfolios, (v) => ({ n: v.length, names: v.map((p) => p.name) }));
     await time("today", getToday, (v) => ({ asOf: v.asOf, profit: Math.round(v.profit), names: v.names.length, gainers: v.gainers.map((g) => g.symbol) }));
     await time("allocation", getAllocation, (v) => ({ total: Math.round(v.total), slices: v.slices.map((s) => `${s.label} ${Math.round(s.value)}`) }));
-    await time("cards", getPortfolioCards, (v) => ({ n: v.length, totals: v.map((c) => `${c.portfolio.name} ${Math.round(c.total)}`) }));
+    await time("cards", getPortfolioCards, (v) => ({ n: v.length, totals: v.map((c) => `${c.portfolio.name} ${Math.round(c.total)}`), returns: v.map((c) => `${Math.round(c.invested)} in, ${Math.round(c.totalReturn)} back`) }));
+    await time("book", getBookFigures, (v) => ({ invested: Math.round(v.invested), totalReturn: Math.round(v.totalReturn), sharesReturn: Math.round(v.equity.total), fundGain: Math.round(v.funds.gain), fundPerDay: Math.round(v.funds.perDay), today: Math.round(v.todayProfit) }));
     await time("activity", () => getRecentActivity(5), (v) => ({ n: v.length, first: v[0] }));
     await time("performanceALL", () => getPerformance("ALL"), (v) => (v ? { points: v.points.length, months: v.monthly.months, twr: v.summary?.twrPct, bench: v.summary?.benchPct, maxDD: v.summary?.maxDrawdownPct, daily: v.daily.length, stale: v.stale } : { none: true }));
     await time("performance1Y", () => getPerformance("1Y"), (v) => (v ? { points: v.points.length, twr: v.summary?.twrPct } : { none: true }));

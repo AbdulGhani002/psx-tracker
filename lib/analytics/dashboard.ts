@@ -104,12 +104,12 @@ export type PortfolioCard = {
   change30Pct: number | null; // the equities held today, priced 30 sessions ago
   spark: number[]; // equity value over the last 30 sessions at today's shares
   names: number;
-  invested: number; // cost of the shares held
-  unrealized: number;
+  invested: number; // cost of the shares, the fund units and the savings principal
+  unrealized: number; // shares against cost, plus the funds' gain
   realized: number;
   dividends: number;
   totalReturn: number;
-  dayProfit: number; // today's move on the shares held
+  dayProfit: number; // today's move on the shares held, plus the day's fund income
   dayPct: number | null;
 };
 
@@ -123,8 +123,8 @@ async function _getPortfolioCards(): Promise<PortfolioCard[]> {
   const [funds, savings] = await Promise.all([MutualFundModel.find({ userId: uid }).lean(), SavingsAccountModel.find({ userId: uid }).lean()]);
   const fundsValued = await getMutualFundsValued().catch(() => [] as any[]);
   const savingsValued = await getSavingsValued().catch(() => [] as any[]);
-  const fundValueById = new Map(fundsValued.map((f: any) => [String(f._id ?? f.id), f.value ?? 0]));
-  const savingsById = new Map(savingsValued.map((a: any) => [String(a._id ?? a.id), a.balance ?? 0]));
+  const fundById = new Map(fundsValued.map((f: any) => [String(f._id ?? f.id), { value: f.value ?? 0, cost: f.cost ?? 0, perDay: f.moneyMarket || f.dailyDividend ? f.earnedPerDay ?? 0 : 0 }]));
+  const savingsById = new Map(savingsValued.map((a: any) => [String(a._id ?? a.id), { balance: a.balance ?? 0, principal: a.principal ?? 0 }]));
   const out: PortfolioCard[] = [];
   const allSymbols = new Set<string>();
   const perPortfolio: Array<{ p: PortfolioView; shares: Map<string, number>; invested: number; realized: number; dividends: number }> = [];
@@ -162,9 +162,16 @@ async function _getPortfolioCards(): Promise<PortfolioCard[]> {
       for (let i = 0; i < 30; i++) spark[i] += n * (tail[i - (30 - tail.length)]?.close ?? tail[0].close);
     }
     const inPf = (doc: any) => (p.isDefault ? !doc.portfolioId || doc.portfolioId === p._id : doc.portfolioId === p._id);
-    const fundsTotal = funds.filter(inPf).reduce((s, f) => s + (fundValueById.get(String(f._id)) ?? 0), 0);
-    const savingsTotal = savings.filter(inPf).reduce((s, a) => s + (savingsById.get(String(a._id)) ?? 0), 0);
-    const unrealized = equity - invested;
+    const pfFunds = funds.filter(inPf).map((f) => fundById.get(String(f._id))).filter(Boolean) as Array<{ value: number; cost: number; perDay: number }>;
+    const pfSavings = savings.filter(inPf).map((a) => savingsById.get(String(a._id))).filter(Boolean) as Array<{ balance: number; principal: number }>;
+    const fundsTotal = pfFunds.reduce((s, f) => s + f.value, 0);
+    const fundsCost = pfFunds.reduce((s, f) => s + f.cost, 0);
+    const fundsPerDay = pfFunds.reduce((s, f) => s + f.perDay, 0);
+    const savingsTotal = pfSavings.reduce((s, a) => s + a.balance, 0);
+    const savingsPrincipal = pfSavings.reduce((s, a) => s + a.principal, 0);
+    const unrealized = equity - invested + (fundsTotal - fundsCost);
+    const dayProfit = equity - prev + fundsPerDay;
+    const dayBase = prev + fundsTotal + savingsTotal;
     out.push({
       portfolio: p,
       equity,
@@ -174,13 +181,13 @@ async function _getPortfolioCards(): Promise<PortfolioCard[]> {
       change30Pct: equity30 > 0 ? (equity / equity30 - 1) * 100 : null,
       spark,
       names: shares.size,
-      invested,
+      invested: invested + fundsCost + savingsPrincipal,
       unrealized,
       realized,
       dividends,
-      totalReturn: unrealized + realized + dividends,
-      dayProfit: equity - prev,
-      dayPct: prev > 0 ? ((equity - prev) / prev) * 100 : null,
+      totalReturn: unrealized + realized + dividends + (savingsTotal - savingsPrincipal),
+      dayProfit,
+      dayPct: dayBase > 0 ? (dayProfit / dayBase) * 100 : null,
     });
   }
   return out;
@@ -283,6 +290,49 @@ export async function getAllocation(): Promise<{ slices: Allocation[]; total: nu
   ].filter((s) => s.value > 0);
   return { slices, total: nw.total + brokerCash, invested: summary.totalCost, availableCash: nw.funds + brokerCash, equity: nw.equity, funds: nw.funds, savings: nw.savings, brokerCash };
 }
+
+export type BookFigures = {
+  netWorth: number;
+  invested: number; // what everything held cost: shares, fund units, savings principal
+  totalReturn: number; // shares (unrealised, realised, dividends) plus fund gain plus savings profit
+  totalReturnPct: number | null;
+  todayProfit: number; // shares at today's closes plus the day's fund income
+  todayPct: number | null;
+  equity: { cost: number; value: number; unrealized: number; realized: number; dividends: number; total: number; todayProfit: number; todayPct: number };
+  funds: { cost: number; value: number; gain: number; perDay: number; count: number };
+  savings: { principal: number; balance: number; profit: number };
+};
+
+// The book as one figure. The equity summary alone leaves the fund's gain
+// out of the return and the fund's cost out of what was invested, which
+// made a 1.4M book report a 1.27M investment and a share-only return.
+async function _getBookFigures(): Promise<BookFigures> {
+  const [summary, today, funds, savings, alloc] = await Promise.all([getPortfolioSummary(), getToday(), getMutualFundsValued().catch(() => []), getSavingsValued().catch(() => []), getAllocation()]);
+  const eqTotal = summary.unrealizedPL + summary.realizedPL + summary.dividendsTotal;
+  const fCost = funds.reduce((s, f) => s + f.cost, 0);
+  const fValue = funds.reduce((s, f) => s + f.value, 0);
+  // A money-market or daily-dividend fund earns every day; the day's income
+  // is the balance times the daily rate, the same figure the fund page shows.
+  const fPerDay = funds.reduce((s, f) => s + (f.moneyMarket || f.dailyDividend ? f.earnedPerDay : 0), 0);
+  const sPrincipal = savings.reduce((s, a) => s + a.principal, 0);
+  const sBalance = savings.reduce((s, a) => s + a.balance, 0);
+  const invested = summary.totalCost + fCost + sPrincipal;
+  const totalReturn = eqTotal + (fValue - fCost) + (sBalance - sPrincipal);
+  const todayProfit = today.profit + fPerDay;
+  const base = today.valueNow - today.profit + fValue + sBalance;
+  return {
+    netWorth: alloc.total,
+    invested,
+    totalReturn,
+    totalReturnPct: invested > 0 ? (totalReturn / invested) * 100 : null,
+    todayProfit,
+    todayPct: base > 0 ? (todayProfit / base) * 100 : null,
+    equity: { cost: summary.totalCost, value: summary.totalValue, unrealized: summary.unrealizedPL, realized: summary.realizedPL, dividends: summary.dividendsTotal, total: eqTotal, todayProfit: today.profit, todayPct: today.profitPct },
+    funds: { cost: fCost, value: fValue, gain: fValue - fCost, perDay: fPerDay, count: funds.length },
+    savings: { principal: sPrincipal, balance: sBalance, profit: sBalance - sPrincipal },
+  };
+}
+export const getBookFigures = cache(_getBookFigures);
 
 export async function heldSymbols(): Promise<string[]> {
   const holdings = await getAllHoldings();

@@ -7,7 +7,7 @@ import { DrawdownChart, DailyBars } from "@/components/charts/SmallCharts";
 import { CompareChart } from "@/components/charts/CompareChart";
 import { Sunburst } from "@/components/charts/Sunburst";
 import { CompanyMark } from "@/components/ui/CompanyMark";
-import { getPerformance, getToday, getYields } from "@/lib/analytics/dashboard";
+import { getPerformance, getToday, getYields, getBookFigures } from "@/lib/analytics/dashboard";
 import { getRisk } from "@/lib/analytics/risk";
 import { getPortfolioSummary, getAttribution } from "@/lib/data";
 import { fmtRs, fmtSignedRs, fmtSignedPct, fmtDate, fmtPct } from "@/lib/format";
@@ -94,16 +94,16 @@ async function Returns({ range }: { range: string }) {
 }
 
 async function Profitability({ range }: { range: string }) {
-  const [perf, summary, today, attr, yields] = await Promise.all([getPerformance(range).catch(() => null), getPortfolioSummary(), getToday(), getAttribution(30).catch(() => null), getYields().catch(() => null)]);
+  const [perf, summary, today, attr, yields, book] = await Promise.all([getPerformance(range).catch(() => null), getPortfolioSummary(), getToday(), getAttribution(30).catch(() => null), getYields().catch(() => null), getBookFigures()]);
   const held = summary.positions.filter((p) => p.shares > 0).sort((a, b) => b.marketValue - a.marketValue);
   const byName = new Map(today.names.map((n) => [n.symbol, n]));
-  const totalReturn = summary.unrealizedPL + summary.realizedPL + summary.dividendsTotal;
   const maxAbs = Math.max(1, ...held.map((p) => Math.abs(p.totalReturn)));
+  const fundsGain = book.funds.gain + book.savings.profit;
   return (
     <div>
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3 stagger">
-        <StatCard label="Total return" value={fmtSignedRs(totalReturn)} tone={totalReturn >= 0 ? "positive" : "negative"} delta={summary.totalCost > 0 ? fmtSignedPct(totalReturn / summary.totalCost, 1) : undefined} deltaTone={totalReturn >= 0 ? "positive" : "negative"} />
-        <StatCard label="Unrealized" value={fmtSignedRs(summary.unrealizedPL)} tone={summary.unrealizedPL >= 0 ? "positive" : "negative"} />
+        <StatCard label="Total return" value={fmtSignedRs(book.totalReturn)} tone={book.totalReturn >= 0 ? "positive" : "negative"} delta={book.totalReturnPct != null ? `${book.totalReturnPct >= 0 ? "+" : ""}${book.totalReturnPct.toFixed(1)}%` : undefined} deltaTone={book.totalReturn >= 0 ? "positive" : "negative"} hint={book.funds.count > 0 ? `Shares ${fmtSignedRs(book.equity.total)} · funds ${fmtSignedRs(fundsGain)}` : undefined} />
+        <StatCard label="Unrealized" value={fmtSignedRs(summary.unrealizedPL + fundsGain)} tone={summary.unrealizedPL + fundsGain >= 0 ? "positive" : "negative"} hint={book.funds.count > 0 ? `Shares ${fmtSignedRs(summary.unrealizedPL)} · funds ${fmtSignedRs(fundsGain)}` : undefined} />
         <StatCard label="Realized" value={fmtSignedRs(summary.realizedPL)} tone={summary.realizedPL >= 0 ? "positive" : "negative"} />
         <StatCard label="Dividends" value={fmtRs(summary.dividendsTotal)} delta={yields ? `${yields.portfolioYieldPct.toFixed(2)}% yield` : undefined} deltaTone="muted" />
       </div>
@@ -291,7 +291,7 @@ async function Diversification() {
 }
 
 async function Report({ range }: { range: string }) {
-  const [perf, summary, yields] = await Promise.all([getPerformance(range).catch(() => null), getPortfolioSummary(), getYields().catch(() => null)]);
+  const [perf, summary, yields, book] = await Promise.all([getPerformance(range).catch(() => null), getPortfolioSummary(), getYields().catch(() => null), getBookFigures()]);
   const s = perf?.summary ?? null;
   const totalReturn = summary.unrealizedPL + summary.realizedPL + summary.dividendsTotal;
   const Row = ({ k, v, tone }: { k: string; v: string; tone?: string }) => (
@@ -323,8 +323,11 @@ async function Report({ range }: { range: string }) {
             <Row k="Realised gain/loss" v={fmtSignedRs(summary.realizedPL)} tone={toneOf(summary.realizedPL)} />
             <Row k="Dividends received" v={fmtRs(summary.dividendsTotal)} />
             <Row k={`Dividends, ${summary.taxYearLabel}`} v={fmtRs(summary.dividendsYTD)} />
-            <Row k="Total return" v={fmtSignedRs(totalReturn)} tone={toneOf(totalReturn)} />
-            <Row k="Total return on cost" v={summary.totalCost > 0 ? fmtSignedPct(totalReturn / summary.totalCost, 2) : "–"} tone={toneOf(totalReturn)} />
+            <Row k="Total return on shares" v={fmtSignedRs(totalReturn)} tone={toneOf(totalReturn)} />
+            <Row k="Fund units at cost" v={fmtRs(book.funds.cost)} />
+            <Row k="Fund gain" v={fmtSignedRs(book.funds.gain)} tone={toneOf(book.funds.gain)} />
+            <Row k="Total return, all assets" v={fmtSignedRs(book.totalReturn)} tone={toneOf(book.totalReturn)} />
+            <Row k="Total return on everything invested" v={book.totalReturnPct != null ? `${book.totalReturnPct >= 0 ? "+" : ""}${book.totalReturnPct.toFixed(2)}%` : "–"} tone={toneOf(book.totalReturn)} />
             <Row k="Dividend yield on value" v={yields ? `${yields.portfolioYieldPct.toFixed(2)}%` : "–"} />
             <Row k="Dividend yield on cost" v={yields ? `${yields.yieldOnCostPct.toFixed(2)}%` : "–"} />
             <Row k="Largest position" v={summary.positions.length ? `${[...summary.positions].sort((a, b) => b.marketValue - a.marketValue)[0].symbol} ${fmtPct(Math.max(...summary.positions.map((p) => p.currentPercent)) / 100, 1)}` : "–"} />

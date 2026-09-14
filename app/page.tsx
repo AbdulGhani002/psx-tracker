@@ -10,7 +10,7 @@ import { RefreshPrices } from "@/components/layout/RefreshPrices";
 import { NetWorthChart } from "@/components/dashboard/NetWorthChart";
 import { StatCard } from "@/components/ui/StatCard";
 import { getPortfolioSummary, checkDataAvailability, getAttribution } from "@/lib/data";
-import { getToday, getPortfolioCards, getRecentActivity, getPerformance, getAllocation } from "@/lib/analytics/dashboard";
+import { getToday, getPortfolioCards, getRecentActivity, getPerformance, getAllocation, getBookFigures } from "@/lib/analytics/dashboard";
 import { fmtRs, fmtSignedRs, fmtDate } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
@@ -27,17 +27,17 @@ function Fallback({ h = 120 }: { h?: number }) {
 const initials = (name: string) => name.trim().split(/\s+/).slice(0, 2).map((p) => p[0]?.toUpperCase() ?? "").join("") || "P";
 
 async function TopCards() {
-  const [avail, summary, today, alloc] = await Promise.all([checkDataAvailability(), getPortfolioSummary(), getToday(), getAllocation()]);
-  const totalReturn = summary.unrealizedPL + summary.realizedPL + summary.dividendsTotal;
-  const totalReturnPct = summary.totalCost > 0 ? (totalReturn / summary.totalCost) * 100 : null;
+  const [avail, book, alloc] = await Promise.all([checkDataAvailability(), getBookFigures(), getAllocation()]);
+  const hasFunds = book.funds.count > 0 || book.savings.balance > 0;
+  const other = book.funds.gain + book.savings.profit;
   return (
     <>
       {!avail.available && <SetupBanner reason={avail.reason} />}
       <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-5 gap-3 stagger">
-        <StatCard label="Total net worth" value={fmtRs(alloc.total)} />
-        <StatCard label="Today's P&L" value={fmtSignedRs(today.profit)} tone={today.profit >= 0 ? "positive" : "negative"} delta={`${today.profitPct >= 0 ? "+" : ""}${today.profitPct.toFixed(2)}%`} deltaTone={today.profit >= 0 ? "positive" : "negative"} />
-        <StatCard label="Total return" value={fmtSignedRs(totalReturn)} tone={totalReturn >= 0 ? "positive" : "negative"} delta={totalReturnPct != null ? `${totalReturnPct >= 0 ? "+" : ""}${totalReturnPct.toFixed(2)}%` : undefined} deltaTone={totalReturn >= 0 ? "positive" : "negative"} />
-        <StatCard label="Invested" value={fmtRs(summary.totalCost)} />
+        <StatCard label="Total net worth" value={fmtRs(book.netWorth)} />
+        <StatCard label="Today's P&L" value={fmtSignedRs(book.todayProfit)} tone={book.todayProfit >= 0 ? "positive" : "negative"} delta={book.todayPct != null ? `${book.todayPct >= 0 ? "+" : ""}${book.todayPct.toFixed(2)}%` : undefined} deltaTone={book.todayProfit >= 0 ? "positive" : "negative"} hint={hasFunds ? `Shares ${fmtSignedRs(book.equity.todayProfit)} · funds ${fmtSignedRs(book.funds.perDay)} a day` : undefined} />
+        <StatCard label="Total return" value={fmtSignedRs(book.totalReturn)} tone={book.totalReturn >= 0 ? "positive" : "negative"} delta={book.totalReturnPct != null ? `${book.totalReturnPct >= 0 ? "+" : ""}${book.totalReturnPct.toFixed(2)}%` : undefined} deltaTone={book.totalReturn >= 0 ? "positive" : "negative"} hint={hasFunds ? `Shares ${fmtSignedRs(book.equity.total)} · funds ${fmtSignedRs(other)}` : undefined} />
+        <StatCard label="Invested" value={fmtRs(book.invested)} hint={hasFunds ? `Shares ${fmtRs(book.equity.cost)} · funds ${fmtRs(book.funds.cost + book.savings.principal)}` : undefined} />
         <StatCard label="Available cash" value={fmtRs(alloc.availableCash)} />
       </div>
     </>
