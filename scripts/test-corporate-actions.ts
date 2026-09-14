@@ -14,19 +14,20 @@ const eq = (name: string, got: unknown, want: unknown) => check(name, JSON.strin
 
 const S: AutoSettings = { autoDividends: true, autoBonus: true, dividendWhtPct: 15, zakatOnDividends: "none", bonusTaxWithheld: true, bonusTaxPct: 10 };
 
-// Business days: Friday 17 Oct 2025 back 3 business days is Tuesday 14 Oct.
+// Business days: Friday 17 Oct 2025 back 3 business days is Tuesday 14 Oct;
+// the entitlement cutoff is two business days before a closure (T+1).
 eq("businessDaysBefore over a plain week", businessDaysBefore("2025-10-17", 3), "2025-10-14");
 eq("businessDaysBefore over a weekend", businessDaysBefore("2025-10-20", 1), "2025-10-17");
-eq("last entitled trade date, closure on Friday", lastEntitledTradeDate("2025-10-17"), "2025-10-14");
-eq("last entitled trade date, closure on Monday", lastEntitledTradeDate("2026-09-21"), "2026-09-16");
-eq("last entitled trade date, closure on Tuesday", lastEntitledTradeDate("2026-09-22"), "2026-09-17");
+eq("last entitled trade date, closure on Friday", lastEntitledTradeDate("2025-10-17"), "2025-10-15");
+eq("last entitled trade date, closure on Monday", lastEntitledTradeDate("2026-09-21"), "2026-09-17");
+eq("last entitled trade date, closure on Tuesday", lastEntitledTradeDate("2026-09-22"), "2026-09-18");
 
 const tx = (symbol: string, type: string, date: string, shares: number, price = 100, extra: Record<string, unknown> = {}) => ({ symbol, type, date, shares, pricePerShare: price, netAmount: shares * price, ratio: "", ...extra });
 
 // Entitlement counts trades up to the cutoff, including a bonus before it.
-const ledger = [tx("LUCK", "BUY", "2026-01-10", 300), tx("LUCK", "BUY", "2026-09-16", 76), tx("LUCK", "BONUS", "2026-03-01", 30, 0)];
+const ledger = [tx("LUCK", "BUY", "2026-01-10", 300), tx("LUCK", "BUY", "2026-09-17", 76), tx("LUCK", "BONUS", "2026-03-01", 30, 0)];
 eq("shares entitled excludes the late buy", sharesEntitled(ledger as any, "LUCK", "2026-09-18"), 330);
-eq("shares entitled includes a buy on the cutoff day", sharesEntitled([...ledger, tx("LUCK", "BUY", "2026-09-15", 0), tx("LUCK", "BUY", "2026-09-15", 10)] as any, "LUCK", "2026-09-18"), 340);
+eq("shares entitled includes a buy on the cutoff day", sharesEntitled([...ledger, tx("LUCK", "BUY", "2026-09-16", 0), tx("LUCK", "BUY", "2026-09-16", 10)] as any, "LUCK", "2026-09-18"), 340);
 eq("shares entitled with a sale before the closure", sharesEntitled([...ledger, tx("LUCK", "SELL", "2026-09-10", -100)] as any, "LUCK", "2026-09-18"), 230);
 eq("shares entitled for a name not held", sharesEntitled(ledger as any, "MEBL", "2026-09-18"), 0);
 

@@ -4,15 +4,15 @@ import { taxYearOf } from "@/lib/dates";
 // Dividends and bonus shares recorded on their own.
 //
 // The exchange's payout board gives every announcement its book-closure date.
-// A holder on the register the day before the closure is entitled; with T+2
-// settlement that means a trade dated three business days before the closure
-// or earlier. Once the closure date arrives, the job writes the DIVIDEND (or
+// A holder on the register the day before the closure is entitled; with T+1
+// settlement (BMA's notes print "T+1 NCSS", settling the next business day)
+// that means a trade dated two business days before the closure or earlier. Once the closure date arrives, the job writes the DIVIDEND (or
 // BONUS) row from the shares the ledger says were held then, at the rate the
 // board printed, with tax at the user's filer rate. The row carries an action
 // key so it is written once, and a source of "auto" so a warrant uploaded
 // later replaces it instead of doubling it.
 
-export const SETTLEMENT_DAYS = 2;
+export const SETTLEMENT_DAYS = 1;
 export const LOOKBACK_DAYS = 180;
 
 export type Payout = { date: string | null; bookClosure: string | null; pctOfFace: number; cycle: string; payoutType: string };
