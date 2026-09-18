@@ -59,6 +59,10 @@ const AppSettingsSchema = new Schema(
     bonusTaxWithheld: { type: Boolean, default: true }, // companies withhold 10% (filer) / 20% of bonus shares for tax
     bonusTaxFiler: { type: Number, default: 10 },
     bonusTaxNonFiler: { type: Number, default: 20 },
+    // Company announcements for held names, sent as the exchange posts them (lib/announcements).
+    announceTelegram: { type: Boolean, default: true },
+    announceEmail: { type: Boolean, default: true },
+    announceEmailTo: { type: String, default: "" }, // blank: the verified account email
   },
   { timestamps: true }
 );
@@ -99,4 +103,7 @@ export const DEFAULT_SETTINGS = {
   bonusTaxWithheld: true,
   bonusTaxFiler: 10,
   bonusTaxNonFiler: 20,
+  announceTelegram: true,
+  announceEmail: true,
+  announceEmailTo: "",
 };

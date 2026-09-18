@@ -24,3 +24,4 @@ export { UserModel, type User } from "./User";
 export { DecisionModel, type Decision } from "./Decision";
 export { PlaybookModel, type Playbook, CASH_KINDS, type CashKind } from "./Playbook";
 export { PortfolioModel, type Portfolio } from "./Portfolio";
+export { AnnouncementModel, type Announcement } from "./Announcement";

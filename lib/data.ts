@@ -1281,6 +1281,9 @@ async function _getAppSettings(): Promise<AppSettings> {
     bonusTaxWithheld: (doc as any)?.bonusTaxWithheld ?? DEFAULT_SETTINGS.bonusTaxWithheld,
     bonusTaxFiler: (doc as any)?.bonusTaxFiler ?? DEFAULT_SETTINGS.bonusTaxFiler,
     bonusTaxNonFiler: (doc as any)?.bonusTaxNonFiler ?? DEFAULT_SETTINGS.bonusTaxNonFiler,
+    announceTelegram: (doc as any)?.announceTelegram ?? DEFAULT_SETTINGS.announceTelegram,
+    announceEmail: (doc as any)?.announceEmail ?? DEFAULT_SETTINGS.announceEmail,
+    announceEmailTo: (doc as any)?.announceEmailTo ?? DEFAULT_SETTINGS.announceEmailTo,
   } as AppSettings;
 }
 

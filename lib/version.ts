@@ -1,7 +1,7 @@
 // Single source of truth for the app version + changelog.
 // Bump APP_VERSION and prepend a CHANGELOG entry on every release.
 
-export const APP_VERSION = "11.2.1";
+export const APP_VERSION = "11.3.0";
 
 export const BUILD_DATE =
   process.env.NEXT_PUBLIC_BUILD_DATE ?? "";
@@ -17,6 +17,16 @@ export type ChangelogEntry = {
 
 // Reverse-chronological. Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: "11.3.0",
+    date: "2026-09-18",
+    title: "Company announcements arrive as they are posted, with the document",
+    changes: [
+      "The exchange's company-announcements board (dps.psx.com.pk/announcements/companies) is read every five minutes. When a company you hold posts anything, results, a board meeting, a dividend, a notice, the announcement is sent to you at once: on Telegram as the PDF itself with the title, the time and the links to the document and the company page in the caption (the text with the link when the file cannot go), and by email with the document attached when it is under 20 MB. Each announcement is sent once; a failed send is retried on the next runs.",
+      "A new Announcements page lists what your names have posted in the last six months with a filter per name and a Sent pill on each row; the Overview carries the latest six. Settings, under Company announcements: Telegram on or off, email on or off, the address (blank for the account email) and a button that sends the latest one now.",
+      "The job stores every row of the board it sees, so the history behind the page grows on its own; a catch-up after downtime walks the board back as far as it must.",
+    ],
+  },
   {
     version: "11.2.1",
     date: "2026-09-14",

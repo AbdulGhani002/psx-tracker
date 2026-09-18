@@ -22,6 +22,7 @@ const MENU: NavItem[] = [
   { href: "/watchlist", label: "Watchlists", icon: "eye", title: "Watchlists", subtitle: "Names you follow and the levels you set" },
   { href: "/rebalance", label: "Rebalance", icon: "target", title: "Rebalance", subtitle: "Target allocation and the trades that reach it" },
   { href: "/analysis", label: "Model", icon: "brain", title: "Model", subtitle: "Buy and sell zones from the learned model" },
+  { href: "/announcements", label: "Announcements", icon: "bell", title: "Announcements", subtitle: "What your companies have posted on the exchange" },
 ];
 const SETTINGS: NavItem = { href: "/settings", label: "Settings", icon: "gear", title: "Settings", subtitle: "Portfolios, tax status, alerts and backup" };
 const ALL_ITEMS = [...MENU, SETTINGS];

@@ -11,6 +11,8 @@ import { NetWorthChart } from "@/components/dashboard/NetWorthChart";
 import { StatCard } from "@/components/ui/StatCard";
 import { getPortfolioSummary, checkDataAvailability, getAttribution } from "@/lib/data";
 import { getToday, getPortfolioCards, getRecentActivity, getPerformance, getAllocation, getBookFigures } from "@/lib/analytics/dashboard";
+import { getRecentAnnouncements } from "@/lib/announcements";
+import { AnnouncementsList } from "@/components/dashboard/AnnouncementsList";
 import { fmtRs, fmtSignedRs, fmtDate } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
@@ -152,6 +154,15 @@ async function ActivityCard() {
   );
 }
 
+async function AnnouncementsCard() {
+  const rows = await getRecentAnnouncements({ limit: 6, days: 60 }).catch(() => []);
+  return (
+    <Card title="Company announcements" eyebrow="From the exchange, for your names" action={<Link href="/announcements" className="text-[12px] link-underline">All</Link>}>
+      <AnnouncementsList rows={rows} compact />
+    </Card>
+  );
+}
+
 async function HeatmapCard() {
   const perf = await getPerformance("3Y").catch(() => null);
   return (
@@ -216,6 +227,11 @@ export default function OverviewPage() {
         </div>
         <Suspense fallback={<Fallback h={220} />}>
           <AttributionCard />
+        </Suspense>
+      </div>
+      <div className="mt-3">
+        <Suspense fallback={<Fallback h={160} />}>
+          <AnnouncementsCard />
         </Suspense>
       </div>
     </div>

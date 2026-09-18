@@ -35,6 +35,9 @@ type Settings = {
   bonusTaxWithheld: boolean;
   bonusTaxFiler: number;
   bonusTaxNonFiler: number;
+  announceTelegram?: boolean;
+  announceEmail?: boolean;
+  announceEmailTo?: string;
 };
 
 export function AppSettingsManager({ initial, telegramConfigured }: { initial: Settings; telegramConfigured?: boolean }) {
@@ -44,6 +47,8 @@ export function AppSettingsManager({ initial, telegramConfigured }: { initial: S
   const [savedAt, setSavedAt] = useState<number | null>(null);
   const [testing, setTesting] = useState(false);
   const [testMsg, setTestMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  const [sendingAnn, setSendingAnn] = useState(false);
+  const [annMsg, setAnnMsg] = useState<{ ok: boolean; text: string } | null>(null);
 
   function set<K extends keyof Settings>(k: K, v: Settings[K]) {
     setS((prev) => ({ ...prev, [k]: v }));
@@ -60,6 +65,19 @@ export function AppSettingsManager({ initial, telegramConfigured }: { initial: S
       setTestMsg(res.ok ? { ok: true, text: "Sent — check Telegram." } : { ok: false, text: d?.detail ?? "Failed." });
     } finally {
       setTesting(false);
+    }
+  }
+
+  async function sendLatestAnnouncement() {
+    setSendingAnn(true);
+    setAnnMsg(null);
+    try {
+      await fetch("/api/settings", { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify(s) });
+      const res = await fetch("/api/announcements/test", { method: "POST" });
+      const d = await res.json().catch(() => ({}));
+      setAnnMsg(res.ok ? { ok: true, text: `${d?.detail ?? "Sent."} (Telegram: ${d?.telegram ?? "off"}, email: ${d?.email ?? "off"})` } : { ok: false, text: d?.detail ?? "Failed." });
+    } finally {
+      setSendingAnn(false);
     }
   }
 
@@ -160,6 +178,24 @@ export function AppSettingsManager({ initial, telegramConfigured }: { initial: S
           </div>
           <Toggle label="Bonus shares withheld for tax" value={s.bonusTaxWithheld ?? true} onChange={(v) => set("bonusTaxWithheld", v)} hint={`Companies keep ${s.filerStatus === "non-filer" ? s.bonusTaxNonFiler ?? 20 : s.bonusTaxFiler ?? 10}% of a bonus issue against the tax on it.`} />
         </div>
+      </div>
+
+      <div className="mt-6 pt-4 border-t border-rule">
+        <div className="text-[14px] font-semibold">Company announcements</div>
+        <p className="text-[12.5px] text-muted mt-1 mb-3">
+          The exchange&apos;s announcements board is read every five minutes. Anything a company you hold posts (results, board meetings, dividends, notices) is sent to you as it appears: the document itself with its link on Telegram, and by email with the document attached.
+        </p>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-4">
+          <Toggle label="Send to Telegram" value={s.announceTelegram ?? true} onChange={(v) => set("announceTelegram", v)} hint="Uses the bot and chat id above." />
+          <Toggle label="Send by email" value={s.announceEmail ?? true} onChange={(v) => set("announceEmail", v)} hint="The document attached when it is under 20 MB, the link otherwise." />
+          <TextInput label="Email address" value={s.announceEmailTo ?? ""} onChange={(e) => set("announceEmailTo", e.target.value)} placeholder="Blank: your account email" />
+          <div className="flex items-end">
+            <Button variant="outline" onClick={sendLatestAnnouncement} disabled={sendingAnn}>
+              {sendingAnn ? "Sending…" : "Send the latest announcement now"}
+            </Button>
+          </div>
+        </div>
+        {annMsg && <div className="text-[12px] mt-2" style={{ color: annMsg.ok ? "var(--positive)" : "var(--negative)" }}>{annMsg.text}</div>}
       </div>
 
       <div className="flex items-center gap-3 mt-6 pt-4 border-t border-rule">

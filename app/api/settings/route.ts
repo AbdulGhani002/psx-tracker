@@ -36,6 +36,9 @@ const patchSchema = z.object({
   bonusTaxWithheld: z.boolean().optional(),
   bonusTaxFiler: z.number().min(0).max(100).optional(),
   bonusTaxNonFiler: z.number().min(0).max(100).optional(),
+  announceTelegram: z.boolean().optional(),
+  announceEmail: z.boolean().optional(),
+  announceEmailTo: z.string().email().or(z.literal("")).optional(),
 });
 
 // Never return the raw bot token to the client. Replace it with a flag.

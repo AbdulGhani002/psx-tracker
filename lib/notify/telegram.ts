@@ -53,20 +53,23 @@ export async function sendTelegramPhotos(
   }
 }
 
-// Send a file (the monthly PDF statement). Multipart per the Bot API.
+// Send a file (the monthly PDF statement, a company's announcement).
+// Multipart per the Bot API; the caption may be HTML when parseMode says so.
 export async function sendTelegramDocument(
   token: string,
   chatId: string,
   filename: string,
   bytes: Buffer,
-  caption = ""
+  caption = "",
+  opts: { contentType?: string; parseMode?: "HTML" } = {}
 ): Promise<{ ok: boolean; detail?: string }> {
   if (!token || !chatId) return { ok: false, detail: "no_credentials" };
   try {
     const form = new FormData();
     form.append("chat_id", chatId);
     if (caption) form.append("caption", caption);
-    form.append("document", new Blob([new Uint8Array(bytes)], { type: "application/pdf" }), filename);
+    if (caption && opts.parseMode) form.append("parse_mode", opts.parseMode);
+    form.append("document", new Blob([new Uint8Array(bytes)], { type: opts.contentType ?? "application/pdf" }), filename);
     const res = await fetch(`https://api.telegram.org/bot${token}/sendDocument`, { method: "POST", body: form, cache: "no-store" });
     const body = await res.json().catch(() => ({}));
     return { ok: res.ok && body?.ok === true, detail: body?.description };
