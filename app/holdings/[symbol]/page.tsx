@@ -127,6 +127,7 @@ export default async function HoldingDetail({ params }: Props) {
           <Link href={`/transactions/new?symbol=${symbol}`}>
             <Button variant="solid">Add Transaction</Button>
           </Link>
+          {h.parked && <Badge tone="default">Parked · kept for reports, not counted</Badge>}
           {h.tier && <Badge tone="accent">{h.tier}</Badge>}
           {h.goalTag && <Badge tone="default">{h.goalTag}</Badge>}
           {h.convictionScore > 0 && (
@@ -275,6 +276,8 @@ export default async function HoldingDetail({ params }: Props) {
             targetRationale: (holding as any).targetRationale ?? "",
             standsInFor: (holding as any).standsInFor ?? "",
             notes: holding.notes ?? "",
+            parked: (holding as any).parked === true,
+            parkedNote: (holding as any).parkedNote ?? "",
           }}
         />
       </Section>

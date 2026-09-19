@@ -5,7 +5,8 @@ import { AllocationDonut } from "@/components/charts/AllocationDonut";
 import { NetWorthChart } from "@/components/dashboard/NetWorthChart";
 import { SetupBanner } from "@/components/layout/SetupBanner";
 import { HoldingsTable, type HoldingRow } from "@/app/holdings/HoldingsTable";
-import { getPortfolioSummary, checkDataAvailability, getSparklines, getShariahStatus, getAllTransactions, getFbrPack } from "@/lib/data";
+import { ParkedHoldings } from "@/components/dashboard/ParkedHoldings";
+import { getPortfolioSummary, checkDataAvailability, getSparklines, getShariahStatus, getAllTransactions, getFbrPack, getAllHoldings } from "@/lib/data";
 import { getToday, getAllocation, getBookFigures } from "@/lib/analytics/dashboard";
 import { getPriceFreshness } from "@/lib/prices";
 import { currentTaxYear } from "@/lib/dates";
@@ -16,7 +17,8 @@ const STALE_AFTER_DAYS = 7;
 // The Holding tab: ten figures, the market value line beside the holdings
 // donut, then the table of positions.
 export async function HoldingTab() {
-  const [avail, summary, today, alloc, txs, book] = await Promise.all([checkDataAvailability(), getPortfolioSummary(), getToday(), getAllocation(), getAllTransactions(), getBookFigures()]);
+  const [avail, summary, today, alloc, txs, book, allHoldings] = await Promise.all([checkDataAvailability(), getPortfolioSummary(), getToday(), getAllocation(), getAllTransactions(), getBookFigures(), getAllHoldings()]);
+  const parkedNotes = Object.fromEntries(allHoldings.filter((h) => h.parked && h.parkedNote).map((h) => [h.symbol, h.parkedNote as string]));
   const cur = currentTaxYear();
   const pack = await getFbrPack(cur.endYear).catch(() => null);
   const held = summary.positions.filter((p) => p.shares > 0);
@@ -90,6 +92,7 @@ export async function HoldingTab() {
 
       <Card className="mt-3">
         <HoldingsTable rows={rows} staleAfterDays={STALE_AFTER_DAYS} />
+        {summary.parked.length > 0 && <p className="mt-3 text-[11.5px] text-muted">{summary.parked.filter((p) => p.shares > 0).map((p) => p.symbol).join(", ")} {summary.parked.filter((p) => p.shares > 0).length === 1 ? "is" : "are"} parked and left out of every figure on this page.</p>}
         {shariah && shariah.totalValue > 0 && (
           <p className="mt-4 text-[12px] text-muted leading-relaxed">
             KMI screen: <span className="mono-num">{Math.round((shariah.compliantValue / shariah.totalValue) * 100)}%</span> of your equity value sits in KMI index members.
@@ -97,6 +100,11 @@ export async function HoldingTab() {
           </p>
         )}
       </Card>
+      {summary.parked.length > 0 && (
+        <div className="mt-3">
+          <ParkedHoldings rows={summary.parked} notes={parkedNotes} />
+        </div>
+      )}
     </div>
   );
 }

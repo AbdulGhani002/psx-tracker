@@ -127,6 +127,8 @@ async function _getPortfolioCards(): Promise<PortfolioCard[]> {
   const savingsById = new Map(savingsValued.map((a: any) => [String(a._id ?? a.id), { balance: a.balance ?? 0, principal: a.principal ?? 0 }]));
   const out: PortfolioCard[] = [];
   const allSymbols = new Set<string>();
+  // A parked name's shares are not part of the card; what it earned before is.
+  const parkedNames = new Set((await getAllHoldings()).filter((h) => h.parked).map((h) => h.symbol));
   const perPortfolio: Array<{ p: PortfolioView; shares: Map<string, number>; invested: number; realized: number; dividends: number }> = [];
   for (const p of portfolios) {
     const txs = await TransactionModel.find({ userId: uid, deletedAt: null, ...filterFor(p) }).sort({ date: 1, createdAt: 1 }).lean();
@@ -138,7 +140,7 @@ async function _getPortfolioCards(): Promise<PortfolioCard[]> {
       const d = deriveFromTransactions(list as any);
       realized += d.realizedPL;
       dividends += d.dividendsReceived;
-      if (d.shares > 0) {
+      if (d.shares > 0 && !parkedNames.has(s)) {
         shares.set(s, d.shares);
         invested += d.totalCost;
         allSymbols.add(s);

@@ -52,6 +52,7 @@ const FIXTURE: MonthlyStatementData = {
     { symbol: "D&GKC", shares: 10, value: 0, weightPct: 0, priceKnown: false },
   ],
   unpriced: ["D&GKC"],
+  parked: [{ symbol: "LUCK", shares: 6, value: 2_496 }],
 };
 
 console.log("\ntemplate builds and escapes");
@@ -60,18 +61,20 @@ ok("has documentclass", tex.includes("\\documentclass"));
 ok("ampersand in rationale escaped", tex.includes("yield \\& stability"));
 ok("ampersand in symbol escaped", tex.includes("D\\&GKC"));
 ok("unpriced note present", tex.includes("No price for D\\&GKC"));
+ok("parked note present", tex.includes("Parked, kept for the companies' reports") && tex.includes("LUCK 6"));
 ok("partial-window flag shows", tex.includes("partial window"));
 ok("negative mover uses math minus", tex.includes("$-$"));
 ok("no unescaped % outside comments", !/[^\\]%[^%]/.test(tex.split("\n").filter((l) => !l.trim().startsWith("%")).join(" ").replace(/\\%/g, "")));
 
 const EMPTY: MonthlyStatementData = {
   ...FIXTURE,
-  movers: [], moversPartial: false, dividends: [], dividendTotal: 0, trades: [], decisions: [], unpriced: [],
+  movers: [], moversPartial: false, dividends: [], dividendTotal: 0, trades: [], decisions: [], unpriced: [], parked: [],
   usdEquivalent: null, xirrPct: null, realXirrPct: null, inflationPct: null, unrealizedPct: null,
 };
 const texEmpty = buildStatementTex(EMPTY);
 ok("empty month still builds", texEmpty.includes("None this month"));
 ok("null XIRR prints ---", texEmpty.includes("XIRR ---"));
+ok("no parked note when nothing is parked", !texEmpty.includes("Parked,"));
 
 const tectonic = process.argv[2] ?? "C:\\CC\\Code\\tools\\tectonic\\tectonic.exe";
 if (existsSync(tectonic)) {

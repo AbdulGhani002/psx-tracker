@@ -105,7 +105,7 @@ export async function getAnnouncedActions(daysAhead = 90): Promise<{ upcoming: A
   await connectDb();
   const [settingsRaw, holdings, autoRows] = await Promise.all([
     getAppSettings(),
-    HoldingModel.find({ userId, currentShares: { $gt: 0 } }).lean(),
+    HoldingModel.find({ userId, currentShares: { $gt: 0 }, parked: { $ne: true } }).lean(),
     TransactionModel.find({ userId, source: "auto", deletedAt: null }).sort({ date: -1 }).limit(20).lean(),
   ]);
   const settings = autoSettingsFrom(settingsRaw);

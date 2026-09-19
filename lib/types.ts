@@ -16,6 +16,8 @@ export type Holding = {
   rebalanceBand: number;
   targetRationale: string;
   notes: string;
+  parked?: boolean; // kept for the company's reports only; out of the portfolio figures
+  parkedNote?: string;
   tier?: string;
   convictionScore?: number;
   goalTag?: string;

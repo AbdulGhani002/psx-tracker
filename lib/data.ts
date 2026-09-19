@@ -213,7 +213,7 @@ export async function getFundamentals(symbols: string[]): Promise<Record<string,
 // from the cached PSX payouts. Powers the ex-dividend Telegram alert.
 export async function getUpcomingExDates(days = 14): Promise<Array<{ symbol: string; date: string; pctOfFace: number; faceValue: number }>> {
   if (!(await tryConnect())) return [];
-  const holdings = await HoldingModel.find({ userId: await meId(), currentShares: { $gt: 0 } }).lean();
+  const holdings = await HoldingModel.find({ userId: await meId(), currentShares: { $gt: 0 }, parked: { $ne: true } }).lean();
   const syms = holdings.map((h: any) => h.symbol);
   if (!syms.length) return [];
   const funds: any[] = await FundamentalModel.find({ symbol: { $in: syms } }).lean();
@@ -232,7 +232,8 @@ export async function getUpcomingExDates(days = 14): Promise<Array<{ symbol: str
 }
 
 export async function getDividendForecast(): Promise<DividendForecast> {
-  const [holdings, transactions] = await Promise.all([getAllHoldings(), getAllTransactions()]);
+  const [all, transactions] = await Promise.all([getAllHoldings(), getAllTransactions()]);
+  const holdings = all.filter((h) => !h.parked); // a parked name's few shares are not income to plan on
   const held = holdings.filter((h) => h.currentShares > 0).map((h) => h.symbol);
   const [prices, fundamentals] = await Promise.all([getCurrentPrices(held), getFundamentals(held)]);
   const priceMap: Record<string, number> = {};
@@ -297,7 +298,7 @@ async function _getIntrinsicValuations(): Promise<IntrinsicPage> {
 
 async function computeIntrinsicValuations(): Promise<IntrinsicPage> {
   const [holdings, settings, sbp] = await Promise.all([getAllHoldings(), getAppSettings(), getSbpRateSteps()]);
-  const held = holdings.filter((h) => h.currentShares > 0);
+  const held = holdings.filter((h) => h.currentShares > 0 && !h.parked);
   const fairPE = (settings as any).defaultFairPE ?? 8;
   const equityRiskPremiumPct = (settings as any).equityRiskPremiumPct ?? 6;
   const sbpRatePct = policyRateOn(new Date().toISOString().slice(0, 10), sbp.steps) ?? 11;
@@ -1344,7 +1345,7 @@ export type CorporateActionSuggestion = {
 export async function getCorporateActionSuggestions(): Promise<CorporateActionSuggestion[]> {
   if (!(await tryConnect())) return [];
   const [holdings, txs] = await Promise.all([
-    HoldingModel.find({ userId: await meId(), currentShares: { $gt: 0 } }).lean(),
+    HoldingModel.find({ userId: await meId(), currentShares: { $gt: 0 }, parked: { $ne: true } }).lean(),
     getAllTransactions(),
   ]);
   const held = new Map(holdings.map((h: any) => [h.symbol, h.currentShares as number]));

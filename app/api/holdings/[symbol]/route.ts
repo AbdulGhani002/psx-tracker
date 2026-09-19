@@ -24,6 +24,8 @@ const patchSchema = z.object({
   targetRationale: z.string().optional(),
   standsInFor: z.string().max(12).optional(),
   notes: z.string().optional(),
+  parked: z.boolean().optional(),
+  parkedNote: z.string().max(200).optional(),
   refreshFromPSX: z.boolean().optional(),
   // Playbook
   tier: z.string().optional(),

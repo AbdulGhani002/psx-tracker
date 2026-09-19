@@ -54,6 +54,7 @@ export type WeeklyReportData = {
 
   // positions
   positions: Array<{ symbol: string; weightPct: number; value: number; priceKnown: boolean }>;
+  parked: Array<{ symbol: string; shares: number; value: number }>; // kept for the companies' reports; outside the figures
 };
 
 const esc = (s: string): string =>
@@ -176,6 +177,7 @@ ${
     ? `\\begin{tabular}{@{}lrr@{}}\\toprule Symbol & Value & Weight \\\\\\midrule\n${posRows}\n\\bottomrule\\end{tabular}`
     : "{\\footnotesize No positions.}"
 }
+${d.parked.length ? `\\par\\vspace{3pt}{\\footnotesize Parked, outside every figure here: ${esc(d.parked.map((p) => `${p.symbol} ${p.shares.toLocaleString()}`).join(", "))}.}` : ""}
 
 \\vspace{14pt}\\hrule\\vspace{4pt}
 {\\footnotesize The ladder is a rule, not a forecast. It tells you what your own levels commit you to this week and nothing more. Nothing here is advice, and nothing trades itself.}

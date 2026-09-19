@@ -25,10 +25,15 @@ export type PositionRow = {
   currentPercent: number;
   targetPercent: number;
   deviation: number;
+  parked: boolean;
 };
 
 export type PortfolioSummary = {
+  // The positions that make up the portfolio. A parked holding (a few shares
+  // kept for the company's reports) is not among them: see `parked`.
   positions: PositionRow[];
+  // Parked holdings, valued the same way but outside every total and weight.
+  parked: PositionRow[];
   // Symbols we hold shares in but have NO price for. totalValue/totalCost/
   // unrealizedPL exclude these, so a non-empty list means the totals are
   // incomplete — the UI must say so rather than present them as the full picture.
@@ -95,12 +100,15 @@ export function buildPositionRows({
       currentPercent: 0,
       targetPercent: h.targetAllocationPercent ?? 0,
       deviation: 0,
+      parked: h.parked === true,
     });
   }
 
-  const totalValue = rows.reduce((s, r) => s + r.marketValue, 0);
+  // Weights are shares of the portfolio proper; a parked row has no weight.
+  const totalValue = rows.reduce((s, r) => s + (r.parked ? 0 : r.marketValue), 0);
   if (totalValue > 0) {
     for (const r of rows) {
+      if (r.parked) continue;
       r.currentPercent = (r.marketValue / totalValue) * 100;
       r.deviation = r.currentPercent - r.targetPercent;
     }
@@ -118,7 +126,13 @@ export function summarisePortfolio({
   transactions: Transaction[];
   prices: Map<string, number>;
 }): PortfolioSummary {
-  const positions = buildPositionRows({ holdings, transactions, prices });
+  const rows = buildPositionRows({ holdings, transactions, prices });
+  // A parked holding is kept for the company's reports, not as an investment,
+  // so it is left out of the positions and of every current figure: value,
+  // cost, unrealised gain, weights, sectors. What it earned before it was
+  // parked (realised gains, dividends) is banked and stays in the totals.
+  const positions = rows.filter((p) => !p.parked);
+  const parked = rows.filter((p) => p.parked);
 
   // Compare like with like. An unpriced position contributes 0 to market value,
   // so including its COST here would subtract it straight out of unrealised P/L
@@ -131,9 +145,9 @@ export function summarisePortfolio({
   const totalValue = priced.reduce((s, p) => s + p.marketValue, 0);
   const totalCost = priced.reduce((s, p) => s + p.totalCost, 0);
   const unrealizedPL = totalValue - totalCost;
-  // Realised gains and dividends are banked cash — count them for every position.
-  const realizedPL = positions.reduce((s, p) => s + p.realizedPL, 0);
-  const dividendsTotal = positions.reduce((s, p) => s + p.dividendsReceived, 0);
+  // Realised gains and dividends are banked cash — count them for every position, parked ones included.
+  const realizedPL = rows.reduce((s, p) => s + p.realizedPL, 0);
+  const dividendsTotal = rows.reduce((s, p) => s + p.dividendsReceived, 0);
 
   // Pakistan tax year is July–June, not the calendar year. Sum dividends
   // received within the current FBR tax year so the figure is filing-relevant.
@@ -155,7 +169,9 @@ export function summarisePortfolio({
       flows.push({ date, amount: tx.netAmount });
     }
   }
-  if (totalValue > 0) flows.push({ date: new Date(), amount: totalValue });
+  // The return measure closes on everything the flows bought, parked shares included.
+  const parkedValue = parked.reduce((s, p) => s + p.marketValue, 0);
+  if (totalValue + parkedValue > 0) flows.push({ date: new Date(), amount: totalValue + parkedValue });
   let portfolioXirr = xirr(flows);
   let xirrSpanDays = 0;
   if (flows.length > 0) {
@@ -196,6 +212,7 @@ export function summarisePortfolio({
 
   return {
     positions,
+    parked,
     unpricedSymbols,
     totalValue,
     totalCost,

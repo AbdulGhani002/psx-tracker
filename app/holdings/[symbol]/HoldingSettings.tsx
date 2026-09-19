@@ -18,6 +18,8 @@ type Props = {
     rebalanceBand: number;
     targetRationale: string;
     standsInFor: string;
+    parked: boolean;
+    parkedNote: string;
     notes: string;
   };
   transactionCount: number;
@@ -32,6 +34,8 @@ export function HoldingSettings({ symbol, initial, transactionCount }: Props) {
   const [band, setBand] = useState<number>(initial.rebalanceBand);
   const [rationale, setRationale] = useState(initial.targetRationale);
   const [notes, setNotes] = useState(initial.notes);
+  const [parked, setParked] = useState(initial.parked);
+  const [parkedNote, setParkedNote] = useState(initial.parkedNote);
   const [saving, setSaving] = useState(false);
   const [savedAt, setSavedAt] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -54,6 +58,8 @@ export function HoldingSettings({ symbol, initial, transactionCount }: Props) {
           targetRationale: rationale,
           standsInFor: "",
           notes,
+          parked,
+          parkedNote,
         }),
       });
       if (!res.ok) {
@@ -148,6 +154,19 @@ export function HoldingSettings({ symbol, initial, transactionCount }: Props) {
               hint="Counted toward the Sharia exposure on the dashboard."
             />
           </div>
+          <Toggle
+            label="Parked"
+            value={parked}
+            onChange={setParked}
+            hint="A few shares kept for the company's reports and notices. Left out of the holdings, the totals, the weights, the rebalance and the reports; announcements still arrive."
+          />
+          <TextInput
+            label="Why it is parked"
+            value={parkedNote}
+            onChange={(e) => setParkedNote(e.target.value)}
+            placeholder="Kept for the annual report and AGM notices"
+            hint="Shown beside the name in the Parked list."
+          />
           <TextInput
             label="Company name (override)"
             value={name}

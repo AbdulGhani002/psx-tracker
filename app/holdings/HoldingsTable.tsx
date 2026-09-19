@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useMemo, useState } from "react";
 import { CompanyMark } from "@/components/ui/CompanyMark";
 import { Badge } from "@/components/ui/Badge";
+import { ParkButton } from "@/components/ui/ParkButton";
 import { fmtRs, fmtNum, fmtSignedPct, fmtSignedRs, fmtPct } from "@/lib/format";
 
 // The active holdings table, the way Zar lays it out: the name with its
@@ -246,8 +247,11 @@ export function HoldingsTable({ rows, staleAfterDays }: { rows: HoldingRow[]; st
               return (
                 <tr key={r.symbol}>
                   {columns.map((c) => cell(c.key))}
-                  <td className="text-right">
-                    <Link href={`/transactions/new?symbol=${r.symbol}&type=SELL&shares=${r.shares}`} className="btn-danger">Sell</Link>
+                  <td className="text-right whitespace-nowrap">
+                    <span className="inline-flex items-center gap-1.5">
+                      <ParkButton symbol={r.symbol} parked={false} />
+                      <Link href={`/transactions/new?symbol=${r.symbol}&type=SELL&shares=${r.shares}`} className="btn-danger">Sell</Link>
+                    </span>
                   </td>
                 </tr>
               );

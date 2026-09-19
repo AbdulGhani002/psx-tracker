@@ -18,7 +18,8 @@ export async function assembleWeeklyReport(now = new Date()): Promise<WeeklyRepo
       weightPct: p.currentPercent ?? 0,
       value: p.marketValue ?? 0,
       priceKnown: (p.currentPrice ?? 0) > 0,
-    }))
+    }));
+  const parked = ((summary?.parked ?? []) as any[]).filter((p) => p.shares > 0).map((p) => ({ symbol: p.symbol, shares: p.shares, value: p.marketValue ?? 0 }))
     .sort((a, b) => b.value - a.value);
 
   return {
@@ -71,6 +72,7 @@ export async function assembleWeeklyReport(now = new Date()): Promise<WeeklyRepo
     ladderWarnings: plan.ladder.warnings,
 
     positions,
+    parked,
   };
 }
 

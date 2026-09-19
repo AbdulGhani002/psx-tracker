@@ -1,7 +1,7 @@
 // Single source of truth for the app version + changelog.
 // Bump APP_VERSION and prepend a CHANGELOG entry on every release.
 
-export const APP_VERSION = "11.3.0";
+export const APP_VERSION = "11.4.0";
 
 export const BUILD_DATE =
   process.env.NEXT_PUBLIC_BUILD_DATE ?? "";
@@ -17,6 +17,14 @@ export type ChangelogEntry = {
 
 // Reverse-chronological. Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: "11.4.0",
+    date: "2026-09-19",
+    title: "Parked holdings: a few shares kept for a company's reports, outside the portfolio",
+    changes: [
+      "A holding can be parked: the Park button on its row in the holdings table, or the Parked switch on its page, with a line saying why. A parked holding leaves the holdings table, the totals, the weights, the allocation, the rebalance, the dividend forecast, the Model page and the Telegram and email reports; it is listed on its own in a Parked card under the table, valued, with Sell and Unpark. Realised gains and dividends it earned before are kept in the totals, announcements from the company still arrive, and dividends it pays are still recorded. The monthly statement and the weekly report name the parked shares in a footnote.",
+    ],
+  },
   {
     version: "11.3.0",
     date: "2026-09-18",

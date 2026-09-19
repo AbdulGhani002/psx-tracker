@@ -22,6 +22,8 @@ export type MonthlyStatementData = {
   trades: Array<{ date: string; type: string; symbol: string; shares: number; price: number }>;
   decisions: Array<{ date: string; symbol: string; action: string; rationale: string }>;
   positions: Array<{ symbol: string; shares: number; value: number; weightPct: number; priceKnown: boolean }>;
+  // Shares kept only for the companies' reports; outside every figure above.
+  parked: Array<{ symbol: string; shares: number; value: number }>;
   unpriced: string[];
 };
 
@@ -67,6 +69,7 @@ Equities ${rs(d.equity)} \\quad Funds ${rs(d.funds)} \\quad Savings ${rs(d.savin
 Unrealised ${d.unrealizedPL >= 0 ? "+" : "$-$"}${rs(Math.abs(d.unrealizedPL)).slice(3)}${d.unrealizedPct != null ? ` (${pct(d.unrealizedPct)})` : ""} \\quad
 XIRR ${pct(d.xirrPct)}${d.realXirrPct != null ? ` \\quad real ${pct(d.realXirrPct)} after ${d.inflationPct?.toFixed(1)}\\% CPI` : ""}\\par
 ${d.unpriced.length > 0 ? `\\vspace{4pt}{\\footnotesize No price for ${esc(d.unpriced.join(", "))} --- excluded from totals, not counted as losses.}\\par` : ""}
+${d.parked.length > 0 ? `\\vspace{4pt}{\\footnotesize Parked, kept for the companies' reports and outside every figure here: ${esc(d.parked.map((p) => `${p.symbol} ${p.shares.toLocaleString()} (${rs(p.value)})`).join(", "))}.}\\par` : ""}
 
 \\vspace{10pt}
 \\begin{minipage}[t]{0.48\\textwidth}

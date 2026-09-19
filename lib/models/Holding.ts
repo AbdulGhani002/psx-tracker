@@ -21,6 +21,11 @@ const HoldingSchema = new Schema(
     // See lib/calculations/standin.ts.
     standsInFor: { type: String, default: "", uppercase: true, trim: true },
     notes: { type: String, default: "" },
+    // A few shares kept only for the company's reports and notices, not an
+    // investment: left out of the holdings, the totals, the weights and the
+    // reports, listed on their own instead. Announcements still arrive.
+    parked: { type: Boolean, default: false },
+    parkedNote: { type: String, default: "" },
 
     // Playbook / sizing fields (from the user's PSX investing framework).
     tier: { type: String, default: "" }, // Anchor | Core | Satellite | Starter

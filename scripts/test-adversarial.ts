@@ -8,7 +8,7 @@ function pos(symbol: string, price: number, shares: number, targetPct: number): 
     shares, avgCost: price, currentPrice: price, priceKnown: true, totalCost: marketValue,
     marketValue, unrealizedPL: 0, unrealizedPct: 0, realizedPL: 0,
     dividendsReceived: 0, totalReturn: 0, totalReturnPct: 0,
-    currentPercent: 0, targetPercent: targetPct, deviation: 0,
+    currentPercent: 0, targetPercent: targetPct, deviation: 0, parked: false,
   };
 }
 

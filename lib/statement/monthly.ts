@@ -47,6 +47,7 @@ export async function assembleMonthlyStatement(now = new Date()): Promise<Monthl
     .filter((p) => p.shares > 0)
     .sort((a, b) => b.marketValue - a.marketValue)
     .map((p) => ({ symbol: p.symbol, shares: p.shares, value: p.marketValue, weightPct: p.currentPercent, priceKnown: p.priceKnown }));
+  const parked = summary.parked.filter((p) => p.shares > 0).map((p) => ({ symbol: p.symbol, shares: p.shares, value: p.marketValue }));
 
   return {
     monthLabel: month.label,
@@ -69,6 +70,7 @@ export async function assembleMonthlyStatement(now = new Date()): Promise<Monthl
     trades,
     decisions: monthDecisions,
     positions,
+    parked,
     unpriced: summary.unpricedSymbols,
   };
 }
