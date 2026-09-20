@@ -69,21 +69,21 @@ export async function HoldingTab() {
       )}
 
       <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-5 gap-3 stagger">
-        <StatCard label="Investment value" value={fmtRs(book.invested)} hint={hasFunds ? `Shares ${fmtRs(book.equity.cost)} · funds ${fmtRs(book.funds.cost + book.savings.principal)}` : undefined} />
-        <StatCard label="Unrealized gain/loss" value={fmtSignedRs(unrealizedAll)} tone={unrealizedAll >= 0 ? "positive" : "negative"} delta={pct(unrealizedAll, book.invested)} deltaTone={unrealizedAll >= 0 ? "positive" : "negative"} hint={hasFunds ? `Shares ${fmtSignedRs(book.equity.unrealized)} · funds ${fmtSignedRs(book.funds.gain + book.savings.profit)}` : undefined} />
+        <StatCard label="Investment value" value={fmtRs(book.costBasis)} hint={`What you hold cost${hasFunds ? `: shares ${fmtRs(book.equity.cost)} · funds ${fmtRs(book.funds.cost + book.savings.principal)}` : ""} · money put in, net ${fmtRs(book.invested)}`} />
+        <StatCard label="Unrealized gain/loss" value={fmtSignedRs(unrealizedAll)} tone={unrealizedAll >= 0 ? "positive" : "negative"} delta={pct(unrealizedAll, book.costBasis)} deltaTone={unrealizedAll >= 0 ? "positive" : "negative"} hint={hasFunds ? `Shares ${fmtSignedRs(book.equity.unrealized)} · funds ${fmtSignedRs(book.funds.gain + book.savings.profit)}` : undefined} />
         <StatCard label="Today's return" value={fmtSignedRs(book.todayProfit)} tone={book.todayProfit >= 0 ? "positive" : "negative"} delta={book.todayPct != null ? `${book.todayPct >= 0 ? "+" : ""}${book.todayPct.toFixed(2)}%` : undefined} deltaTone={book.todayProfit >= 0 ? "positive" : "negative"} hint={hasFunds ? `Shares ${fmtSignedRs(book.equity.todayProfit)} · funds ${fmtSignedRs(book.funds.perDay)} a day` : undefined} />
         <StatCard label="Dividends" value={fmtRs(summary.dividendsTotal)} action={<Link href="/portfolio?tab=payouts" className="text-[11px] link-underline whitespace-nowrap">View details</Link>} />
         <StatCard label="Dividend tax" value={fmtRs(dividendTax)} />
         <StatCard label="Available cash" value={fmtRs(alloc.availableCash)} />
         <StatCard label="Realized gain/loss" value={fmtSignedRs(summary.realizedPL)} tone={summary.realizedPL >= 0 ? "positive" : "negative"} />
-        <StatCard label="Total return" value={fmtSignedRs(book.totalReturn)} tone={book.totalReturn >= 0 ? "positive" : "negative"} delta={pct(book.totalReturn, book.invested)} deltaTone={book.totalReturn >= 0 ? "positive" : "negative"} hint={hasFunds ? `Shares ${fmtSignedRs(book.equity.total)} · funds ${fmtSignedRs(book.funds.gain + book.savings.profit)}` : undefined} />
+        <StatCard label="Total return" value={fmtSignedRs(book.totalReturn)} tone={book.totalReturn >= 0 ? "positive" : "negative"} delta={pct(book.totalReturn, book.invested)} deltaTone={book.totalReturn >= 0 ? "positive" : "negative"} hint={`Unrealised ${fmtSignedRs(unrealizedAll)} · realised ${fmtSignedRs(book.equity.realized)} · dividends ${fmtSignedRs(book.equity.dividends)}, on the money put in`} />
         <StatCard label="Deductions" value={fmtRs(fees)} hint="Brokerage and levies on trades" />
         <StatCard label={`CGT (${cur.label})`} value={pack ? fmtRs(pack.cgt.cgt) : "–"} hint={pack ? `${pack.cgt.rate}% on ${fmtSignedRs(pack.cgt.netGain)} net gain` : undefined} />
       </div>
 
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-3 mt-3">
         <div className="xl:col-span-2 min-h-[340px]">
-          <NetWorthChart title="Market value" value={summary.totalValue} />
+          <NetWorthChart title="Market value of shares" value={summary.totalValue} />
         </div>
         <Card title="Holdings" action={<span className="text-[12px] text-muted">{held.length} positions</span>}>
           <AllocationDonut slices={held.map((p) => ({ label: p.symbol, value: p.marketValue }))} maxSlices={8} centerValue={String(held.length)} centerLabel="names" />

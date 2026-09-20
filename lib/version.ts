@@ -1,7 +1,7 @@
 // Single source of truth for the app version + changelog.
 // Bump APP_VERSION and prepend a CHANGELOG entry on every release.
 
-export const APP_VERSION = "11.4.0";
+export const APP_VERSION = "11.4.1";
 
 export const BUILD_DATE =
   process.env.NEXT_PUBLIC_BUILD_DATE ?? "";
@@ -17,6 +17,14 @@ export type ChangelogEntry = {
 
 // Reverse-chronological. Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: "11.4.1",
+    date: "2026-09-20",
+    title: "Net worth = Invested + Total return, on every card",
+    changes: [
+      "Invested is now the money put in, net of what came back out (net worth less every gain ever made), so the three figures agree: net worth equals invested plus total return, and the return percentage is measured on that money. The cost of what is held today, which is larger because realised gains and dividends were put back to work, is shown as Investment value on the Holding tab and in the card hints. The Total return card spells out its parts: unrealised, realised, dividends. The Net worth card shows shares, funds and cash; the portfolio card counts its brokerage cash so it matches the top; the value chart is titled Market value of shares.",
+    ],
+  },
   {
     version: "11.4.0",
     date: "2026-09-19",

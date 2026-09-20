@@ -36,10 +36,10 @@ async function TopCards() {
     <>
       {!avail.available && <SetupBanner reason={avail.reason} />}
       <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-5 gap-3 stagger">
-        <StatCard label="Total net worth" value={fmtRs(book.netWorth)} />
+        <StatCard label="Total net worth" value={fmtRs(book.netWorth)} hint={`Shares ${fmtRs(book.equity.value)}${hasFunds ? ` · funds ${fmtRs(book.funds.value + book.savings.balance)}` : ""} · cash ${fmtRs(book.cash)}`} />
         <StatCard label="Today's P&L" value={fmtSignedRs(book.todayProfit)} tone={book.todayProfit >= 0 ? "positive" : "negative"} delta={book.todayPct != null ? `${book.todayPct >= 0 ? "+" : ""}${book.todayPct.toFixed(2)}%` : undefined} deltaTone={book.todayProfit >= 0 ? "positive" : "negative"} hint={hasFunds ? `Shares ${fmtSignedRs(book.equity.todayProfit)} · funds ${fmtSignedRs(book.funds.perDay)} a day` : undefined} />
-        <StatCard label="Total return" value={fmtSignedRs(book.totalReturn)} tone={book.totalReturn >= 0 ? "positive" : "negative"} delta={book.totalReturnPct != null ? `${book.totalReturnPct >= 0 ? "+" : ""}${book.totalReturnPct.toFixed(2)}%` : undefined} deltaTone={book.totalReturn >= 0 ? "positive" : "negative"} hint={hasFunds ? `Shares ${fmtSignedRs(book.equity.total)} · funds ${fmtSignedRs(other)}` : undefined} />
-        <StatCard label="Invested" value={fmtRs(book.invested)} hint={hasFunds ? `Shares ${fmtRs(book.equity.cost)} · funds ${fmtRs(book.funds.cost + book.savings.principal)}` : undefined} />
+        <StatCard label="Total return" value={fmtSignedRs(book.totalReturn)} tone={book.totalReturn >= 0 ? "positive" : "negative"} delta={book.totalReturnPct != null ? `${book.totalReturnPct >= 0 ? "+" : ""}${book.totalReturnPct.toFixed(2)}%` : undefined} deltaTone={book.totalReturn >= 0 ? "positive" : "negative"} hint={`Unrealised ${fmtSignedRs(book.equity.unrealized + other)} · realised ${fmtSignedRs(book.equity.realized)} · dividends ${fmtSignedRs(book.equity.dividends)}`} />
+        <StatCard label="Invested" value={fmtRs(book.invested)} hint={`Money put in, net of what came back · what you hold cost ${fmtRs(book.costBasis)}`} />
         <StatCard label="Available cash" value={fmtRs(alloc.availableCash)} />
       </div>
     </>
@@ -51,7 +51,7 @@ async function ChartRow() {
   return (
     <div className="grid grid-cols-1 xl:grid-cols-3 gap-3 mt-3">
       <div className="xl:col-span-2 min-h-[340px]">
-        <NetWorthChart title="Market value" value={summary.totalValue} />
+        <NetWorthChart title="Market value of shares" value={summary.totalValue} />
       </div>
       <Card title="Asset allocation">
         <AllocationDonut slices={alloc.slices} centerValue={String(alloc.slices.filter((s) => s.value > 0).length)} centerLabel="Classes" />
