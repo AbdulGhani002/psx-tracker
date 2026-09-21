@@ -1039,7 +1039,8 @@ export type ValuedFund = {
   // null when MUFAP has no figure — the UI then shows the manual value, marked.
   liveAnnualYieldPct: number | null;
   liveYieldAsOf: string;
-  trades: Array<{ date: string; side: string; units: number; nav: number; amount: number; notes: string }>;
+  trades: Array<{ date: string; side: string; units: number; nav: number; amount: number; realizedGain: number; notes: string }>;
+  realized: number; // gains the redemptions made, over the units' average cost
 } & FundValuation;
 
 // --- Fund yields: persistent + self-refreshing -------------------------------
@@ -1162,7 +1163,8 @@ async function _getMutualFundsValued(): Promise<ValuedFund[]> {
       navAsOf,
       liveAnnualYieldPct,
       liveYieldAsOf: returns?.asOf ?? "",
-      trades: (((f as any).trades ?? []) as any[]).map((t) => ({ date: new Date(t.date).toISOString().slice(0, 10), side: String(t.side), units: Number(t.units), nav: Number(t.nav), amount: Number(t.amount), notes: String(t.notes ?? "") })),
+      trades: (((f as any).trades ?? []) as any[]).map((t) => ({ date: new Date(t.date).toISOString().slice(0, 10), side: String(t.side), units: Number(t.units), nav: Number(t.nav), amount: Number(t.amount), realizedGain: Number(t.realizedGain ?? 0), notes: String(t.notes ?? "") })),
+      realized: (((f as any).trades ?? []) as any[]).reduce((s, t) => s + (Number(t.realizedGain) || 0), 0),
     });
   }
   return out;

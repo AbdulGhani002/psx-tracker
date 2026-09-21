@@ -1,7 +1,7 @@
 // Single source of truth for the app version + changelog.
 // Bump APP_VERSION and prepend a CHANGELOG entry on every release.
 
-export const APP_VERSION = "11.4.1";
+export const APP_VERSION = "11.4.2";
 
 export const BUILD_DATE =
   process.env.NEXT_PUBLIC_BUILD_DATE ?? "";
@@ -17,6 +17,14 @@ export type ChangelogEntry = {
 
 // Reverse-chronological. Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: "11.4.2",
+    date: "2026-09-21",
+    title: "A redeemed fund keeps its gain",
+    changes: [
+      "Redeeming fund units records the gain the redemption made over the units' average cost on the trade itself, and that gain stays in Total return, the fund gain on the Cash tab and the portfolio card after the units are gone. Before, a fund sold in full took its whole profit out of the figures. The Fund trades table shows the gain per redemption.",
+    ],
+  },
   {
     version: "11.4.1",
     date: "2026-09-20",

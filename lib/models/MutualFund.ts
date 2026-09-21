@@ -46,6 +46,9 @@ const MutualFundSchema = new Schema(
             units: { type: Number, required: true },
             nav: { type: Number, required: true },
             amount: { type: Number, required: true },
+            // What a redemption made over the units' average cost, kept here
+            // because the position forgets it once the units are gone.
+            realizedGain: { type: Number, default: 0 },
             notes: { type: String, default: "" },
           },
           { _id: true, timestamps: false }

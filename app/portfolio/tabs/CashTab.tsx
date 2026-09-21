@@ -16,6 +16,8 @@ export async function CashTab() {
   const [cash, entries, funds, savings, inf, settings] = await Promise.all([getCashSummary(), getCashEntries(), getMutualFundsValued(), getSavingsValued(), getEffectiveInflationPct(), getAppSettings()]);
   const fundValue = funds.reduce((s, f) => s + f.value, 0);
   const fundCost = funds.reduce((s, f) => s + f.cost, 0);
+  const fundRealized = funds.reduce((s, f) => s + (f.realized ?? 0), 0);
+  const fundGain = fundValue - fundCost + fundRealized;
   const savingsValue = savings.reduce((s, a) => s + a.balance, 0);
   const weightedYield = fundValue > 0 ? funds.reduce((s, f) => s + (f.annualYieldPct ?? 0) * f.value, 0) / fundValue : 0;
   const fundTrades = funds.flatMap((f) => (f.trades ?? []).map((t) => ({ ...t, fund: f.name }))).sort((a, b) => b.date.localeCompare(a.date)).slice(0, 30);
@@ -59,7 +61,7 @@ export async function CashTab() {
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mt-5 stagger">
         <StatCard label="Money-market funds" value={fmtRs(fundValue)} hint={weightedYield > 0 ? `Published yield ${weightedYield.toFixed(2)}%` : undefined} />
         <StatCard label="Fund cost" value={fmtRs(fundCost)} />
-        <StatCard label="Fund gain" value={fmtSignedRs(fundValue - fundCost)} tone={fundValue - fundCost >= 0 ? "positive" : "negative"} />
+        <StatCard label="Fund gain" value={fmtSignedRs(fundGain)} tone={fundGain >= 0 ? "positive" : "negative"} hint={fundRealized !== 0 ? `Held ${fmtSignedRs(fundValue - fundCost)} · redeemed ${fmtSignedRs(fundRealized)}` : undefined} />
         <StatCard label="Savings" value={fmtRs(savingsValue)} />
       </div>
 
@@ -74,7 +76,7 @@ export async function CashTab() {
         <Card className="mt-3" title="Fund trades" eyebrow="Units bought and redeemed through the trade form">
           <div className="overflow-x-auto -mx-2">
             <table className="table-zar">
-              <thead><tr><th>Date</th><th>Fund</th><th>Side</th><th className="text-right">Units</th><th className="text-right">NAV</th><th className="text-right">Amount</th><th>Notes</th></tr></thead>
+              <thead><tr><th>Date</th><th>Fund</th><th>Side</th><th className="text-right">Units</th><th className="text-right">NAV</th><th className="text-right">Amount</th><th className="text-right">Gain</th><th>Notes</th></tr></thead>
               <tbody>
                 {fundTrades.map((t, i) => (
                   <tr key={i}>
@@ -84,6 +86,7 @@ export async function CashTab() {
                     <td className="text-right mono-num">{t.units.toLocaleString(undefined, { maximumFractionDigits: 4 })}</td>
                     <td className="text-right mono-num">{t.nav.toFixed(4)}</td>
                     <td className="text-right mono-num">{fmtRs(t.amount)}</td>
+                    <td className="text-right mono-num" style={{ color: t.side === "REDEEM" ? (t.realizedGain >= 0 ? "var(--positive)" : "var(--negative)") : "var(--muted)" }}>{t.side === "REDEEM" ? fmtSignedRs(t.realizedGain) : ""}</td>
                     <td className="text-muted">{t.notes}</td>
                   </tr>
                 ))}

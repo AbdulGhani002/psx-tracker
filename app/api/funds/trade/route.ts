@@ -56,15 +56,17 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "oversell", detail: `You hold ${base.toFixed(4)} units; cannot redeem ${units.toFixed(4)}.` }, { status: 400 });
     }
     const amount = units * parsed.nav;
+    let realizedGain = 0;
     if (parsed.side === "BUY") {
       const newUnits = base + units;
       d.avgCost = newUnits > 0 ? (base * (Number(d.avgCost) || parsed.nav) + units * parsed.nav) / newUnits : parsed.nav;
       d.units = newUnits;
     } else {
+      realizedGain = amount - units * (Number(d.avgCost) || 0);
       d.units = Math.max(0, base - units);
     }
     if (daily) d.anchorDate = parsed.date;
-    d.trades = [...(d.trades ?? []), { date: new Date(parsed.date), side: parsed.side, units, nav: parsed.nav, amount, notes: parsed.notes }];
+    d.trades = [...(d.trades ?? []), { date: new Date(parsed.date), side: parsed.side, units, nav: parsed.nav, amount, realizedGain, notes: parsed.notes }];
     await doc.save();
     return NextResponse.json({ ok: true, fund: doc.toObject(), units, amount }, { status: 201 });
   } catch (err) {
