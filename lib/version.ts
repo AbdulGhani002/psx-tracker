@@ -1,7 +1,7 @@
 // Single source of truth for the app version + changelog.
 // Bump APP_VERSION and prepend a CHANGELOG entry on every release.
 
-export const APP_VERSION = "11.4.2";
+export const APP_VERSION = "11.4.3";
 
 export const BUILD_DATE =
   process.env.NEXT_PUBLIC_BUILD_DATE ?? "";
@@ -17,6 +17,14 @@ export type ChangelogEntry = {
 
 // Reverse-chronological. Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: "11.4.3",
+    date: "2026-09-22",
+    title: "Dividends go to the bank, not into the brokerage balance",
+    changes: [
+      "A company pays its dividend into the shareholder's bank account; the broker's cashbook never sees it. The brokerage balance on the Cash tab, the Overview and the allocation now leaves dividends out, so it can agree with the broker's own statement to the rupee. Dividends stay counted as income in Total return and on the Payouts tab.",
+    ],
+  },
   {
     version: "11.4.2",
     date: "2026-09-21",

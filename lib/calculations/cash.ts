@@ -65,8 +65,12 @@ function isoOf(d: unknown): string {
   return t ? new Date(t).toISOString().slice(0, 10) : "";
 }
 
-// Cash is implied from the book: deposits + sells + dividends - buys - withdrawals.
-// Buys and rights subtract netAmount (fees included); sells and dividends add it.
+// Cash is implied from the book: deposits + sells - buys - withdrawals.
+// Buys and rights subtract netAmount (fees included); sells add it. Dividends
+// do not pass through the broker: a company pays them into the shareholder's
+// bank account (BMA's cashbook of September 2026 carries not one dividend
+// credit), so they are counted as income elsewhere and kept out of this
+// balance unless `dividendsToBroker` says the broker collects them.
 //
 // This book was rebuilt from an NCCPL tax certificate, which carries every trade
 // but no cash movements — so the deposit ledger is knowingly incomplete while the
@@ -87,9 +91,10 @@ function isoOf(d: unknown): string {
 export function computeCashBalance(
   transactions: Transaction[],
   cashEntries: CashEntryLike[],
-  opts: { cgtRatePct?: number } = {}
+  opts: { cgtRatePct?: number; dividendsToBroker?: boolean } = {}
 ): CashSummary {
   const cgtRatePct = opts.cgtRatePct ?? 15;
+  const dividendsToBroker = opts.dividendsToBroker === true;
   let deposits = 0;
   let withdrawals = 0;
   let spentOnBuys = 0;
@@ -137,6 +142,7 @@ export function computeCashBalance(
       delta = net - withheld;
     } else if (tx.type === "DIVIDEND") {
       dividendsCollected += net;
+      if (!dividendsToBroker) continue; // paid to the bank, not into this balance
       delta = net;
     } else {
       continue; // BONUS and SPLIT move shares, not money

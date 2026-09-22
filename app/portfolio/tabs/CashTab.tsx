@@ -28,7 +28,7 @@ export async function CashTab() {
         <StatCard label="Net deposits" value={fmtRs(cash.deposits - cash.withdrawals)} hint={cash.impliedDeposits > 0 ? `Plus ${fmtRs(cash.impliedDeposits)} the trades prove arrived` : undefined} />
         <StatCard label="Total deposits" value={fmtRs(cash.deposits)} />
         <StatCard label="Total withdrawals" value={fmtRs(cash.withdrawals)} />
-        <StatCard label="Brokerage balance" value={fmtRs(cash.balance)} tone={cash.balance < 0 ? "negative" : undefined} hint={cash.cgtWithheld > 0 ? `${fmtRs(cash.cgtWithheld)} of it is CGT held back` : "Deposits and sale proceeds less buys and withdrawals"} />
+        <StatCard label="Brokerage balance" value={fmtRs(cash.balance)} tone={cash.balance < 0 ? "negative" : undefined} hint={cash.cgtWithheld > 0 ? `${fmtRs(cash.cgtWithheld)} of it is CGT held back` : `Deposits and sale proceeds less buys and withdrawals${cash.dividendsCollected > 0 ? `; dividends (${fmtRs(cash.dividendsCollected)}) go to your bank` : ""}`} />
       </div>
 
       <Card className="mt-3" title="Cash history" eyebrow={`${entries.length} entries`} action={<CashForm />}>

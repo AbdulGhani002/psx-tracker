@@ -42,11 +42,13 @@ const d = computeCashBalance([buy("2026-08-19", 35000)], [dep("2026-08-19", 3500
 ok("no spurious top-up", d.impliedDeposits === 0, JSON.stringify(d.topUps));
 ok("balance settles at zero", d.balance === 0, String(d.balance));
 
-console.log("\nsells and dividends are cash in");
+console.log("\nsells are cash in; dividends are counted but go to the bank");
 const e = computeCashBalance([sell("2026-08-05", 9000), div("2026-08-06", 1000)], [dep("2026-08-01", 500)]);
 ok("proceeds credited", e.proceedsFromSells === 9000);
-ok("dividends credited", e.dividendsCollected === 1000);
-ok("balance adds up", e.balance === 10500, String(e.balance));
+ok("dividends counted", e.dividendsCollected === 1000);
+ok("balance leaves the dividend out", e.balance === 9500, String(e.balance));
+const e2 = computeCashBalance([sell("2026-08-05", 9000), div("2026-08-06", 1000)], [dep("2026-08-01", 500)], { dividendsToBroker: true });
+ok("balance includes it when the broker collects dividends", e2.balance === 10500, String(e2.balance));
 
 console.log("\na sell later the same day still funds that day's buy");
 const f = computeCashBalance([buy("2026-08-07", 5000), sell("2026-08-07", 5000)], []);
