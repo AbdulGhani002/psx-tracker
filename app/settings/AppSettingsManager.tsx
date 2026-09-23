@@ -38,7 +38,21 @@ type Settings = {
   announceTelegram?: boolean;
   announceEmail?: boolean;
   announceEmailTo?: string;
+  announceTelegramLevel?: string;
+  announceEmailLevel?: string;
+  alertPrices?: boolean;
+  alertExDates?: boolean;
+  alertBoardMeetings?: boolean;
+  alertWeeklyDigest?: boolean;
+  telegramQuant?: boolean;
 };
+
+const ANNOUNCE_LEVELS: Array<{ value: string; label: string }> = [
+  { value: "off", label: "Nothing" },
+  { value: "board", label: "Board meetings" },
+  { value: "key", label: "Board, results, payouts" },
+  { value: "all", label: "Everything" },
+];
 
 export function AppSettingsManager({ initial, telegramConfigured }: { initial: Settings; telegramConfigured?: boolean }) {
   const router = useRouter();
@@ -140,7 +154,7 @@ export function AppSettingsManager({ initial, telegramConfigured }: { initial: S
         <div className="label-cap mb-3">Telegram alerts</div>
         <p className="text-[12px] text-muted mb-4 max-w-[60ch]">
           Create a bot with @BotFather, paste its token, and your chat id (message @userinfobot to get yours).
-          When enabled: rebalance drift, buy-zone entries, upcoming ex-dates, foreign-flow streaks and KMI drop-outs — pushed once a day.
+          Pick below what the bot sends. The weekly plan and the monthly statement are sent whatever is set here.
         </p>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-4">
           <TextInput
@@ -151,7 +165,7 @@ export function AppSettingsManager({ initial, telegramConfigured }: { initial: S
             hint={telegramConfigured ? "Saved. Leave blank to keep it." : undefined}
           />
           <TextInput label="Chat id" value={s.telegramChatId} onChange={(e) => set("telegramChatId", e.target.value)} placeholder="123456789" />
-          <Toggle label="Enable alerts" value={s.alertsEnabled} onChange={(v) => set("alertsEnabled", v)} hint="Pushes during scheduled checks." />
+          <Toggle label="Enable alerts" value={s.alertsEnabled} onChange={(v) => set("alertsEnabled", v)} hint="The master switch for everything below." />
           <div className="flex items-end">
             <Button variant="outline" onClick={sendTest} disabled={testing}>
               {testing ? "Sending…" : "Send test message"}
@@ -159,6 +173,15 @@ export function AppSettingsManager({ initial, telegramConfigured }: { initial: S
           </div>
         </div>
         {testMsg && <div className="text-[12px] mt-2" style={{ color: testMsg.ok ? "var(--positive)" : "var(--negative)" }}>{testMsg.text}</div>}
+
+        <div className="text-[13px] font-medium mt-5 mb-2">What the bot sends</div>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-4">
+          <Toggle label="Board meetings" value={s.alertBoardMeetings ?? true} onChange={(v) => set("alertBoardMeetings", v)} hint="A held company's board meeting, up to a week ahead." />
+          <Toggle label="Weekly portfolio digest" value={s.alertWeeklyDigest ?? true} onChange={(v) => set("alertWeeklyDigest", v)} hint="Friday: net worth, unrealised, XIRR, best and worst." />
+          <Toggle label="Price and plan alerts" value={s.alertPrices ?? true} onChange={(v) => set("alertPrices", v)} hint="Buy and sell zones, rebalance drift, foreign flows, KMI changes, sell discipline." />
+          <Toggle label="Ex-dividend reminders" value={s.alertExDates ?? true} onChange={(v) => set("alertExDates", v)} hint="Book closures in the next two weeks." />
+          <Toggle label="Model charts and the next-day read" value={s.telegramQuant ?? true} onChange={(v) => set("telegramQuant", v)} hint="The daily album of charts and the model's verdict." />
+        </div>
       </div>
 
       <div className="mt-6 pt-4 border-t border-rule">
@@ -183,11 +206,27 @@ export function AppSettingsManager({ initial, telegramConfigured }: { initial: S
       <div className="mt-6 pt-4 border-t border-rule">
         <div className="text-[14px] font-semibold">Company announcements</div>
         <p className="text-[12.5px] text-muted mt-1 mb-3">
-          The exchange&apos;s announcements board is read every five minutes. Anything a company you hold posts (results, board meetings, dividends, notices) is sent to you as it appears: the document itself with its link on Telegram, and by email with the document attached.
+          The exchange&apos;s announcements board is read every five minutes. What a company you hold posts is sent as it appears, the document itself with its link: pick how much of it each channel carries. Board meetings are the meeting notices; results, payouts and general-meeting or material-information notices are the rest of what matters; everything else is directors&apos; disclosures, briefings and public notices.
         </p>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-4">
-          <Toggle label="Send to Telegram" value={s.announceTelegram ?? true} onChange={(v) => set("announceTelegram", v)} hint="Uses the bot and chat id above." />
-          <Toggle label="Send by email" value={s.announceEmail ?? true} onChange={(v) => set("announceEmail", v)} hint="The document attached when it is under 20 MB, the link otherwise." />
+          <div>
+            <div className="text-[13px] font-medium">Send to Telegram</div>
+            <div className="seg mt-1.5">
+              {ANNOUNCE_LEVELS.map((l) => (
+                <button key={l.value} type="button" data-active={(s.announceTelegramLevel ?? "key") === l.value} onClick={() => set("announceTelegramLevel", l.value)}>{l.label}</button>
+              ))}
+            </div>
+            <div className="text-[11.5px] text-muted mt-1.5">Uses the bot and chat id above.</div>
+          </div>
+          <div>
+            <div className="text-[13px] font-medium">Send by email</div>
+            <div className="seg mt-1.5">
+              {ANNOUNCE_LEVELS.map((l) => (
+                <button key={l.value} type="button" data-active={(s.announceEmailLevel ?? "all") === l.value} onClick={() => set("announceEmailLevel", l.value)}>{l.label}</button>
+              ))}
+            </div>
+            <div className="text-[11.5px] text-muted mt-1.5">The document attached when it is under 20 MB, the link otherwise.</div>
+          </div>
           <TextInput label="Email address" value={s.announceEmailTo ?? ""} onChange={(e) => set("announceEmailTo", e.target.value)} placeholder="Blank: your account email" />
           <div className="flex items-end">
             <Button variant="outline" onClick={sendLatestAnnouncement} disabled={sendingAnn}>

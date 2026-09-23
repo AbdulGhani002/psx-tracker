@@ -24,6 +24,7 @@ const AnnouncementSchema = new Schema(
     symbol: { type: String, required: true, index: true },
     company: { type: String, default: "" },
     title: { type: String, default: "" },
+    kind: { type: String, default: "other" }, // board | results | payout | agm | material | other
     announcedAt: { type: Date, required: true, index: true }, // the board's date and time (PKT)
     pdfPath: { type: String, default: "" }, // /download/document/282940.pdf or /download/attachment/282829-1.pdf
     images: { type: [String], default: [] }, // /download/image/282940-1.gif

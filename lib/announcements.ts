@@ -4,7 +4,7 @@ import { AnnouncementModel, HoldingModel, UserModel } from "@/lib/models";
 import { getAppSettings } from "@/lib/data";
 import { sendTelegram, sendTelegramDocument } from "@/lib/notify/telegram";
 import { sendEmail, appOrigin } from "@/lib/auth/mailer";
-import { fetchBoard, fetchBoardFile, fileNameFor, fileUrl, telegramText, emailSubject, emailHtml, type BoardRow, type BoardFile } from "@/lib/calculations/announcements";
+import { fetchBoard, fetchBoardFile, fileNameFor, fileUrl, telegramText, emailSubject, emailHtml, classifyAnnouncement, announcementPasses, type BoardRow, type BoardFile, type AnnounceLevel, type AnnouncementKind } from "@/lib/calculations/announcements";
 
 export * from "@/lib/calculations/announcements";
 
@@ -31,7 +31,7 @@ async function storeRows(rows: BoardRow[]): Promise<number> {
   for (const r of rows) {
     const res = await AnnouncementModel.updateOne(
       { annId: r.annId },
-      { $setOnInsert: { annId: r.annId, symbol: r.symbol, company: r.company, title: r.title, announcedAt: r.announcedAt, pdfPath: r.pdfPath, images: r.images, seenAt: new Date(), deliveries: [] } },
+      { $setOnInsert: { annId: r.annId, symbol: r.symbol, company: r.company, title: r.title, kind: classifyAnnouncement(r.title), announcedAt: r.announcedAt, pdfPath: r.pdfPath, images: r.images, seenAt: new Date(), deliveries: [] } },
       { upsert: true }
     );
     if (res.upsertedCount > 0) inserted++;
@@ -87,19 +87,35 @@ export async function backfillHeld(count = 20): Promise<{ symbols: number; inser
 export type Delivery = { user: string; annId: string; symbol: string; title: string; telegram: string; email: string; status: string; error?: string };
 export type DeliverResult = { users: number; considered: number; sent: number; partial: number; failed: number; skipped: number; deliveries: Delivery[] };
 
-type Channels = { token: string; chatId: string; telegramOn: boolean; emailTo: string; emailOn: boolean };
+type Channels = { token: string; chatId: string; telegramLevel: AnnounceLevel; emailTo: string; emailLevel: AnnounceLevel };
+
+// A level was stored as a plain on/off before the filter existed; an old
+// `false` still means off, an old `true` means the whole board.
+const levelOf = (level: unknown, legacy: unknown, fallback: AnnounceLevel): AnnounceLevel => {
+  const v = String(level ?? "");
+  if (v === "off" || v === "board" || v === "key" || v === "all") return v;
+  return legacy === false ? "off" : fallback;
+};
 
 async function channelsFor(userId: string): Promise<Channels> {
   const s: any = await getAppSettings();
   const user: any = await UserModel.findById(userId, { email: 1, emailVerified: 1 }).lean();
   const emailTo = String(s.announceEmailTo ?? "").trim() || (user?.emailVerified ? String(user.email ?? "") : "");
-  return { token: s.telegramBotToken ?? "", chatId: s.telegramChatId ?? "", telegramOn: s.announceTelegram !== false, emailTo, emailOn: s.announceEmail !== false };
+  return {
+    token: s.telegramBotToken ?? "",
+    chatId: s.telegramChatId ?? "",
+    telegramLevel: levelOf(s.announceTelegramLevel, s.announceTelegram, "key"),
+    emailTo,
+    emailLevel: levelOf(s.announceEmailLevel, s.announceEmail, "all"),
+  };
 }
 
-async function sendOne(row: BoardRow, ch: Channels, file: BoardFile | null): Promise<{ telegram: string; email: string; error: string }> {
+async function sendOne(row: BoardRow, ch: Channels, file: BoardFile | null, kind: AnnouncementKind): Promise<{ telegram: string; email: string; error: string }> {
   let telegram = "off", email = "off";
   const errors: string[] = [];
-  if (ch.telegramOn && ch.token && ch.chatId) {
+  const toTelegram = announcementPasses(kind, ch.telegramLevel);
+  const toEmail = announcementPasses(kind, ch.emailLevel);
+  if (toTelegram && ch.token && ch.chatId) {
     let ok = false;
     if (file && file.bytes.length <= TELEGRAM_MAX) {
       const r = await sendTelegramDocument(ch.token, ch.chatId, fileNameFor(row, file.ext), file.bytes, telegramText(row), { contentType: file.contentType, parseMode: "HTML" });
@@ -113,7 +129,7 @@ async function sendOne(row: BoardRow, ch: Channels, file: BoardFile | null): Pro
       if (!r.ok) errors.push(`telegram: ${r.detail ?? "failed"}`);
     }
   }
-  if (ch.emailOn && ch.emailTo) {
+  if (toEmail && ch.emailTo) {
     const attach = file && file.bytes.length <= EMAIL_MAX ? [{ filename: fileNameFor(row, file.ext), content: file.bytes }] : [];
     const ok = await sendEmail(ch.emailTo, emailSubject(row), emailHtml(row, { attached: attach.length > 0, appOrigin: appOrigin() }), attach);
     email = ok ? (attach.length > 0 ? "sent" : "link") : "failed";
@@ -154,8 +170,15 @@ export async function deliverDueForCurrentUser(opts: { sinceHours?: number; dryR
 
   for (const a of due) {
     const row: BoardRow = { annId: a.annId, symbol: a.symbol, company: a.company, title: a.title, announcedAt: new Date(a.announcedAt), pdfPath: a.pdfPath ?? "", images: a.images ?? [] };
+    const kind: AnnouncementKind = a.kind ?? classifyAnnouncement(row.title);
     if (opts.dryRun) {
-      out.deliveries.push({ user: userId.slice(-6), annId: row.annId, symbol: row.symbol, title: row.title, telegram: ch.telegramOn && ch.token && ch.chatId ? "would send" : "off", email: ch.emailOn && ch.emailTo ? "would send" : "off", status: "dry" });
+      out.deliveries.push({ user: userId.slice(-6), annId: row.annId, symbol: row.symbol, title: row.title, telegram: announcementPasses(kind, ch.telegramLevel) && ch.token && ch.chatId ? "would send" : "off", email: announcementPasses(kind, ch.emailLevel) && ch.emailTo ? "would send" : "off", status: `dry ${kind}` });
+      continue;
+    }
+    // Nothing to send for this one: claim it so it is not looked at again.
+    if (!announcementPasses(kind, ch.telegramLevel) && !announcementPasses(kind, ch.emailLevel)) {
+      await AnnouncementModel.updateOne({ _id: a._id, "deliveries.userId": { $ne: userId } }, { $push: { deliveries: { userId, status: "skipped", telegram: "off", email: "off", attempts: 1, lastAt: new Date(), error: "" } } });
+      out.skipped++;
       continue;
     }
     const now = new Date();
@@ -172,7 +195,7 @@ export async function deliverDueForCurrentUser(opts: { sinceHours?: number; dryR
     const file = files.get(row.annId) ?? null;
     if (file && !a.fileBytes) await AnnouncementModel.updateOne({ _id: a._id }, { $set: { fileBytes: file.bytes.length } });
 
-    const r = await sendOne(row, ch, file);
+    const r = await sendOne(row, ch, file, kind);
     const status = statusOf(r.telegram, r.email);
     await AnnouncementModel.updateOne({ _id: a._id, "deliveries.userId": userId }, { $set: { "deliveries.$.status": status, "deliveries.$.telegram": r.telegram, "deliveries.$.email": r.email, "deliveries.$.error": r.error, "deliveries.$.lastAt": new Date() } });
     out.deliveries.push({ user: userId.slice(-6), annId: row.annId, symbol: row.symbol, title: row.title, telegram: r.telegram, email: r.email, status, ...(r.error ? { error: r.error } : {}) });
@@ -191,7 +214,7 @@ export async function sendLatestToCurrentUser(): Promise<{ ok: boolean; detail: 
   if (!userId) return { ok: false, detail: "Not signed in." };
   await connectDb();
   const ch = await channelsFor(userId);
-  if (!(ch.telegramOn && ch.token && ch.chatId) && !(ch.emailOn && ch.emailTo)) return { ok: false, detail: "Set the Telegram bot and chat id, or an email address, first." };
+  if (!(ch.telegramLevel !== "off" && ch.token && ch.chatId) && !(ch.emailLevel !== "off" && ch.emailTo)) return { ok: false, detail: "Set the Telegram bot and chat id, or an email address, first." };
   const held = await HoldingModel.find({ userId, currentShares: { $gt: 0 } }, { symbol: 1 }).lean();
   const symbols = [...new Set((held as any[]).map((h) => h.symbol as string))];
   let a: any = symbols.length ? await AnnouncementModel.findOne({ symbol: { $in: symbols } }).sort({ announcedAt: -1 }).lean() : null;
@@ -204,12 +227,13 @@ export async function sendLatestToCurrentUser(): Promise<{ ok: boolean; detail: 
   }
   const row: BoardRow = { annId: a.annId, symbol: a.symbol, company: a.company, title: a.title, announcedAt: new Date(a.announcedAt), pdfPath: a.pdfPath ?? "", images: a.images ?? [] };
   const file = await fetchBoardFile(row.pdfPath || row.images[0] || "");
-  const r = await sendOne(row, ch, file);
+  // The button is a test, so it ignores the filter and sends whatever is newest.
+  const r = await sendOne(row, { ...ch, telegramLevel: "all", emailLevel: "all" }, file, "other");
   const status = statusOf(r.telegram, r.email);
   return { ok: status === "sent" || status === "partial", detail: status === "sent" ? `Sent ${row.symbol}: ${row.title}` : r.error || "Nothing was sent.", telegram: r.telegram, email: r.email };
 }
 
-export type RecentAnnouncement = { annId: string; symbol: string; company: string; title: string; announcedAt: string; pdfUrl: string; imageUrl: string; sent: string };
+export type RecentAnnouncement = { annId: string; symbol: string; company: string; title: string; kind: AnnouncementKind; announcedAt: string; pdfUrl: string; imageUrl: string; sent: string };
 
 // The latest announcements for the names the current user holds, with what
 // was sent to them, for the Overview card and the Announcements page.
@@ -228,6 +252,6 @@ export async function getRecentAnnouncements(opts: { limit?: number; days?: numb
   const rows: any[] = await AnnouncementModel.find({ symbol: { $in: symbols }, announcedAt: { $gte: since } }).sort({ announcedAt: -1 }).limit(opts.limit ?? 50).lean();
   return rows.map((a) => {
     const d = (a.deliveries ?? []).find((x: any) => x.userId === userId);
-    return { annId: a.annId, symbol: a.symbol, company: a.company ?? "", title: a.title ?? "", announcedAt: new Date(a.announcedAt).toISOString(), pdfUrl: fileUrl(a.pdfPath ?? ""), imageUrl: fileUrl(a.images?.[0] ?? ""), sent: d ? d.status : "" };
+    return { annId: a.annId, symbol: a.symbol, company: a.company ?? "", title: a.title ?? "", kind: (a.kind as AnnouncementKind) ?? classifyAnnouncement(a.title ?? ""), announcedAt: new Date(a.announcedAt).toISOString(), pdfUrl: fileUrl(a.pdfPath ?? ""), imageUrl: fileUrl(a.images?.[0] ?? ""), sent: d ? d.status : "" };
   });
 }

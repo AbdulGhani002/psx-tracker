@@ -64,6 +64,10 @@ async function runForCurrentUser(force: boolean, withEmail = false, fullEmail = 
   const settings: any = await getAppSettings();
   const token = settings.telegramBotToken ?? "";
   const chatId = settings.telegramChatId ?? "";
+  // The charts and the next-day read are a separate thing from the portfolio
+  // reports; turned off in Settings, nothing is built and nothing is sent.
+  if (settings.telegramQuant === false) skipTelegram = true;
+  if (skipTelegram && !withEmail) return { sent: false, reason: "quant_report_off" };
   if (!settings.alertsEnabled || !token || !chatId) return { sent: false, reason: "telegram_not_configured" };
 
   const today = new Date().toISOString().slice(0, 10);

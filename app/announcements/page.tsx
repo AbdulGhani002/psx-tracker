@@ -2,7 +2,7 @@ import Link from "next/link";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { Card } from "@/components/ui/Card";
 import { AnnouncementsList } from "@/components/dashboard/AnnouncementsList";
-import { getRecentAnnouncements, BOARD_PAGE } from "@/lib/announcements";
+import { getRecentAnnouncements, BOARD_PAGE, LEVEL_LABEL, type AnnounceLevel } from "@/lib/announcements";
 import { getAppSettings, getPortfolioSummary } from "@/lib/data";
 
 export const dynamic = "force-dynamic";
@@ -15,14 +15,19 @@ export default async function AnnouncementsPage({ searchParams }: { searchParams
   const [rows, settings, summary] = await Promise.all([getRecentAnnouncements({ limit: 150, days: 180, symbol: symbol || undefined }), getAppSettings(), getPortfolioSummary()]);
   const held = summary.positions.filter((p) => p.shares > 0).map((p) => p.symbol).sort();
   const s: any = settings;
-  const telegramOn = s.announceTelegram !== false && !!s.telegramBotToken && !!s.telegramChatId;
-  const emailOn = s.announceEmail !== false;
+  const level = (v: unknown, legacy: unknown, fallback: AnnounceLevel): AnnounceLevel => {
+    const x = String(v ?? "");
+    return x === "off" || x === "board" || x === "key" || x === "all" ? x : legacy === false ? "off" : fallback;
+  };
+  const tgLevel = !!s.telegramBotToken && !!s.telegramChatId ? level(s.announceTelegramLevel, s.announceTelegram, "key") : "off";
+  const mailLevel = level(s.announceEmailLevel, s.announceEmail, "all");
+  const carries = [tgLevel === "off" ? "" : `Telegram gets ${LEVEL_LABEL[tgLevel]}`, mailLevel === "off" ? "" : `email gets ${LEVEL_LABEL[mailLevel]}`].filter(Boolean).join(", ");
 
   return (
     <div>
       <PageHeader
         title="What your companies have told the exchange."
-        subtitle={`The company-announcements board is read every five minutes. Anything posted for a name you hold is sent ${telegramOn && emailOn ? "to Telegram and by email" : telegramOn ? "to Telegram" : emailOn ? "by email" : "nowhere yet: turn a channel on under Settings"}, with the document itself.`}
+        subtitle={`The company-announcements board is read every five minutes and everything posted for a name you hold is kept here. ${carries ? `${carries}, with the document itself.` : "Nothing is being sent: pick what each channel carries under Settings."}`}
       >
         <div className="flex flex-wrap items-center gap-2">
           <Link href="/announcements" className="pill" data-tone={symbol ? "muted" : "positive"}>All names</Link>

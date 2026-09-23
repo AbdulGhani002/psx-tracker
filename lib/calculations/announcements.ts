@@ -159,6 +159,49 @@ export function telegramText(row: BoardRow, withFileNote = false): string {
   return lines.join("\n").slice(0, 1024);
 }
 
+// What an announcement is about, read from its title. The board's titles are
+// free text, so this is a best effort on the words companies actually use:
+//   "Board Meeting", "BOARD MEETING AND CLOSED PERIOD", "Board Meeting Other
+//   Than Financial Results" -> board
+//   "Financial Results for the Year Ended June 30, 2026", "Transmission of
+//   Annual Financial Statements" -> results
+//   "Credit of Interim Cash Dividend Q2 2026", "Bonus Issue" -> payout
+//   "Notice of 42nd Annual General Meeting" -> agm
+//   "Material Information", "Disclosure of Material Information" -> material
+//   a director's interest, a public notice, a briefing recording -> other
+export type AnnouncementKind = "board" | "results" | "payout" | "agm" | "material" | "other";
+
+export function classifyAnnouncement(title: string): AnnouncementKind {
+  const t = String(title ?? "").toLowerCase();
+  if (/board\s*meeting|board\s*of\s*directors[^.]*meeting|closed\s*period/.test(t)) return "board";
+  if (/dividend|bonus\s*(issue|shares)|right\s*(issue|shares)|book\s*clos|entitlement|payout/.test(t)) return "payout";
+  if (/financial\s*(results|statements|accounts)|quarterly\s*(report|accounts)|half[\s-]*year|annual\s*(report|accounts)|transmission of/.test(t)) return "results";
+  if (/annual\s*general\s*meeting|extraordinary\s*general|\beogm\b|\bagm\b/.test(t)) return "agm";
+  if (/material\s*information/.test(t)) return "material";
+  return "other";
+}
+
+// How much of the board a channel carries.
+//   off  nothing
+//   board  board meetings only
+//   key  board meetings, results, payouts, general meetings, material information
+//   all  everything the companies post
+export type AnnounceLevel = "off" | "board" | "key" | "all";
+
+export function announcementPasses(kind: AnnouncementKind, level: AnnounceLevel): boolean {
+  if (level === "off") return false;
+  if (level === "all") return true;
+  if (level === "board") return kind === "board";
+  return kind !== "other";
+}
+
+export const LEVEL_LABEL: Record<AnnounceLevel, string> = {
+  off: "nothing",
+  board: "board meetings only",
+  key: "board meetings, results, payouts and notices",
+  all: "everything posted",
+};
+
 export function emailSubject(row: BoardRow): string {
   return `${row.symbol}: ${row.title}`.slice(0, 180);
 }

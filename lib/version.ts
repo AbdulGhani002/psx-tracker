@@ -1,7 +1,7 @@
 // Single source of truth for the app version + changelog.
 // Bump APP_VERSION and prepend a CHANGELOG entry on every release.
 
-export const APP_VERSION = "11.4.3";
+export const APP_VERSION = "11.5.0";
 
 export const BUILD_DATE =
   process.env.NEXT_PUBLIC_BUILD_DATE ?? "";
@@ -17,6 +17,15 @@ export type ChangelogEntry = {
 
 // Reverse-chronological. Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: "11.5.0",
+    date: "2026-09-23",
+    title: "Telegram carries what you choose: reports and board meetings, or more",
+    changes: [
+      "Settings now lists what the bot sends, each with its own switch: board meetings, the Friday portfolio digest, price and plan alerts (buy and sell zones, rebalance drift, foreign flows, KMI changes, sell discipline), ex-dividend reminders, and the model's daily charts and next-day read. The weekly plan and the monthly statement are portfolio reports and are sent whatever else is off.",
+      "Company announcements are filtered per channel: nothing, board meetings only, board meetings with results, payouts and notices, or everything posted. Each announcement is classified from its title, and the Announcements page marks a board meeting on its row.",
+    ],
+  },
   {
     version: "11.4.3",
     date: "2026-09-22",

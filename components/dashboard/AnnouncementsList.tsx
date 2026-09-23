@@ -24,6 +24,7 @@ export function AnnouncementsList({ rows, compact = false }: { rows: RecentAnnou
               </a>
               <div className="text-[11px] text-muted mt-0.5 flex flex-wrap items-center gap-x-2">
                 <span>{fmtPkt(new Date(a.announcedAt))}</span>
+                {a.kind === "board" && <span className="pill" data-tone="muted">Board meeting</span>}
                 {a.pdfUrl && <a href={a.pdfUrl} target="_blank" rel="noreferrer" className="link-underline">PDF</a>}
                 {!a.pdfUrl && a.imageUrl && <a href={a.imageUrl} target="_blank" rel="noreferrer" className="link-underline">Notice</a>}
                 {a.sent === "sent" && <span className="pill" data-tone="positive">Sent</span>}

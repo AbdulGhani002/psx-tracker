@@ -19,6 +19,20 @@ export const maxDuration = 120;
 
 type Candidate = { key: string; message: string };
 
+// Which alerts this user wants. Every candidate carries a key whose prefix
+// says what it is, so one filter at the end decides what goes out instead of
+// nine scattered conditions.
+const PRICE_KEYS = ["zone-buy", "zone-sell", "zone-conflict", "zone", "standin-swap", "drift", "near-ceiling", "near-buy", "fipi", "kmi-drop", "sellsig"];
+
+function wanted(key: string, s: any): boolean {
+  const prefix = key.split(":")[0];
+  if (prefix === "board") return s.alertBoardMeetings !== false;
+  if (prefix === "exdiv") return s.alertExDates !== false;
+  if (prefix === "digest") return s.alertWeeklyDigest !== false;
+  if (PRICE_KEYS.includes(prefix)) return s.alertPrices !== false;
+  return true;
+}
+
 // Scheduled timer hits this. Runs the alert check for EVERY user (each with
 // their own Telegram config, watchlist, holdings) and pushes deduped alerts.
 export async function POST(req: Request) {
@@ -374,7 +388,7 @@ async function runAlertsForCurrentUser(forceDigest = false) {
   // Scoped by userId so each user has their own daily dedupe slots.
   const myId = await uid();
   const fresh: string[] = [];
-  for (const c of candidates) {
+  for (const c of candidates.filter((c) => wanted(c.key, settings))) {
     try {
       await AlertLogModel.create({ userId: myId, dedupeKey: c.key, kind: c.key.split(":")[0], message: c.message });
       fresh.push(c.message);

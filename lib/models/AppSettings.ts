@@ -60,8 +60,18 @@ const AppSettingsSchema = new Schema(
     bonusTaxFiler: { type: Number, default: 10 },
     bonusTaxNonFiler: { type: Number, default: 20 },
     // Company announcements for held names, sent as the exchange posts them (lib/announcements).
-    announceTelegram: { type: Boolean, default: true },
+    announceTelegram: { type: Boolean, default: true }, // kept: an old on/off, read when no level is set
     announceEmail: { type: Boolean, default: true },
+    // How much of the announcements board each channel carries:
+    // off | board (board meetings only) | key (board, results, payouts, notices) | all
+    announceTelegramLevel: { type: String, default: "key" },
+    announceEmailLevel: { type: String, default: "all" },
+    // What else Telegram carries.
+    alertPrices: { type: Boolean, default: true }, // buy and sell zones, drift, flows, KMI, sell discipline
+    alertExDates: { type: Boolean, default: true }, // ex-dividend and book-closure reminders
+    alertBoardMeetings: { type: Boolean, default: true }, // a held name's board meeting, up to a week ahead
+    alertWeeklyDigest: { type: Boolean, default: true }, // the Friday portfolio digest
+    telegramQuant: { type: Boolean, default: true }, // the model's daily charts and next-day read
     announceEmailTo: { type: String, default: "" }, // blank: the verified account email
   },
   { timestamps: true }
@@ -106,4 +116,11 @@ export const DEFAULT_SETTINGS = {
   announceTelegram: true,
   announceEmail: true,
   announceEmailTo: "",
+  announceTelegramLevel: "key" as string,
+  announceEmailLevel: "all" as string,
+  alertPrices: true,
+  alertExDates: true,
+  alertBoardMeetings: true,
+  alertWeeklyDigest: true,
+  telegramQuant: true,
 };

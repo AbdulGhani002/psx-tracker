@@ -39,6 +39,13 @@ const patchSchema = z.object({
   announceTelegram: z.boolean().optional(),
   announceEmail: z.boolean().optional(),
   announceEmailTo: z.string().email().or(z.literal("")).optional(),
+  announceTelegramLevel: z.enum(["off", "board", "key", "all"]).optional(),
+  announceEmailLevel: z.enum(["off", "board", "key", "all"]).optional(),
+  alertPrices: z.boolean().optional(),
+  alertExDates: z.boolean().optional(),
+  alertBoardMeetings: z.boolean().optional(),
+  alertWeeklyDigest: z.boolean().optional(),
+  telegramQuant: z.boolean().optional(),
 });
 
 // Never return the raw bot token to the client. Replace it with a flag.

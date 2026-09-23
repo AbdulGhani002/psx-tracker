@@ -2,7 +2,7 @@
 //   npx tsx scripts/test-announcements.ts
 // The fixture is one page of POST dps.psx.com.pk/announcements saved on 18 Sep 2026.
 import { readFileSync } from "node:fs";
-import { parseBoard, parseBoardTotal, parseBoardDate, fileNameFor, telegramText, emailSubject, emailHtml, fmtPkt } from "../lib/calculations/announcements";
+import { parseBoard, parseBoardTotal, parseBoardDate, fileNameFor, telegramText, emailSubject, emailHtml, fmtPkt, classifyAnnouncement, announcementPasses } from "../lib/calculations/announcements";
 
 let passed = 0, failed = 0;
 function check(name: string, ok: boolean, detail = "") {
@@ -51,6 +51,32 @@ eq("email subject", emailSubject(mari), "MARI: Material Information");
 const mail = emailHtml(mari, { attached: true, appOrigin: "https://portfolio.apex-logic.net" });
 check("email carries the document link, the company page and the settings link", ["https://dps.psx.com.pk/download/document/282421.pdf", "https://dps.psx.com.pk/company/MARI", "https://portfolio.apex-logic.net/settings", "The document is attached."].every((s) => mail.includes(s)));
 check("email says when the document was too large", emailHtml(mari, { attached: false, appOrigin: "" }).includes("too large to attach"));
+
+// What each announcement is about, and which channel level carries it.
+const KINDS: Array<[string, string]> = [
+  ["Board Meeting", "board"],
+  ["BOARD MEETING AND CLOSED PERIOD", "board"],
+  ["Board Meeting Other Than Financial Results", "board"],
+  ["Board Meeting Annual Financials 2026", "board"],
+  ["Financial Results for the Year Ended June 30, 2026", "results"],
+  ["Transmission of Annual Financial Statements for the Year Ended 2026-06-30", "results"],
+  ["Credit of Interim Cash Dividend Q2 2026", "payout"],
+  ["PUBLICATION OF NOTICES FOR THE CREDIT OF INTERIM CASH DIVIDEND (D-46)", "payout"],
+  ["Notice of 42nd Annual General Meeting", "agm"],
+  ["Material Information", "material"],
+  ["Disclosure of Material Information", "material"],
+  ["Disclosure of Interest by a Director CEO, or Executive of a listed company", "other"],
+  ["Resignation of Chief Financial Officer", "other"],
+  ["Video Recording of the Corporate Briefing Session", "other"],
+  ["UNUSUAL MOVEMENT IN VOLUME OF THE SHARES", "other"],
+  ["", "other"],
+];
+for (const [title, want] of KINDS) eq(`kind of "${title.slice(0, 40)}"`, classifyAnnouncement(title), want);
+check("a board meeting about results is still a board meeting", classifyAnnouncement("Board Meeting Annual Financials 2026") === "board");
+eq("off carries nothing", ["board", "results", "other"].map((k) => announcementPasses(k as any, "off")), [false, false, false]);
+eq("board carries board meetings only", ["board", "results", "payout", "other"].map((k) => announcementPasses(k as any, "board")), [true, false, false, false]);
+eq("key carries everything but the noise", ["board", "results", "payout", "agm", "material", "other"].map((k) => announcementPasses(k as any, "key")), [true, true, true, true, true, false]);
+eq("all carries everything", ["board", "other"].map((k) => announcementPasses(k as any, "all")), [true, true]);
 
 console.log(`${passed} passed, ${failed} failed`);
 if (failed) process.exit(1);
