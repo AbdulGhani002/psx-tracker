@@ -32,6 +32,7 @@ import { equalWeightIndex } from "@/lib/quant/archive";
 import { indexStates, cellOutlook, strengthTests, type CellOutlook, type StrengthTest } from "@/lib/quant/outlook";
 import { readMarket, readName, triggerFor, edgeLine, VERDICT_RANK, type MarketRead, type ModelVerdict, type ModelZone, type NameStanding, type DecileEdge, type PlanInput, type PlanRole } from "@/lib/quant/analysis";
 import type { StrategyResult } from "@/lib/quant/strategy";
+import type { SwingStats } from "@/lib/quant/swing";
 
 export const INDICES: Array<{ symbol: string; title: string }> = [
   { symbol: "KSE100", title: "KSE-100" },
@@ -48,7 +49,7 @@ export type Forecast = {
   up: number;
   pLow: number[]; // the path curve's knots, lows
   pHigh: number[];
-  learned: boolean; // false when the model carries no path heads and the plain walk stood in
+  learned: boolean; // false when the plain walk over the name's volatility stood in for the model's path curve
   horizon: number;
 };
 
@@ -134,6 +135,7 @@ export type QuantReport = {
   modelNote: string;
   record: ModelRecord | null;
   strategy: StrategyResult | null;
+  swing: SwingStats[] | null; // swing trades at the zones' levels, out of sample
   model: { trainedOn: string; trainedFrom: string; horizon: number; names: number; learners: string; heads: number } | null;
   screen: ScreenRow[];
 };
@@ -194,7 +196,7 @@ function captionFor(item: Omit<ReportItem, "png" | "caption">, rec: ModelRecord 
   } else {
     if (item.forecast && item.levels) {
       const f = item.forecast;
-      lines.push(`${item.edgeLine ? item.edgeLine.charAt(0).toUpperCase() + item.edgeLine.slice(1) + ". " : ""}Odds of a ${DIP_PCT}% dip first ${odds(f.dip)}; half of paths like this one dip ${item.levels.medianLowPct.toFixed(1)}% and rise ${item.levels.medianHighPct.toFixed(1)}% within ${f.horizon} sessions${f.learned ? "" : " (plain walk; this model has no path heads)"}.`);
+      lines.push(`${item.edgeLine ? item.edgeLine.charAt(0).toUpperCase() + item.edgeLine.slice(1) + ". " : ""}Odds of a ${DIP_PCT}% dip first ${odds(f.dip)}; half of paths like this one dip ${item.levels.medianLowPct.toFixed(1)}% and rise ${item.levels.medianHighPct.toFixed(1)}% within ${f.horizon} sessions${f.learned ? "" : " (levels from its own volatility: the model's path curve did not place them better out of sample)"}.`);
     }
     if (item.zone) lines.push(zoneLine(item.zone));
     lines.push(`<b>${item.verdict}</b>${item.plan ? ` (target ${item.plan.targetPct.toFixed(0)}%, now ${item.plan.currentPct.toFixed(1)}% of the book)` : ""}: ${item.verdictLine}`);
@@ -280,7 +282,7 @@ export async function buildQuantReport(): Promise<QuantReport> {
     const c = await contextFor(model, stockBars, featureIndex);
     noModelReason = c.reason;
     if (c.context) {
-      const panel = buildPanel(stockBars, featureIndex, model.horizon, { context: c.context, ranks: (model.rankNames ?? []).length > 0, minRows: 1 });
+      const panel = buildPanel(stockBars, featureIndex, model.horizon, { context: c.context, ranks: (model.rankNames ?? []).length > 0, extras: !!model.featureSet?.extras, xs: !!model.featureSet?.xs, minRows: 1 });
       const firstRecent = panel.dates[Math.max(0, panel.dates.length - 5)];
       for (const r of panel.rows) {
         lastRows.set(r.symbol, r);
@@ -319,8 +321,10 @@ export async function buildQuantReport(): Promise<QuantReport> {
     for (const [symbol, row] of lastRows) {
       if (row.x.length !== model.featureNames.length) continue;
       try {
-        const p = predictEnsemble(model.learners, row.x);
-        const learned = p.length > HIGH_TARGETS[2];
+        const p = predictEnsemble(model.learners, row);
+        // The model's path curve, unless it did not beat the plain walk out of
+        // sample, in which case the walk over the name's volatility stands in.
+        const learned = p.length > HIGH_TARGETS[2] && Number.isFinite(p[HIGH_TARGETS[2]]) && model.zoneSource !== "walk";
         forecasts.set(symbol, {
           rel: rankScore(p),
           beat: p[1],
@@ -356,7 +360,7 @@ export async function buildQuantReport(): Promise<QuantReport> {
       for (const r of rows) {
         if (r.x.length !== model.featureNames.length) continue;
         try {
-          scored.push({ symbol: r.symbol, rel: rankScore(predictEnsemble(model.learners, r.x)) });
+          scored.push({ symbol: r.symbol, rel: rankScore(predictEnsemble(model.learners, r)) });
         } catch {
           /* skipped */
         }
@@ -806,8 +810,9 @@ export async function buildQuantReport(): Promise<QuantReport> {
     modelNote,
     record: rec,
     strategy,
+    swing: model?.swing ?? null,
     model: model
-      ? { trainedOn: model.trainedOn, trainedFrom: model.trainedFrom ?? "eod", horizon: model.horizon, names: model.universe.length, learners: model.learners.map((l) => l.kind).join("+"), heads: model.targetNames.length }
+      ? { trainedOn: model.trainedOn, trainedFrom: model.trainedFrom ?? "eod", horizon: model.horizon, names: model.universe.length, learners: model.learners.map((l) => (l.view === "xs" ? `${l.kind} on ranks` : l.kind)).join("+"), heads: model.targetNames.length }
       : null,
     screen,
   };

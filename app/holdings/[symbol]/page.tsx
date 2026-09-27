@@ -44,9 +44,10 @@ import { getUsdPkr } from "@/lib/fx";
 
 export const dynamic = "force-dynamic";
 
-type Props = { params: { symbol: string } };
+type Props = { params: Promise<{ symbol: string }> };
 
-export default async function HoldingDetail({ params }: Props) {
+export default async function HoldingDetail(props: Props) {
+  const params = await props.params;
   const symbol = params.symbol.toUpperCase();
   // Fire every independent fetch at once instead of eight serial round-trips.
   const [holding, transactions, lookThrough, market, prices, summary, intrinsicAll, usdPkr, settings] = await Promise.all([
@@ -244,11 +245,10 @@ export default async function HoldingDetail({ params }: Props) {
         number="03"
         title="Playbook"
         display="Your thesis, tier, and the numbers to watch."
-        description="Encode your sizing framework: which tier this belongs to, your conviction score, the job it does, and the quarterly numbers that tell you the thesis is healing or breaking."
+        description="Which tier it belongs to, your conviction score, the job it does, and the quarterly numbers that tell you the thesis is healing or breaking."
       >
         <HoldingPlaybook
           symbol={symbol}
-          currentPercent={currentPercent}
           initial={{
             tier: h.tier ?? "",
             convictionScore: h.convictionScore ?? 0,

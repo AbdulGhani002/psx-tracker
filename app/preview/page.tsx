@@ -38,7 +38,10 @@ function series(n: number, start: number, drift: number, vol: number, seed = 7) 
 const rs = (v: number) => `Rs ${Math.round(v).toLocaleString("en-US")}`;
 const signed = (v: number) => `${v >= 0 ? "+" : "-"}Rs ${Math.abs(Math.round(v)).toLocaleString("en-US")}`;
 
-export default function PreviewPage({ searchParams }: { searchParams?: { view?: string; symbol?: string; type?: string; asset?: string } }) {
+export default async function PreviewPage(
+  props: { searchParams?: Promise<{ view?: string; symbol?: string; type?: string; asset?: string }> }
+) {
+  const searchParams = await props.searchParams;
   if (process.env.NODE_ENV === "production" || process.env.DEV_PREVIEW !== "1") notFound();
   const pts = series(365, 1180000, 0.0007, 0.014);
   const cells: MonthlyCell[] = [];

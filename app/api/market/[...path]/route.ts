@@ -7,7 +7,8 @@ export const dynamic = "force-dynamic";
 // browser. Read-only GET passthrough; behind the app's auth middleware.
 const ANALYTICS_URL = process.env.ANALYTICS_URL || "http://127.0.0.1:8100";
 
-export async function GET(req: NextRequest, { params }: { params: { path: string[] } }) {
+export async function GET(req: NextRequest, props: { params: Promise<{ path: string[] }> }) {
+  const params = await props.params;
   const path = (params.path || []).map(encodeURIComponent).join("/");
   const qs = req.nextUrl.search;
   try {

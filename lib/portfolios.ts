@@ -68,7 +68,7 @@ export async function defaultPortfolio(): Promise<PortfolioView | null> {
 export async function selectedPortfolio(): Promise<PortfolioView | null> {
   let raw = "";
   try {
-    raw = cookies().get(PORTFOLIO_COOKIE)?.value ?? "";
+    raw = (await cookies()).get(PORTFOLIO_COOKIE)?.value ?? "";
   } catch {
     return null; // no request scope: a job, which sees everything
   }

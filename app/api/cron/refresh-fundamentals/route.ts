@@ -14,7 +14,7 @@ export const maxDuration = 120;
 // (otherwise they refetch lazily on view, which is slow). Run weekly by a timer.
 export async function POST() {
   // Machine-only: a logged-in session must not reach this. See lib/auth/cron.ts.
-  if (!cronAuthorised()) return NextResponse.json({ error: "forbidden" }, { status: 403 });
+  if (!(await cronAuthorised())) return NextResponse.json({ error: "forbidden" }, { status: 403 });
   await connectDb();
   const holdings = await HoldingModel.find({ currentShares: { $gt: 0 } }).lean();
   const symbols = [...new Set(holdings.map((h: any) => h.symbol))];

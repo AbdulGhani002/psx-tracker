@@ -16,7 +16,7 @@ export const maxDuration = 280;
 //           backfill?: boolean (also pull each held name's recent board, for history),
 //           scan?: boolean (false skips the board and only delivers what is stored) }
 export async function POST(req: Request) {
-  if (!cronAuthorised()) return NextResponse.json({ error: "forbidden" }, { status: 403 });
+  if (!(await cronAuthorised())) return NextResponse.json({ error: "forbidden" }, { status: 403 });
   await connectDb();
   const body = await req.json().catch(() => ({} as any));
   const dryRun = body?.dryRun === true;

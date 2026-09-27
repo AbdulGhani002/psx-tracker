@@ -38,7 +38,7 @@ async function compilePdf(tex: string): Promise<Buffer> {
 // for the month that just ended and sends it to their Telegram. Deduped per
 // user per month, so re-runs are safe; body {force:true} re-sends regardless.
 export async function POST(req: Request) {
-  if (!cronAuthorised()) return NextResponse.json({ error: "forbidden" }, { status: 403 });
+  if (!(await cronAuthorised())) return NextResponse.json({ error: "forbidden" }, { status: 403 });
   await connectDb();
   const force = await req.json().then((b) => b?.force === true).catch(() => false);
   const userIds = await getAllUserIds();

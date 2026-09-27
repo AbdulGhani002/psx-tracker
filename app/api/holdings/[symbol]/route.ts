@@ -107,16 +107,18 @@ const patchSchema = z.object({
     .optional(),
 });
 
-type Params = { params: { symbol: string } };
+type Params = { params: Promise<{ symbol: string }> };
 
-export async function GET(_req: NextRequest, { params }: Params) {
+export async function GET(_req: NextRequest, props: Params) {
+  const params = await props.params;
   await connectDb();
   const doc = await HoldingModel.findOne({ userId: await uid(), symbol: params.symbol.toUpperCase() }).lean();
   if (!doc) return NextResponse.json({ error: "not_found" }, { status: 404 });
   return NextResponse.json(doc);
 }
 
-export async function PATCH(req: NextRequest, { params }: Params) {
+export async function PATCH(req: NextRequest, props: Params) {
+  const params = await props.params;
   try {
     const symbol = params.symbol.toUpperCase();
     const body = await req.json();
@@ -180,7 +182,8 @@ export async function PATCH(req: NextRequest, { params }: Params) {
   }
 }
 
-export async function DELETE(_req: NextRequest, { params }: Params) {
+export async function DELETE(_req: NextRequest, props: Params) {
+  const params = await props.params;
   await connectDb();
   const symbol = params.symbol.toUpperCase();
   const txCount = await TransactionModel.countDocuments({ userId: await uid(), symbol, deletedAt: null });

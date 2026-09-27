@@ -74,6 +74,24 @@ export const FEATURE_NAMES = [
   "ret120",
 ] as const;
 
+// The second feature block (buildFeatures with `extras`), placed after the
+// base features and before the context. Tested on the 24-year archive with a
+// larger booster (scripts/quant-lab.ts): rank IC 0.105 -> 0.122, the
+// top-minus-bottom fifth 2.05% -> 2.61% per 20 sessions, better in all three
+// eras. The shape of the name's own returns (skew, fat tails, its worst day in
+// volatility units, whether the volume came on up days, autocorrelation), how
+// its momentum was earned (the share of down days inside a positive year, the
+// "frog in the pan"), the same weeks one and up to three years ago, liquidity
+// (traded value and Amihud's price impact, which only mean anything as ranks
+// on the date: the panel turns them into ranks), fresh volatility against its
+// average, the drawdown and the range, trend quality and the full year.
+export const EXTRA_FEATURE_NAMES = [
+  "skew60", "kurt60", "minRet20z", "upVol20", "ac60", "idDisc", "seas1", "seas3",
+  "lnTV60", "amihud60", "vol5_60", "dd60", "trendQ60", "range20z", "ret250",
+] as const;
+// Levels that drift with the rupee and the market's size over 24 years.
+export const EXTRA_RANK_ONLY = ["lnTV60", "amihud60"] as const;
+
 // Cross-sectional ranks, added by the panel (they need every name on the
 // date): where the name's momentum, volatility and relative strength sit
 // against the rest of the universe that day, 0 = lowest, 1 = highest, less
@@ -157,9 +175,81 @@ function rangeAt(vals: number[], i: number, n: number): { hi: number; lo: number
 
 const channel = (c: number, r: { hi: number; lo: number }) => (r.hi > r.lo ? (c - r.lo) / (r.hi - r.lo) - 0.5 : 0);
 
+// The EXTRA_FEATURE_NAMES block at row i, from days up to and including i.
+// `r` holds the clipped daily log returns (r[0] = 0).
+function extraAt(i: number, c: number[], v: number[], ix: number[], r: Float64Array): number[] {
+  const sd = (from: number, to: number) => {
+    let m = 0;
+    for (let k = from; k <= to; k++) m += r[k];
+    m /= to - from + 1;
+    let s = 0;
+    for (let k = from; k <= to; k++) s += (r[k] - m) ** 2;
+    return { m, s: Math.sqrt(s / (to - from + 1)) };
+  };
+  const relOver = (a: number, b: number) => ln(c[b] / c[a]) - ln(ix[b] / ix[a]);
+  const w60 = sd(i - 59, i);
+  const sig = Math.max(SIGMA_FLOOR, w60.s);
+  let m3 = 0, m4 = 0;
+  for (let k = i - 59; k <= i; k++) { const d = r[k] - w60.m; m3 += d ** 3; m4 += d ** 4; }
+  m3 /= 60; m4 /= 60;
+  const s2 = w60.s * w60.s;
+  const skew = s2 > 1e-12 ? m3 / s2 ** 1.5 : 0;
+  const kurt = s2 > 1e-12 ? m4 / (s2 * s2) - 3 : 0;
+  let minR = 0, upV = 0, allV = 0;
+  for (let k = i - 19; k <= i; k++) {
+    if (r[k] < minR) minR = r[k];
+    if (v[k] > 0) { allV += v[k]; if (r[k] > 0) upV += v[k]; }
+  }
+  let sxy = 0, sxx = 0;
+  for (let k = i - 58; k <= i; k++) { sxy += (r[k] - w60.m) * (r[k - 1] - w60.m); sxx += (r[k] - w60.m) ** 2; }
+  const ac = sxx > 1e-12 ? sxy / sxx : 0;
+  let pos = 0, neg = 0;
+  for (let k = i - 249; k <= i - 20; k++) { if (r[k] > 0) pos++; else if (r[k] < 0) neg++; }
+  const idDisc = Math.sign(ln(c[i - 20] / c[i - 250])) * ((neg - pos) / 230);
+  const seas1 = i >= 252 ? relOver(i - 252, i - 232) : 0;
+  const lags = [252, 504, 756].filter((L) => i - L >= 0);
+  const seas3 = lags.length ? lags.reduce((s, L) => s + relOver(i - L, i - L + 20), 0) / lags.length : 0;
+  let tv = 0, ami = 0, amiN = 0;
+  for (let k = i - 59; k <= i; k++) {
+    const val = c[k] * v[k];
+    tv += val;
+    if (val > 0) { ami += Math.abs(r[k]) / val; amiN++; }
+  }
+  const vol5 = sd(i - 4, i).s;
+  let hi60 = 0;
+  for (let k = i - 59; k <= i; k++) if (c[k] > hi60) hi60 = c[k];
+  // Trend quality: R^2 of log price on time over 60 sessions, signed by the slope.
+  let st = 0, sy = 0, stt = 0, sty = 0, syy = 0;
+  for (let k = 0; k < 60; k++) { const y = ln(c[i - 59 + k]); st += k; sy += y; stt += k * k; sty += k * y; syy += y * y; }
+  const cov = sty / 60 - (st / 60) * (sy / 60), vt = stt / 60 - (st / 60) ** 2, vy = syy / 60 - (sy / 60) ** 2;
+  const r2 = vt > 0 && vy > 1e-12 ? (cov * cov) / (vt * vy) : 0;
+  let hi20 = 0, lo20 = Infinity;
+  for (let k = i - 19; k <= i; k++) { if (c[k] > hi20) hi20 = c[k]; if (c[k] < lo20) lo20 = c[k]; }
+  return [
+    clip(skew, 3) / 3,
+    clip(kurt, 20) / 10,
+    clip(minR / sig, 8) / 4,
+    allV > 0 ? upV / allV - 0.5 : 0,
+    clip(ac, 1),
+    idDisc,
+    clip(seas1, 0.4) * 4,
+    clip(seas3, 0.4) * 4,
+    ln(1 + tv / 60),
+    amiN ? ln(1e-15 + ami / amiN) : 0,
+    clip(w60.s > 0 && vol5 > 0 ? ln(vol5 / w60.s) : 0, 2) / 2,
+    clip(ln(c[i] / hi60), 0.6) * 2,
+    Math.sign(cov) * r2,
+    clip(ln(hi20 / lo20) / (sig * Math.sqrt(20)), 6) / 3 - 1,
+    clip(ln(c[i] / c[i - 250]), 1.5),
+  ];
+}
+
+export type FeatureOptions = { extras?: boolean };
+
 // `context` is an optional per-date vector shared by every name on that date
 // (market breadth, macro); it is appended to each row's features unchanged.
-export function buildFeatures(bars: EodBar[], index: EodBar[], horizon = 5, context?: Map<string, number[]> | null): FeatureRow[] {
+// With `extras` the EXTRA_FEATURE_NAMES block goes between the two.
+export function buildFeatures(bars: EodBar[], index: EodBar[], horizon = 5, context?: Map<string, number[]> | null, fo: FeatureOptions = {}): FeatureRow[] {
   const byDate = new Map(index.map((b) => [b.date, b]));
   const ctxWidth = context && context.size > 0 ? context.values().next().value!.length : 0;
   const ctxZero = new Array<number>(ctxWidth).fill(0);
@@ -170,6 +260,8 @@ export function buildFeatures(bars: EodBar[], index: EodBar[], horizon = 5, cont
   const vwaps = rows.map((b) => b.vwap);
   const idx = rows.map((b) => byDate.get(b.date)!.close);
   const n = rows.length;
+  const dayRet = new Float64Array(n);
+  if (fo.extras) for (let i = 1; i < n; i++) dayRet[i] = clip(ln(closes[i] / closes[i - 1]), 0.2);
 
   const out: FeatureRow[] = [];
   for (let i = 0; i < n; i++) {
@@ -268,6 +360,7 @@ export function buildFeatures(bars: EodBar[], index: EodBar[], horizon = 5, cont
       clip(ln(c / closes[i - 120]), 1.0) * 1.5,
     ];
 
+    if (fo.extras) x.push(...extraAt(i, closes, vols, idx, dayRet));
     if (ctxWidth > 0) x.push(...(context!.get(rows[i].date) ?? ctxZero));
 
     const hasFuture = i + horizon < n;

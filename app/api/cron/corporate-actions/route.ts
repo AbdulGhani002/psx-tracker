@@ -35,7 +35,7 @@ async function storeBoard(symbol: string, rows: PushedPayout[], faceValue?: numb
 }
 
 export async function POST(req: Request) {
-  if (!cronAuthorised()) return NextResponse.json({ error: "forbidden" }, { status: 403 });
+  if (!(await cronAuthorised())) return NextResponse.json({ error: "forbidden" }, { status: 403 });
   await connectDb();
   const body = await req.json().catch(() => ({} as any));
   const report: Record<string, unknown> = {};

@@ -10,7 +10,8 @@ export const dynamic = "force-dynamic";
 // Every announcement the exchange has posted for a held name in the last six
 // months, newest first, with a filter per name; the delivery pill on each
 // row says whether it went out to Telegram and email.
-export default async function AnnouncementsPage({ searchParams }: { searchParams: { symbol?: string } }) {
+export default async function AnnouncementsPage(props: { searchParams: Promise<{ symbol?: string }> }) {
+  const searchParams = await props.searchParams;
   const symbol = (searchParams.symbol ?? "").toUpperCase();
   const [rows, settings, summary] = await Promise.all([getRecentAnnouncements({ limit: 150, days: 180, symbol: symbol || undefined }), getAppSettings(), getPortfolioSummary()]);
   const held = summary.positions.filter((p) => p.shares > 0).map((p) => p.symbol).sort();

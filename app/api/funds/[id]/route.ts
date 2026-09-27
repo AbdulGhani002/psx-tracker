@@ -24,7 +24,8 @@ const patchSchema = z.object({
   notes: z.string().optional(),
 });
 
-export async function PATCH(req: NextRequest, { params }: { params: { id: string } }) {
+export async function PATCH(req: NextRequest, props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   try {
     const parsed = patchSchema.parse(await req.json());
     await connectDb();
@@ -39,7 +40,8 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
   }
 }
 
-export async function DELETE(_req: NextRequest, { params }: { params: { id: string } }) {
+export async function DELETE(_req: NextRequest, props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   await connectDb();
   const doc = await MutualFundModel.findOneAndDelete({ _id: params.id, userId: await uid() }).lean();
   if (!doc) return NextResponse.json({ error: "not_found" }, { status: 404 });

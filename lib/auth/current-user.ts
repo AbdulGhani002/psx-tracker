@@ -21,7 +21,7 @@ export async function getCurrentUserId(): Promise<string | null> {
   // without a session. Ignored in production builds.
   if (process.env.NODE_ENV !== "production" && process.env.DEV_PREVIEW_USER) return process.env.DEV_PREVIEW_USER;
   try {
-    const token = cookies().get(SESSION_COOKIE)?.value;
+    const token = (await cookies()).get(SESSION_COOKIE)?.value;
     const session = await verifySession(token);
     return session?.userId ?? null;
   } catch {

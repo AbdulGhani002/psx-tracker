@@ -6,7 +6,7 @@ import { deriveFromTransactions } from "@/lib/calculations";
 
 export const dynamic = "force-dynamic";
 
-type Params = { params: { id: string } };
+type Params = { params: Promise<{ id: string }> };
 
 async function recomputeHolding(symbol: string) {
   const txs = await TransactionModel.find({ userId: await uid(), symbol, deletedAt: null }).sort({ date: 1, createdAt: 1 }).lean();
@@ -24,7 +24,8 @@ async function recomputeHolding(symbol: string) {
 }
 
 // POST /api/transactions/:id/restore — bring a soft-deleted transaction back.
-export async function POST(_req: NextRequest, { params }: Params) {
+export async function POST(_req: NextRequest, props: Params) {
+  const params = await props.params;
   await connectDb();
   const doc = await TransactionModel.findOne({ _id: params.id, userId: await uid() });
   if (!doc) return NextResponse.json({ error: "not_found" }, { status: 404 });

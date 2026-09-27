@@ -5,7 +5,7 @@
 //        [--rounds 300] [--depth 4] [--minLeaf 100] [--gbmLr 0.05]
 //        [--no-context] [--macro] [--universe kse100|held] [--symbols A,B] [--held A,B]
 //        [--no-validate] [--windows N] [--cache DIR] [--out FILE] [--fixedRounds] [--no-median]
-//        [--archive DIR] [--top 120] [--finalSeeds 3] [--no-outlook]
+//        [--archive DIR] [--top 120] [--finalSeeds 3] [--no-outlook] [--no-extras] [--no-xs] [--points FILE]
 //
 // --archive trains on the exchange's 24-year archive (scripts/psx-history.ts)
 // exactly as scripts/quant-long.ts tests it: a universe that changes each
@@ -25,9 +25,9 @@
 
 import { join } from "node:path";
 import { writeFileSync, statSync } from "node:fs";
-import { buildPanel, walkForwardPanel, trainFinal, predictEnsemble, calibrationByState, type PanelWalkResult } from "../lib/quant/panel";
+import { buildPanel, walkForwardPanel, trainFinal, predictEnsemble, calibrationByState, zoneSourceOf, type PanelWalkResult } from "../lib/quant/panel";
 import { indexGate } from "../lib/quant/strategy";
-import { buildFeatures, readTrend, FEATURE_NAMES, TARGET_NAMES, DIP_PCT, RANK_FEATURE_NAMES } from "../lib/quant/features";
+import { buildFeatures, readTrend, FEATURE_NAMES, EXTRA_FEATURE_NAMES, TARGET_NAMES, DIP_PCT, RANK_FEATURE_NAMES } from "../lib/quant/features";
 import { marketContext, macroContext, mergeContext } from "../lib/quant/context";
 import { gbmFeatureUse } from "../lib/quant/gbm";
 import { kse100Symbols, loadBars, TRAIN_INDICES } from "../lib/quant/universe";
@@ -37,6 +37,7 @@ import { loadLongIndex } from "../lib/quant/index-history";
 import { indexStates, fitCells, evaluateCells, cellOutlook } from "../lib/quant/outlook";
 import { buildArchivePanel } from "../lib/quant/archive";
 import { strategyBacktest, strategyTable, strategyYearTable, type StrategyResult } from "../lib/quant/strategy";
+import { swingBacktest, swingTable, type SwingStats } from "../lib/quant/swing";
 import { MARKET_CONTEXT_NAMES } from "../lib/quant/context";
 import type { EodBar } from "../lib/timeseries/psx-eod";
 import { has, argOf, num, printResult, optionsFromArgs } from "./quant-cli";
@@ -69,6 +70,10 @@ async function main() {
   const held = await heldSymbols();
   const archiveDir = argOf("archive");
   const useRanks = has("ranks");
+  // The second feature block and the cross-sectional booster; see features.ts
+  // and DEFAULT_PANEL for what they were worth on the 24-year walk-forward.
+  const useExtras = !has("no-extras");
+  const useXs = !!opts.xs;
 
   let bars: Map<string, EodBar[]>;
   let index: EodBar[];
@@ -85,7 +90,7 @@ async function main() {
       console.error("--macro is not wired for --archive here; run scripts/quant-long.ts --macro to test it.");
       process.exit(1);
     }
-    const arch = buildArchivePanel(archiveDir, opts.horizon, num("top", 120), useRanks, null);
+    const arch = buildArchivePanel(archiveDir, opts.horizon, num("top", 120), useRanks, null, { extras: useExtras, xs: useXs });
     bars = arch.bars;
     index = arch.index;
     ctx = { context: arch.context, names: arch.contextNames };
@@ -140,8 +145,8 @@ async function main() {
       breadth200 = new Map();
       for (const [d, v] of market) breadth200.set(d, v[brIdx] + 0.5);
     }
-    panel = buildPanel(bars, index, opts.horizon, { context: ctx?.context ?? null, ranks: useRanks });
-    featureNames = [...FEATURE_NAMES, ...(ctx?.names ?? []), ...(useRanks ? RANK_FEATURE_NAMES : [])];
+    panel = buildPanel(bars, index, opts.horizon, { context: ctx?.context ?? null, ranks: useRanks, extras: useExtras, xs: useXs });
+    featureNames = [...FEATURE_NAMES, ...(useExtras ? EXTRA_FEATURE_NAMES : []), ...(ctx?.names ?? []), ...(useRanks ? RANK_FEATURE_NAMES : [])];
     universeNames = panel.symbols;
   }
   console.log(`Panel: ${panel.rows.length.toLocaleString()} rows, ${panel.symbols.length} names, ${panel.dates.length} sessions with features, ${featureNames.length} features (${ctx?.names.length ?? 0} context), targets ${TARGET_NAMES.join("/")} (dip = ${DIP_PCT}%).`);
@@ -158,6 +163,12 @@ async function main() {
   }
   if (validation) printResult(validation, held);
   let strategy: StrategyResult | null = null;
+  let swing: SwingStats[] | null = null;
+  const zoneSource = zoneSourceOf(validation?.zones);
+  if (validation?.zones?.pinball) {
+    const pb = validation.zones.pinball;
+    console.log(`\nZones: pinball ${pb.model.toFixed(4)} for the model's path curve against ${pb.walk.toFixed(4)} for the plain walk (${(((pb.walk - pb.model) / pb.walk) * 100).toFixed(1)}% better); the zones will be read from ${zoneSource === "model" ? "the model's curve" : "the plain walk over each name's volatility"}.`);
+  }
   if (validation?.points) {
     strategy = strategyBacktest(validation.points, index, breadth200, { horizon: opts.horizon, cashYieldPct: 10, costPct: 0.3 });
     if (strategy) console.log("\n" + strategyTable(strategy) + "\n\n" + strategyYearTable(strategy));
@@ -167,6 +178,20 @@ async function main() {
     const line = (rows: typeof byState.strong) => rows.map((c) => `${c.decile}: ${c.meanRelPct >= 0 ? "+" : ""}${c.meanRelPct.toFixed(2)}%`).join("  ");
     console.log(`\nDeciles when the index sat above its 200-day (${byState.strongDates} dates): ${line(byState.strong)}`);
     console.log(`Deciles when it sat below (${byState.weakDates} dates):                    ${line(byState.weak)}`);
+
+    // Swing trades at the model's own levels, on the same out-of-sample predictions.
+    swing = swingBacktest(validation.points, bars, indexGate(index), opts.horizon, undefined, { walkLevels: zoneSource === "walk" });
+    if (swing.length) console.log(`
+Swing trades at the zones' levels (entry at the top of the buy zone, stop at the fail level, out at the target, the stop or ${opts.horizon} sessions; 0.4% round trip):
+` + swingTable(swing));
+
+    // The predictions themselves, for re-testing rules without retraining.
+    const pointsFile = argOf("points");
+    if (pointsFile) {
+      const r4 = (v: number) => (Number.isFinite(v) ? Math.round(v * 1e4) / 1e4 : null);
+      writeFileSync(pointsFile, JSON.stringify(validation.points.map((q) => [q.symbol, q.date, q.di, q.p.map(r4), r4(q.fwdRet), r4(q.fwdRel)])));
+      console.log(`Wrote the ${validation.points.length.toLocaleString()} out-of-sample points to ${pointsFile}.`);
+    }
   }
 
   // The KSE-100 state table: what the index did after past days in each
@@ -196,9 +221,10 @@ async function main() {
   const t1 = Date.now();
   const finalOpts = { ...opts, seeds: num("finalSeeds", opts.seeds) };
   const final = trainFinal(panel, finalOpts, finalRounds ?? undefined);
-  const desc = final.learners.map((l) => (l.kind === "mlp" ? `mlp ${l.model.epochs}ep val ${l.model.valLoss.toFixed(4)}` : `gbm ${l.models.map((m) => m.rounds).join("/")} rounds`)).join("; ");
+  const desc = final.learners.map((l) => (l.kind === "mlp" ? `mlp ${l.model.epochs}ep val ${l.model.valLoss.toFixed(4)}` : `gbm${l.view === "xs" ? " on ranks" : ""} ${l.models.map((m) => m.rounds).join("/")} rounds`)).join("; ");
   console.log(`Trained ${final.learners.length} learner(s) on ${final.rows.toLocaleString()} rows to ${final.trainedTo} in ${((Date.now() - t1) / 1000).toFixed(0)}s: ${desc}.`);
-  const gbms = final.learners.filter((l) => l.kind === "gbm").flatMap((l) => (l.kind === "gbm" ? l.models : []));
+  // The raw boosters only: the cross-sectional one reads a different row.
+  const gbms = final.learners.filter((l) => l.kind === "gbm" && l.view !== "xs").flatMap((l) => (l.kind === "gbm" ? l.models : []));
   if (gbms.length) {
     const use = gbmFeatureUse(gbms);
     const top = use.map((v, i) => ({ name: featureNames[i] ?? `f${i}`, v })).sort((a, b) => b.v - a.v).slice(0, 12);
@@ -213,7 +239,7 @@ async function main() {
   for (const sym of [...TRAIN_INDICES, ...held]) {
     const last = lastRows.get(sym);
     if (!last) continue;
-    const p = predictEnsemble(final.learners, last.x);
+    const p = predictEnsemble(final.learners, last);
     const trend = readTrend(bars.get(sym) ?? []);
     console.log(`  ${pad(sym, 8)} up ${(p[0] * 100).toFixed(0).padStart(3)}%   beat ${(p[1] * 100).toFixed(0).padStart(3)}%   dip ${(p[2] * 100).toFixed(0).padStart(3)}%   ${trend?.label ?? "-"}   as of ${last.date}`);
   }
@@ -228,12 +254,15 @@ async function main() {
     featureNames,
     contextNames: ctx?.names ?? [],
     rankNames: useRanks ? [...RANK_FEATURE_NAMES] : [],
+    featureSet: { extras: useExtras, xs: useXs },
     targetNames: [...TARGET_NAMES],
     universe: universeNames,
     universeSource,
     trainedFrom,
     indexKind: archiveDir ? "equal-weight" : "kse100",
     strategy,
+    swing,
+    zoneSource,
     rows: final.rows,
     config: finalOpts,
     finalRounds,

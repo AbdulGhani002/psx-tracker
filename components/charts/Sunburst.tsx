@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, type JSX } from "react";
 
 // Zar's holdings wheel: sectors on the inner ring, the names on the outer,
 // each name coloured green or red by how far it sits from your cost. The

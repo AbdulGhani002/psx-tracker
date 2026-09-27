@@ -5,7 +5,8 @@ import { uid } from "@/lib/auth/uid";
 
 export const dynamic = "force-dynamic";
 
-export async function DELETE(_req: NextRequest, { params }: { params: { id: string } }) {
+export async function DELETE(_req: NextRequest, props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   await connectDb();
   // Scope by userId, not id alone: an unscoped findByIdAndDelete let any account
   // delete another user's policy-rate step just by guessing the id.

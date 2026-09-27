@@ -76,10 +76,10 @@ async function main() {
     const m = await loadMacro(diskBarsCache(cacheDir, 24 * 7));
     if (!m) { console.error("Macro series unavailable; drop --macro to run without them."); process.exit(1); }
     // The macro context needs the archive's dates; build once without it to get them.
-    const probe = buildArchivePanel(HIST, opts.horizon, TOP, false, null);
+    const probe = buildArchivePanel(HIST, opts.horizon, TOP, false, null, { extras: !has("no-extras"), xs: !!opts.xs });
     macro = macroContext(m, probe.index.map((b) => b.date));
   }
-  const arch = buildArchivePanel(HIST, opts.horizon, TOP, useRanks, macro);
+  const arch = buildArchivePanel(HIST, opts.horizon, TOP, useRanks, macro, { extras: !has("no-extras"), xs: !!opts.xs });
   const { panel, index, market, featureNames } = arch;
   const years = arch.years;
   console.log(`History: ${arch.bars.size} names with 250+ bars. Universe: top ${TOP} by traded value, ${years[0]} to ${years[1]}, ${arch.universe.length} names ever members.`);

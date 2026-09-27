@@ -17,7 +17,7 @@ const MUFAP_NAVS_KEY = "mufapNavs";
 // direct fetch path uses — one parser, no client-side maths to trust. Machine
 // auth only; never regresses a newer snapshot.
 export async function POST(req: Request) {
-  if (!cronAuthorised()) return NextResponse.json({ error: "forbidden" }, { status: 403 });
+  if (!(await cronAuthorised())) return NextResponse.json({ error: "forbidden" }, { status: 403 });
 
   let body: { htmlGz?: string; at?: string };
   try {

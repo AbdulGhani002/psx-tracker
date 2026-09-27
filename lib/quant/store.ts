@@ -15,6 +15,7 @@ import { FeedSnapshotModel } from "@/lib/models/FeedSnapshot";
 import type { EodBar } from "@/lib/timeseries/psx-eod";
 import type { Learner, PanelOptions, PanelWalkResult } from "./panel";
 import type { StrategyResult } from "./strategy";
+import type { SwingStats } from "./swing";
 import type { IndexOutlookModel, OutlookRecord } from "./outlook";
 import type { BarsCache } from "./universe";
 
@@ -40,12 +41,20 @@ export type StoredQuantModel = {
   featureNames: string[]; // base features followed by the context names, in row order
   contextNames: string[];
   rankNames: string[]; // empty when the model was trained without cross-sectional ranks
+  // The feature blocks the panel was built with; the report rebuilds today's
+  // rows the same way. Absent on models stored before either existed.
+  featureSet?: { extras: boolean; xs: boolean };
   targetNames: string[];
   universe: string[];
   universeSource: string;
   trainedFrom: "eod" | "archive"; // the five-year feed, or the 24-year archive
   indexKind: "kse100" | "equal-weight"; // what the idx* features were built on
   strategy: StrategyResult | null; // the rule test on the walk-forward points
+  swing?: SwingStats[] | null; // swing trades at the zones' levels, same points
+  // Where the zones are read from: the model's path curve, or the plain walk
+  // over each name's volatility when the model's did not place them better
+  // out of sample (panel.ts zoneSourceOf). Absent: the model's curve.
+  zoneSource?: "model" | "walk";
   rows: number;
   config: PanelOptions;
   finalRounds: number[] | null; // per target, when the final boosters used fixed rounds

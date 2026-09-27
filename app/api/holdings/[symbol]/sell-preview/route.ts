@@ -5,7 +5,8 @@ import { buildLots, previewSell } from "@/lib/calculations/lots";
 export const dynamic = "force-dynamic";
 
 // Preview the CGT of a hypothetical sell, matched FIFO against open lots.
-export async function GET(req: NextRequest, { params }: { params: { symbol: string } }) {
+export async function GET(req: NextRequest, props: { params: Promise<{ symbol: string }> }) {
+  const params = await props.params;
   const symbol = params.symbol.toUpperCase();
   const shares = Number(req.nextUrl.searchParams.get("shares") ?? "0");
   const price = Number(req.nextUrl.searchParams.get("price") ?? "0");

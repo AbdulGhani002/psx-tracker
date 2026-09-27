@@ -17,7 +17,7 @@ export const maxDuration = 300;
 // reports shapes and timings. Machine-only: it is how a deploy is checked
 // from the shell when nobody can sign in from there.
 export async function POST(req: Request) {
-  if (!cronAuthorised()) return NextResponse.json({ error: "forbidden" }, { status: 403 });
+  if (!(await cronAuthorised())) return NextResponse.json({ error: "forbidden" }, { status: 403 });
   await connectDb();
   const body: any = await req.json().catch(() => ({}));
   const userIds = await getAllUserIds();

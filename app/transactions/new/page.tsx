@@ -4,10 +4,11 @@ import { listPortfolios, selectedPortfolio } from "@/lib/portfolios";
 
 export const dynamic = "force-dynamic";
 
-type Props = { searchParams: { symbol?: string; type?: string; shares?: string; date?: string; asset?: string } };
+type Props = { searchParams: Promise<{ symbol?: string; type?: string; shares?: string; date?: string; asset?: string }> };
 
-export default async function NewTransactionPage({ searchParams }: Props) {
-  const [summary, funds, portfolios, selected, settings] = await Promise.all([getPortfolioSummary(), getMutualFundsValued().catch(() => []), listPortfolios().catch(() => []), selectedPortfolio().catch(() => null), getAppSettings().catch(() => ({}) as any)]);
+export default async function NewTransactionPage(props: Props) {
+  const searchParams = await props.searchParams;
+  const [summary, funds, portfolios, selected, settings] = await Promise.all([getPortfolioSummary(), getMutualFundsValued().catch(() => []), listPortfolios().catch(() => []), selectedPortfolio().catch(() => null), getAppSettings().catch(() => (({}) as any))]);
   const defaultPortfolioId = selected?._id ?? portfolios.find((p) => p.isDefault)?._id ?? "";
   const held = [...summary.positions, ...summary.parked].filter((p) => p.shares > 0).map((p) => ({ symbol: p.symbol, name: p.name ?? "", sector: p.sector ?? "", shares: p.shares, price: p.priceKnown ? p.currentPrice : null }));
   const shares = Number(searchParams.shares);

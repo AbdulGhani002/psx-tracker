@@ -11,7 +11,8 @@ import { getCurrentUserId } from "@/lib/auth/current-user";
 
 export const dynamic = "force-dynamic";
 
-export default async function EditTransactionPage({ params }: { params: { id: string } }) {
+export default async function EditTransactionPage(props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   const avail = await checkDataAvailability();
   if (!avail.available) {
     return (

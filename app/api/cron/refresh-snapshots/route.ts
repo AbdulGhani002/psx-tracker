@@ -18,7 +18,7 @@ export const maxDuration = 300; // first run fetches ~97 company pages
 export async function POST() {
   // Machine-only: this is a multi-minute job; a logged-in user re-triggering it
   // is a trivial DoS on a shared box. See lib/auth/cron.ts.
-  if (!cronAuthorised()) return NextResponse.json({ error: "forbidden" }, { status: 403 });
+  if (!(await cronAuthorised())) return NextResponse.json({ error: "forbidden" }, { status: 403 });
   const report: Record<string, unknown> = {};
 
   // KSE-100 sector weights (market-cap weighting from free PSX data).

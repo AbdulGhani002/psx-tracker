@@ -27,12 +27,16 @@
 // are computed on every `horizon`-th date only.
 
 import type { EodBar } from "@/lib/timeseries/psx-eod";
-import { buildFeatures, TARGET_NAMES, REL_TARGET, LOW_TARGETS, HIGH_TARGETS, RANK_FEATURE_NAMES, RANK_SOURCE, type FeatureRow } from "./features";
+import { buildFeatures, FEATURE_NAMES, EXTRA_FEATURE_NAMES, EXTRA_RANK_ONLY, TARGET_NAMES, REL_TARGET, LOW_TARGETS, HIGH_TARGETS, RANK_FEATURE_NAMES, RANK_SOURCE, type FeatureRow } from "./features";
 import { pathCurve, depthAt, WALK_CURVE } from "./projection";
 import { trainMlp, predictMlpAll, type MlpModel, type TrainOptions } from "./mlp";
 import { trainGbmMulti, predictGbm, type GbmModel, type GbmOptions } from "./gbm";
 
-export type PanelRow = FeatureRow & { symbol: string; di: number };
+// `xs`: the same row with every base and extra feature replaced by its
+// percentile rank among the names on the date (less a half), context raw. The
+// learners that read it see only where a name stands against the others that
+// day, never the level, which is what a ranking head is asked about.
+export type PanelRow = FeatureRow & { symbol: string; di: number; xs?: number[] };
 export type Panel = { rows: PanelRow[]; dates: string[]; symbols: string[]; horizon: number };
 
 export type PanelBuildOptions = {
@@ -40,6 +44,8 @@ export type PanelBuildOptions = {
   context?: Map<string, number[]> | null; // per-date market/macro vector, see context.ts
   include?: (symbol: string, date: string) => boolean; // dynamic universe membership
   ranks?: boolean; // append each name's cross-sectional ranks for the date
+  extras?: boolean; // the EXTRA_FEATURE_NAMES block, see features.ts
+  xs?: boolean; // attach the cross-sectional view (PanelRow.xs)
 };
 
 export function buildPanel(bars: Map<string, EodBar[]>, index: EodBar[], horizon: number, o: PanelBuildOptions = {}): Panel {
@@ -47,7 +53,7 @@ export function buildPanel(bars: Map<string, EodBar[]>, index: EodBar[], horizon
   const dateSet = new Set<string>();
   const per: Array<[string, FeatureRow[]]> = [];
   for (const [symbol, b] of bars) {
-    let rows = buildFeatures(b, index, horizon, o.context ?? null);
+    let rows = buildFeatures(b, index, horizon, o.context ?? null, { extras: o.extras });
     if (o.include) rows = rows.filter((r) => o.include!(symbol, r.date));
     if (rows.length < minRows) continue;
     per.push([symbol, rows]);
@@ -58,9 +64,59 @@ export function buildPanel(bars: Map<string, EodBar[]>, index: EodBar[], horizon
   const rows: PanelRow[] = [];
   for (const [symbol, rs] of per) for (const r of rs) rows.push({ ...r, symbol, di: di.get(r.date)! });
   rows.sort((a, b) => a.di - b.di || (a.symbol < b.symbol ? -1 : a.symbol > b.symbol ? 1 : 0));
+  const nOwn = FEATURE_NAMES.length + (o.extras ? EXTRA_FEATURE_NAMES.length : 0);
+  if (o.xs) attachCrossSection(rows, nOwn, o.context && o.context.size > 0 ? o.context.values().next().value!.length : 0);
+  if (o.extras) {
+    const cols = EXTRA_RANK_ONLY.map((name) => FEATURE_NAMES.length + (EXTRA_FEATURE_NAMES as readonly string[]).indexOf(name));
+    rankColumnsInPlace(rows, cols);
+  }
   if (o.ranks) appendRanks(rows);
   assignRelTarget(rows);
   return { rows, dates, symbols: per.map((p) => p[0]).sort(), horizon };
+}
+
+// Rows of one date are contiguous (the panel is sorted by date, then name).
+function eachDate(rows: PanelRow[], fn: (from: number, to: number) => void) {
+  let i = 0;
+  while (i < rows.length) {
+    let j = i;
+    while (j < rows.length && rows[j].di === rows[i].di) j++;
+    fn(i, j);
+    i = j;
+  }
+}
+
+// Percentile rank within the date, less a half; a date with fewer than eight
+// names gets neutral zeros, as in appendRanks.
+function ranksOf(rows: PanelRow[], from: number, to: number, value: (r: PanelRow) => number): number[] {
+  const m = to - from;
+  if (m < 8) return new Array<number>(m).fill(0);
+  const order = Array.from({ length: m }, (_, k) => k).sort((a, b) => value(rows[from + a]) - value(rows[from + b]));
+  const out = new Array<number>(m);
+  order.forEach((k, pos) => (out[k] = pos / (m - 1) - 0.5));
+  return out;
+}
+
+function rankColumnsInPlace(rows: PanelRow[], cols: number[]) {
+  eachDate(rows, (from, to) => {
+    for (const c of cols) {
+      const r = ranksOf(rows, from, to, (row) => row.x[c]);
+      for (let k = from; k < to; k++) rows[k].x[c] = r[k - from];
+    }
+  });
+}
+
+function attachCrossSection(rows: PanelRow[], nOwn: number, ctxWidth: number) {
+  eachDate(rows, (from, to) => {
+    const cols: number[][] = [];
+    for (let c = 0; c < nOwn; c++) cols.push(ranksOf(rows, from, to, (row) => row.x[c]));
+    for (let k = from; k < to; k++) {
+      const xs = new Array<number>(nOwn + ctxWidth);
+      for (let c = 0; c < nOwn; c++) xs[c] = cols[c][k - from];
+      for (let c = 0; c < ctxWidth; c++) xs[nOwn + c] = rows[k].x[nOwn + c];
+      rows[k].xs = xs;
+    }
+  });
 }
 
 // The soft label: each name's forward relative return as a percentile among
@@ -114,11 +170,28 @@ export const RANK_NAMES: readonly string[] = RANK_FEATURE_NAMES;
 
 // A trained thing that turns a feature row into target probabilities. The
 // network answers all targets at once; the boosted trees are one booster per
-// target.
-export type Learner = { kind: "mlp"; model: MlpModel } | { kind: "gbm"; models: GbmModel[] };
+// target. `view` says which form of the row it reads (the raw features, or
+// the cross-sectional ranks); `targets`, when set, lists the TARGET_NAMES it
+// answers, in order, when that is not all of them. Models stored before either
+// existed read the raw row and answer every target.
+export type LearnerView = "raw" | "xs";
+export type Learner =
+  | { kind: "mlp"; model: MlpModel; view?: LearnerView; targets?: number[] }
+  | { kind: "gbm"; models: GbmModel[]; view?: LearnerView; targets?: number[] };
 
-export function predictLearner(l: Learner, x: number[]): number[] {
-  return l.kind === "mlp" ? predictMlpAll(l.model, x) : l.models.map((m) => predictGbm(m, x));
+// The forms of one row a learner may read.
+export type FeatureViews = { x: number[]; xs?: number[] };
+
+// Every target in TARGET_NAMES order; NaN where this learner does not answer.
+export function predictLearner(l: Learner, v: number[] | FeatureViews): number[] {
+  const views: FeatureViews = Array.isArray(v) ? { x: v } : v;
+  const input = l.view === "xs" ? views.xs : views.x;
+  if (!input) throw new Error("this model reads the cross-sectional view; build the panel with xs");
+  const raw = l.kind === "mlp" ? predictMlpAll(l.model, input) : l.models.map((m) => predictGbm(m, input));
+  if (!l.targets) return raw;
+  const out = new Array<number>(TARGET_NAMES.length).fill(NaN);
+  l.targets.forEach((t, k) => (out[t] = raw[k]));
+  return out;
 }
 
 export type PanelOptions = {
@@ -129,8 +202,13 @@ export type PanelOptions = {
   cashYieldPct: number; // annual, for sessions out of the market
   seeds: number; // learners of each kind in the ensemble, averaged
   learner: "mlp" | "gbm" | "both";
+  // A second booster on the cross-sectional view, for the ranking head only,
+  // averaged with the raw booster's. Needs a panel built with `xs`.
+  xs?: boolean;
   train: TrainOptions;
-  gbm: GbmOptions;
+  gbm: GbmOptions; // every head but the ranking one
+  // The ranking head's own booster, when it differs (see DEFAULT_PANEL).
+  gbmRel?: GbmOptions;
 };
 
 export const DEFAULT_PANEL: PanelOptions = {
@@ -141,11 +219,25 @@ export const DEFAULT_PANEL: PanelOptions = {
   cashYieldPct: 11,
   seeds: 3,
   learner: "gbm",
+  xs: true,
   train: { hidden: [32, 16], epochs: 80, lr: 5e-3, l2: 1e-4, batch: 64, patience: 8, seed: 7 },
-  // Forty rounds, fixed. Early stopping on the most recent slice picked
-  // anything from 1 to 199 rounds window to window and scored direction AUC
-  // 0.57; a fixed 40 scored 0.60 (80 scored the same) on the same walk-forward.
-  gbm: { rounds: 40, lr: 0.05, maxDepth: 4, minLeaf: 100, lambda: 1, subsample: 0.7, colsample: 0.8, bins: 64, patience: 30, seed: 7, earlyStop: false },
+  // Fixed round counts, no early stopping and no held-back slice: valFrac 0
+  // puts the newest 15% of the training rows back in (the booster used to hold
+  // them out for a validation slice it never read with early stopping off;
+  // rank IC 0.099 -> 0.105 on the 24-year walk-forward, the spread's t from 2.9
+  // to 4.6).
+  //
+  // Two sizes, because the heads want different things. The probabilities
+  // (up, beat, dip and the path heads the zones are read from) must be
+  // calibrated, and forty shallow rounds keep them so: a larger booster ranked
+  // the path extremes better (AUC high15 0.58 -> 0.61) but was overconfident,
+  // its zones fell 1.1% behind the plain walk's on a pinball score, and its dip
+  // odds lost ground (AUC 0.576 -> 0.565). The ranking head only has to order
+  // the names on a date, and there the forty rounds underfit six hundred
+  // thousand rows: 150 rounds at depth 5 lifted rank IC from 0.105 to 0.122 and
+  // the top-minus-bottom fifth from 2.05% to 2.61% per 20 sessions, every era.
+  gbm: { rounds: 40, lr: 0.05, maxDepth: 4, minLeaf: 100, lambda: 1, subsample: 0.7, colsample: 0.8, bins: 64, patience: 30, seed: 7, earlyStop: false, valFrac: 0 },
+  gbmRel: { rounds: 150, lr: 0.05, maxDepth: 5, minLeaf: 300, lambda: 1, subsample: 0.7, colsample: 0.6, bins: 64, patience: 30, seed: 7, earlyStop: false, valFrac: 0 },
 };
 
 export type PanelPoint = { symbol: string; date: string; di: number; p: number[]; t: number[]; fwdRet: number; fwdRel: number; lowZ?: number; highZ?: number };
@@ -188,7 +280,14 @@ export type CalibrationRow = { decile: number; n: number; meanRelPct: number; me
 // a half), its bottom (a quarter), the fail level (a tenth), and the same for
 // the sell zone; beside each, what the plain random-walk curve would have
 // given, so the model's contribution is visible.
-export type ZoneCoverage = { n: number; buyHigh: number; buyLow: number; fails: number; sellLow: number; sellHigh: number; walk: { buyHigh: number; buyLow: number; fails: number; sellLow: number; sellHigh: number } };
+export type ZoneCoverage = {
+  n: number; buyHigh: number; buyLow: number; fails: number; sellLow: number; sellHigh: number;
+  walk: { buyHigh: number; buyLow: number; fails: number; sellLow: number; sellHigh: number };
+  // The quantile (pinball) loss of the five levels, in sigmas, lower is better:
+  // the proper score for a level meant to be reached a given share of the time.
+  // Hit rates alone reward a curve that is right on average and useless per name.
+  pinball?: { model: number; walk: number };
+};
 
 export type PanelWalkResult = {
   n: number;
@@ -324,33 +423,61 @@ export function trainEnsemble(rows: PanelRow[], opts: PanelOptions, fixedRounds?
   }
   if (opts.learner !== "mlp") {
     const base = opts.gbm.seed ?? 7;
-    for (let s = 0; s < seeds; s++) learners.push({ kind: "gbm", models: trainGbmMulti(X, Y, { ...opts.gbm, seed: base + s * 101 }, fixedRounds) });
+    const relOpts = opts.gbmRel;
+    const others = TARGET_NAMES.map((_, t) => t).filter((t) => !relOpts || t !== REL_TARGET);
+    for (let s = 0; s < seeds; s++) {
+      if (!relOpts) {
+        learners.push({ kind: "gbm", models: trainGbmMulti(X, Y, { ...opts.gbm, seed: base + s * 101 }, fixedRounds) });
+        continue;
+      }
+      const Yo = Y.map((y) => others.map((t) => y[t]));
+      learners.push({ kind: "gbm", targets: others, models: trainGbmMulti(X, Yo, { ...opts.gbm, seed: base + s * 101 }, fixedRounds ? others.map((t) => fixedRounds[t]) : undefined) });
+      const Yr = Y.map((y) => [y[REL_TARGET]]);
+      learners.push({ kind: "gbm", targets: [REL_TARGET], models: trainGbmMulti(X, Yr, { ...relOpts, seed: base + 29 + s * 101 }, fixedRounds ? [fixedRounds[REL_TARGET]] : undefined) });
+    }
+    // The cross-sectional booster answers the ranking head only: averaged
+    // with the raw booster it lifted rank IC to 0.129 (0.122 and 0.121 alone),
+    // better than either in every era, on the 24-year walk-forward.
+    if (opts.xs && rows.length > 0 && rows[0].xs) {
+      const Xs = rows.map((r) => r.xs!);
+      const Yr = rows.map((r) => [r.targets![REL_TARGET]]);
+      const fr = fixedRounds ? [fixedRounds[REL_TARGET]] : undefined;
+      for (let s = 0; s < seeds; s++) learners.push({ kind: "gbm", view: "xs", targets: [REL_TARGET], models: trainGbmMulti(Xs, Yr, { ...(opts.gbmRel ?? opts.gbm), seed: base + 53 + s * 101 }, fr) });
+    }
   }
   return learners;
 }
 
-// Rounds the boosters kept, per target, averaged over the seeds.
+// Rounds the boosters kept, per target, averaged over the raw boosters that
+// answer it.
 export function roundsKept(learners: Learner[]): number[] | null {
-  const g = learners.filter((l): l is Extract<Learner, { kind: "gbm" }> => l.kind === "gbm");
+  const g = learners.filter((l): l is Extract<Learner, { kind: "gbm" }> => l.kind === "gbm" && l.view !== "xs");
   if (g.length === 0) return null;
-  const k = g[0].models.length;
-  return Array.from({ length: k }, (_, o) => g.reduce((s, l) => s + l.models[o].rounds, 0) / g.length);
+  return TARGET_NAMES.map((_, t) => {
+    const r = g.map((l) => l.models[l.targets ? l.targets.indexOf(t) : t]?.rounds).filter((v): v is number => v != null);
+    return r.length ? r.reduce((s, v) => s + v, 0) / r.length : 0;
+  });
 }
 
-// Average within each kind, then across kinds, so three networks and one
-// booster still count as two opinions rather than four.
-export function predictEnsemble(learners: Learner[], x: number[]): number[] {
+// Average within each kind and view, then across them, so three networks and
+// one booster still count as two opinions rather than four. A learner that
+// does not answer a target has no say on it.
+export function predictEnsemble(learners: Learner[], v: number[] | FeatureViews): number[] {
   const k = TARGET_NAMES.length;
-  const byKind = new Map<string, { sum: number[]; n: number }>();
+  const groups = new Map<string, { sum: number[]; n: number[] }>();
   for (const l of learners) {
-    const p = predictLearner(l, x);
-    let g = byKind.get(l.kind);
-    if (!g) byKind.set(l.kind, (g = { sum: new Array<number>(k).fill(0), n: 0 }));
-    for (let o = 0; o < k; o++) g.sum[o] += p[o];
-    g.n++;
+    const p = predictLearner(l, v);
+    const key = `${l.kind}:${l.view ?? "raw"}`;
+    let g = groups.get(key);
+    if (!g) groups.set(key, (g = { sum: new Array<number>(k).fill(0), n: new Array<number>(k).fill(0) }));
+    for (let o = 0; o < k; o++) if (Number.isFinite(p[o])) { g.sum[o] += p[o]; g.n[o]++; }
   }
-  const out = new Array<number>(k).fill(0);
-  for (const g of byKind.values()) for (let o = 0; o < k; o++) out[o] += g.sum[o] / g.n / byKind.size;
+  const out = new Array<number>(k).fill(NaN);
+  for (let o = 0; o < k; o++) {
+    let s = 0, c = 0;
+    for (const g of groups.values()) if (g.n[o] > 0) { s += g.sum[o] / g.n[o]; c++; }
+    if (c > 0) out[o] = s / c;
+  }
   return out;
 }
 
@@ -376,7 +503,7 @@ export function walkForwardPanel(panel: Panel, opts: PanelOptions, onWindow?: (w
     windows++;
     const rounds = roundsKept(learners);
     if (rounds) roundsPerWindow.push(rounds);
-    for (const r of test) points.push({ symbol: r.symbol, date: r.date, di: r.di, p: predictEnsemble(learners, r.x), t: r.targets!, fwdRet: r.fwdRet!, fwdRel: r.fwdRel!, lowZ: r.lowZ, highZ: r.highZ });
+    for (const r of test) points.push({ symbol: r.symbol, date: r.date, di: r.di, p: predictEnsemble(learners, r), t: r.targets!, fwdRet: r.fwdRet!, fwdRel: r.fwdRel!, lowZ: r.lowZ, highZ: r.highZ });
     onWindow?.({ window: windows, trainRows: train.length, testRows: test.length, from: test[0].date, to: test[test.length - 1].date, ms: Date.now() - t0, rounds });
   }
   if (points.length === 0) return null;
@@ -517,6 +644,16 @@ export function calibrationByState(points: PanelPoint[], gate: Map<string, boole
   return { strong: calibrationOf(strong), weak: calibrationOf(weak), strongDates: dates(strong), weakDates: dates(weak) };
 }
 
+// Where the zones come from: the model's own path curve only when, out of
+// sample, it placed the levels better than the plain walk by a clear margin
+// (half a percent on the pinball score); otherwise the walk over the name's
+// own volatility, which is what the levels were worth anyway.
+export const ZONE_MARGIN = 0.005;
+export function zoneSourceOf(z: ZoneCoverage | null | undefined): "model" | "walk" {
+  if (!z?.pinball || !(z.pinball.walk > 0)) return "walk";
+  return (z.pinball.walk - z.pinball.model) / z.pinball.walk >= ZONE_MARGIN ? "model" : "walk";
+}
+
 // The zones' out-of-sample coverage, model curve against the walk's curve.
 export function zoneCoverage(points: PanelPoint[]): ZoneCoverage | null {
   const pts = points.filter((q) => q.lowZ != null && q.highZ != null && q.p.length > HIGH_TARGETS[2]);
@@ -525,9 +662,13 @@ export function zoneCoverage(points: PanelPoint[]): ZoneCoverage | null {
   const dLo = { h: depthAt(walkLo, 0.5), l: depthAt(walkLo, 0.25), f: depthAt(walkLo, 0.1) };
   const dHi = { l: depthAt(walkHi, 0.5), h: depthAt(walkHi, 0.25) };
   let bh = 0, bl = 0, f = 0, sl = 0, sh = 0, wbh = 0, wbl = 0, wf = 0, wsl = 0, wsh = 0;
+  let pm = 0, pw = 0;
+  const pin = (u: number, tau: number) => u * (tau - (u < 0 ? 1 : 0));
   for (const q of pts) {
     const lo = pathCurve(LOW_TARGETS.map((i) => q.p[i])), hi = pathCurve(HIGH_TARGETS.map((i) => q.p[i]));
     const lz = -q.lowZ!, hz = q.highZ!; // depths reached, in sigmas
+    pm += pin(lz - depthAt(lo, 0.5), 0.5) + pin(lz - depthAt(lo, 0.25), 0.75) + pin(lz - depthAt(lo, 0.1), 0.9) + pin(hz - depthAt(hi, 0.5), 0.5) + pin(hz - depthAt(hi, 0.25), 0.75);
+    pw += pin(lz - dLo.h, 0.5) + pin(lz - dLo.l, 0.75) + pin(lz - dLo.f, 0.9) + pin(hz - dHi.l, 0.5) + pin(hz - dHi.h, 0.75);
     if (lz >= depthAt(lo, 0.5)) bh++;
     if (lz >= depthAt(lo, 0.25)) bl++;
     if (lz >= depthAt(lo, 0.1)) f++;
@@ -540,7 +681,7 @@ export function zoneCoverage(points: PanelPoint[]): ZoneCoverage | null {
     if (hz >= dHi.h) wsh++;
   }
   const n = pts.length;
-  return { n, buyHigh: bh / n, buyLow: bl / n, fails: f / n, sellLow: sl / n, sellHigh: sh / n, walk: { buyHigh: wbh / n, buyLow: wbl / n, fails: wf / n, sellLow: wsl / n, sellHigh: wsh / n } };
+  return { n, buyHigh: bh / n, buyLow: bl / n, fails: f / n, sellLow: sl / n, sellHigh: sh / n, walk: { buyHigh: wbh / n, buyLow: wbl / n, fails: wf / n, sellLow: wsl / n, sellHigh: wsh / n }, pinball: { model: pm / n, walk: pw / n } };
 }
 
 // Train on every row with a known outcome, for the forecasts that go out.

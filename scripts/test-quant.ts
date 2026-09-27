@@ -18,11 +18,12 @@ import { buildPanel, walkForwardPanel, auc, spearman, describeAuc, predictEnsemb
 import { marketContext, MARKET_CONTEXT_NAMES } from "../lib/quant/context";
 import { despike } from "../lib/timeseries/macro";
 import { probit, projectLevels, modelBands, pathCurve, depthAt, pathLevels, WALK_CURVE } from "../lib/quant/projection";
-import { RANK_FEATURE_NAMES, RANK_SOURCE, LOW_TARGETS, HIGH_TARGETS, REL_TARGET, PATH_DEPTHS } from "../lib/quant/features";
+import { RANK_FEATURE_NAMES, RANK_SOURCE, LOW_TARGETS, HIGH_TARGETS, REL_TARGET, PATH_DEPTHS, EXTRA_FEATURE_NAMES } from "../lib/quant/features";
 import { readMarket, readName, standingOf, triggerFor } from "../lib/quant/analysis";
 import { indexStates, fitCells, cellOutlook, cellKey, evaluateCells, strengthTests } from "../lib/quant/outlook";
 import { membership, equalWeightIndex, adjustedSeries, appendLive, type RawRow } from "../lib/quant/archive";
 import { strategyBacktest, indexGate } from "../lib/quant/strategy";
+import { swingPlan, swingBacktest } from "../lib/quant/swing";
 import type { PanelPoint } from "../lib/quant/panel";
 import type { EodBar } from "../lib/timeseries/psx-eod";
 
@@ -589,6 +590,99 @@ function randomWalk(n: number, drift = 0.0003, vol = 0.015, start = 100): EodBar
   const p2 = predictEnsemble(JSON.parse(JSON.stringify(learners)), rows[10].x);
   check("the ensemble returns one probability per target", p1.length === TARGET_NAMES.length && p1.every((v) => v >= 0 && v <= 1));
   check("the ensemble survives a JSON round trip", p1.every((v, i) => v === p2[i]));
+}
+
+// Last on purpose: every series above comes from one seeded generator, so a
+// block placed earlier would shift the data the older tests were written on.
+// ------------------------------------------ extra features, the xs view
+{
+  const index = randomWalk(1100, 0.0004, 0.01, 40000);
+  const bars = randomWalk(1100, 0.0003, 0.02, 100);
+  const rows = buildFeatures(bars, index, 20, null, { extras: true });
+  check("extras widen the feature vector", rows.every((r) => r.x.length === FEATURE_NAMES.length + EXTRA_FEATURE_NAMES.length), FEATURE_NAMES.length + EXTRA_FEATURE_NAMES.length);
+  check("no extra feature is NaN", rows.every((r) => r.x.every((v) => Number.isFinite(v))));
+  const plain = buildFeatures(bars, index, 20);
+  check("the base block is untouched by the extras", rows.every((r, i) => plain[i].x.every((v, j) => v === r.x[j])));
+  // Lookahead: tamper with everything after row k; row k must not move.
+  const k = 700;
+  const cutDate = rows[k].date;
+  const tamper = (b: EodBar[], f: number) => b.map((x) => (x.date > cutDate ? { ...x, close: x.close * f, volume: x.volume * 9 } : x));
+  const rows2 = buildFeatures(tamper(bars, 3), tamper(index, 0.4), 20, null, { extras: true });
+  const moved = rows2[k].x.map((v, i) => (v !== rows[k].x[i] ? [...FEATURE_NAMES, ...EXTRA_FEATURE_NAMES][i] : "")).filter(Boolean);
+  check("extra features at day k ignore everything after day k", moved.length === 0, moved.join(","));
+
+  // The panel: the drifting levels become ranks, and the xs view is a rank of every feature.
+  const names = new Map<string, EodBar[]>();
+  for (let s = 0; s < 12; s++) names.set("X" + s, randomWalk(1100, 0.0002 * s, 0.015 + 0.002 * s, 50 + 10 * s));
+  const p = buildPanel(names, index, 20, { extras: true, xs: true });
+  const nOwn = FEATURE_NAMES.length + EXTRA_FEATURE_NAMES.length;
+  const tv = FEATURE_NAMES.length + (EXTRA_FEATURE_NAMES as readonly string[]).indexOf("lnTV60");
+  check("traded value is a rank on the date, not a level", p.rows.every((r) => r.x[tv] >= -0.5 && r.x[tv] <= 0.5));
+  check("every row carries the xs view", p.rows.every((r) => r.xs?.length === nOwn));
+  check("the xs view is ranks, -0.5 to +0.5", p.rows.every((r) => r.xs!.every((v) => v >= -0.5 && v <= 0.5)));
+  const day = p.rows.filter((r) => r.di === p.dates.length - 1);
+  const byRet = [...day].sort((a, b) => a.x[3] - b.x[3]);
+  check("the xs view orders names as the feature does", byRet.every((r, i) => i === 0 || r.xs![3] >= byRet[i - 1].xs![3]));
+  const cut = p.dates[500];
+  const tampered = new Map([...names].map(([s, b]) => [s, b.map((x) => (x.date > cut ? { ...x, close: x.close * 2, volume: x.volume * 5 } : x))]));
+  const p2 = buildPanel(tampered, index, 20, { extras: true, xs: true });
+  const snap = (pp: typeof p) => pp.rows.filter((r) => r.date === cut).map((r) => [...r.x, ...r.xs!].join(",")).join("|");
+  check("the panel at day k ignores everything after day k, xs view and ranked levels included", snap(p) === snap(p2));
+
+  // The cross-sectional booster answers the ranking head only.
+  const trainRows = p.rows.filter((r) => r.targets);
+  const learners = trainEnsemble(trainRows, { ...DEFAULT_PANEL, seeds: 1, xs: true, gbm: { ...DEFAULT_PANEL.gbm, rounds: 10 } });
+  const xsL = learners.filter((l) => l.view === "xs");
+  check("the xs booster is trained when the panel carries the view", xsL.length === 1 && xsL[0].targets?.length === 1 && xsL[0].targets[0] === REL_TARGET);
+  const pr = predictEnsemble(learners, trainRows[5]);
+  check("the ensemble still returns every target", pr.length === TARGET_NAMES.length && pr.every((v) => v >= 0 && v <= 1));
+  const rawOnly = predictEnsemble(learners.filter((l) => l.view !== "xs"), trainRows[5]);
+  check("the xs booster moves only the ranking head", pr.every((v, i) => (i === REL_TARGET ? true : v === rawOnly[i])) && pr[REL_TARGET] !== rawOnly[REL_TARGET]);
+  const again = predictEnsemble(JSON.parse(JSON.stringify(learners)), trainRows[5]);
+  check("and it survives a JSON round trip", pr.every((v, i) => v === again[i]));
+  let threw = false;
+  try { predictEnsemble(learners, trainRows[5].x); } catch { threw = true; }
+  check("a model that reads the xs view refuses a row without it", threw);
+  const noXs = trainEnsemble(buildPanel(names, index, 20, { extras: true }).rows.filter((r) => r.targets), { ...DEFAULT_PANEL, seeds: 1, xs: true, gbm: { ...DEFAULT_PANEL.gbm, rounds: 5 } });
+  check("without the view no xs booster is trained", noXs.every((l) => l.view !== "xs"));
+}
+
+// ------------------------------------------------------------ swing trades
+{
+  const z = { buyLow: 90, buyHigh: 95, fails: 85, sellLow: 108, sellHigh: 115 };
+  const above = swingPlan(100, z)!;
+  check("above the zone, the entry is a limit at its top", !above.entryNow && above.entry === 95 && above.stop === 85 && above.t1 === 108 && above.t2 === 115);
+  check("risk and reward are measured from the entry", Math.abs(above.riskPct - (10 / 95) * 100) < 1e-9 && Math.abs(above.rewardPct - (13 / 95) * 100) < 1e-9 && above.rr > 1);
+  const inside = swingPlan(92, z)!;
+  check("inside the zone, the entry is the price", inside.entryNow && inside.entry === 92);
+  check("under the stop there is no trade", swingPlan(84, z) === null && swingPlan(85, z) === null);
+
+  // Two hand-made paths with flat history, then: A dips into its zone and
+  // rallies through the first profit level; B falls through its stop.
+  const flatHistory = (n: number, start = 100) => {
+    const out: EodBar[] = [];
+    const days = weekdays(n + 40);
+    for (let i = 0; i < n; i++) out.push({ date: days[i], close: start * (1 + 0.05 * Math.sin(i / 2)), volume: 1e6, vwap: start });
+    return { out, days };
+  };
+  const A = flatHistory(120), B = flatHistory(120);
+  const sig = A.out.length - 1;
+  const pathA = [0.97, 0.93, 0.92, 0.97, 1.02, 1.06, 1.1, 1.15];
+  const pathB = [0.97, 0.93, 0.85, 0.8, 0.78, 0.76, 0.75, 0.74];
+  pathA.forEach((f, k) => A.out.push({ date: A.days[sig + 1 + k], close: A.out[sig].close * f, volume: 1e6, vwap: 1 }));
+  pathB.forEach((f, k) => B.out.push({ date: B.days[sig + 1 + k], close: B.out[sig].close * f, volume: 1e6, vwap: 1 }));
+  const walkP = [0.5, 0.5, 0.5, 0.9, ...WALK_CURVE, ...WALK_CURVE];
+  const pts: PanelPoint[] = [
+    { symbol: "A", date: A.out[sig].date, di: 0, p: walkP, t: [], fwdRet: 0, fwdRel: 0 },
+    { symbol: "B", date: B.out[sig].date, di: 0, p: walkP, t: [], fwdRet: 0, fwdRel: 0 },
+  ];
+  const gate = new Map([[A.out[sig].date, true]]);
+  const [st] = swingBacktest(pts, new Map([["A", A.out], ["B", B.out]]), gate, 20, [{ name: "all", minPctile: 0, strongOnly: false, entry: "zone", target: "t1" }], { stepDays: 1, fillWindow: 5, costPct: 0 });
+  check("both orders fill and both trades close", st.signals === 2 && st.trades === 2, `${st.signals}/${st.trades}`);
+  check("one reaches its target, one its stop", st.hitTarget === 0.5 && st.hitStop === 0.5, `${st.hitTarget}/${st.hitStop}`);
+  check("the winner's gain and the loser's loss are counted", st.winRate === 0.5 && st.avgWinPct > 0 && st.avgLossPct < 0);
+  const [strongOnly] = swingBacktest(pts, new Map([["A", A.out], ["B", B.out]]), new Map([[A.out[sig].date, false]]), 20, [{ name: "strong", minPctile: 0, strongOnly: true, entry: "zone", target: "t1" }], { stepDays: 1 });
+  check("a strong-market rule takes nothing in a weak market", strongOnly.signals === 0 && strongOnly.trades === 0);
 }
 
 console.log("\n" + pass + " passed, " + fail + " failed");

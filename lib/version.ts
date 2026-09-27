@@ -1,7 +1,7 @@
 // Single source of truth for the app version + changelog.
 // Bump APP_VERSION and prepend a CHANGELOG entry on every release.
 
-export const APP_VERSION = "11.5.1";
+export const APP_VERSION = "11.6.0";
 
 export const BUILD_DATE =
   process.env.NEXT_PUBLIC_BUILD_DATE ?? "";
@@ -17,6 +17,19 @@ export type ChangelogEntry = {
 
 // Reverse-chronological. Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: "11.6.0",
+    date: "2026-09-27",
+    title: "A one-screen Model page, swing trades with stops and targets, a sharper ranking, and Next.js 15",
+    changes: [
+      "The Model page is one screen now: the market's state in a line, then each stock you hold or target as a card with its buy zone, sell zone and stop drawn on a price line, what to do in one line, and the model's score out of 10; the strongest names in the market below, and three numbers on what the model has been worth. The long report, the charts and the full record moved to Model, Full report.",
+      "New Swing trades page: for the model's top-ranked names, a buy level, a stop-loss and two profit targets, with reward to risk, beside the record of trading exactly those levels on 24 years of out-of-sample predictions, and the same levels traded on every name without the model for comparison. While the market sits below its 200-day the list is a watchlist. Your own stocks get their stop and targets in a table.",
+      "The ranking is sharper. Fifteen new features (the shape of a stock's returns, how its momentum was earned, the same weeks in past years, liquidity, trend quality), a larger booster for the ranking head, a second booster that reads every feature as a rank among the stocks that day, and the newest 15% of the history put back into training. On the 24-year walk-forward, rank IC rose from 0.099 to 0.129 and the top fifth's lead over the bottom fifth from 1.84% to 2.75% per 20 sessions, better in every era. The probability heads stay small, because larger ones were overconfident.",
+      "The zones are read from the model's own path curve only when, out of sample, it places the levels better than a plain random walk over each stock's volatility; otherwise the volatility levels are used. Dip odds are shown only when their record clears the bar the report already used.",
+      "The tier band is gone from the holding page: the tier is a label, with no range, no above-band or below-band badge and no sizing advice.",
+      "Security: Next.js 14.2.18 to 15.5.26 with React 19, which closes every advisory GitHub listed against the app (among them a critical remote-code-execution flaw in the image optimizer and a middleware authorisation bypass), with mongoose, postcss, nanoid, esbuild and the other flagged packages brought to fixed versions. npm audit reports none.",
+    ],
+  },
   {
     version: "11.5.1",
     date: "2026-09-27",

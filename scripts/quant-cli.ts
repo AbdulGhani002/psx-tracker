@@ -83,6 +83,7 @@ export function optionsFromArgs(): PanelOptions {
     minTrain: num("minTrain", DEFAULT_PANEL.minTrain),
     threshold: num("threshold", DEFAULT_PANEL.threshold),
     learner,
+    xs: !has("no-xs"),
     train: {
       ...DEFAULT_PANEL.train,
       hidden: has("hidden") ? (argOf("hidden") ?? "").split(",").filter(Boolean).map(Number) : DEFAULT_PANEL.train.hidden,
@@ -100,6 +101,8 @@ export function optionsFromArgs(): PanelOptions {
       lr: num("gbmLr", DEFAULT_PANEL.gbm.lr!),
       patience: num("gbmPatience", DEFAULT_PANEL.gbm.patience!),
       subsample: num("subsample", DEFAULT_PANEL.gbm.subsample!),
+      colsample: num("colsample", DEFAULT_PANEL.gbm.colsample!),
+      valFrac: num("valFrac", DEFAULT_PANEL.gbm.valFrac ?? 0.15),
       earlyStop: has("earlyStop") ? true : has("fixedRounds") ? false : DEFAULT_PANEL.gbm.earlyStop,
     },
   };

@@ -69,20 +69,21 @@ const nextConfig = {
   },
   reactStrictMode: true,
   output: "standalone",
+  // Next 15 moved these two out of `experimental`.
+  serverExternalPackages: ["unpdf"],
+  outputFileTracingIncludes: {
+    "/api/dividends/**/*": ["./node_modules/unpdf/**/*"],
+    // Contract-note and iSave-statement parsing use unpdf's positional
+    // extraction; the standalone build must carry the package for them too.
+    "/api/transactions/parse-note/**/*": ["./node_modules/unpdf/**/*"],
+    "/api/funds/statement/**/*": ["./node_modules/unpdf/**/*"],
+  },
   experimental: {
     // Client router cache: revisiting a page within 30s renders instantly from
     // the in-browser cache (back/forward feels native). Mutations still call
     // router.refresh(), which purges it — fresh numbers after any edit.
     staleTimes: { dynamic: 30, static: 180 },
     serverActions: { allowedOrigins: ["localhost:3010"] },
-    serverComponentsExternalPackages: ["unpdf"],
-    outputFileTracingIncludes: {
-      "/api/dividends/**/*": ["./node_modules/unpdf/**/*"],
-      // Contract-note and iSave-statement parsing use unpdf's positional
-      // extraction; the standalone build must carry the package for them too.
-      "/api/transactions/parse-note/**/*": ["./node_modules/unpdf/**/*"],
-      "/api/funds/statement/**/*": ["./node_modules/unpdf/**/*"],
-    },
   },
 };
 

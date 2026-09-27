@@ -37,7 +37,7 @@ function wanted(key: string, s: any): boolean {
 // their own Telegram config, watchlist, holdings) and pushes deduped alerts.
 export async function POST(req: Request) {
   // Machine-only: a logged-in session must not reach this. See lib/auth/cron.ts.
-  if (!cronAuthorised()) return NextResponse.json({ error: "forbidden" }, { status: 403 });
+  if (!(await cronAuthorised())) return NextResponse.json({ error: "forbidden" }, { status: 403 });
   await connectDb();
   // Optional body {forceDigest:true} sends the weekly digest NOW (machine-only
   // endpoint, so this is an operator control, not a user surface).

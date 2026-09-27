@@ -22,7 +22,7 @@ export const maxDuration = 300;
 // the report for that user and returns the text without sending anything, so
 // the wording can be read before it reaches a phone.
 export async function POST(req: Request) {
-  if (!cronAuthorised()) return NextResponse.json({ error: "forbidden" }, { status: 403 });
+  if (!(await cronAuthorised())) return NextResponse.json({ error: "forbidden" }, { status: 403 });
   await connectDb();
   const body: any = await req.json().catch(() => ({}));
   const force = body?.force === true;

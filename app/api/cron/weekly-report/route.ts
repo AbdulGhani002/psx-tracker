@@ -45,7 +45,7 @@ async function compilePdf(tex: string): Promise<Buffer> {
 // the email, and vice versa. A weekly discipline document that silently stops
 // arriving is worse than one that arrives twice.
 export async function POST(req: Request) {
-  if (!cronAuthorised()) return NextResponse.json({ error: "forbidden" }, { status: 403 });
+  if (!(await cronAuthorised())) return NextResponse.json({ error: "forbidden" }, { status: 403 });
   await connectDb();
   const body: any = await req.json().catch(() => ({}));
   const force = body?.force === true;

@@ -7,14 +7,12 @@ import { Button } from "@/components/ui/Button";
 import { Select } from "@/components/ui/Select";
 import { NumberInput } from "@/components/ui/NumberInput";
 import { TextInput } from "@/components/ui/TextInput";
-import { Badge } from "@/components/ui/Badge";
-import { HOLDING_TIERS, GOAL_TAGS, TIER_BANDS } from "@/lib/types";
+import { HOLDING_TIERS, GOAL_TAGS } from "@/lib/types";
 
 type Metric = { name: string; source: string; green: string; red: string; current: string };
 
 type Props = {
   symbol: string;
-  currentPercent: number;
   initial: {
     tier: string;
     convictionScore: number;
@@ -24,7 +22,7 @@ type Props = {
   };
 };
 
-export function HoldingPlaybook({ symbol, currentPercent, initial }: Props) {
+export function HoldingPlaybook({ symbol, initial }: Props) {
   const router = useRouter();
   const [tier, setTier] = useState(initial.tier || "");
   const [conviction, setConviction] = useState<number>(initial.convictionScore || 0);
@@ -37,25 +35,6 @@ export function HoldingPlaybook({ symbol, currentPercent, initial }: Props) {
   );
   const [saving, setSaving] = useState(false);
   const [savedAt, setSavedAt] = useState<number | null>(null);
-
-  const band = tier ? TIER_BANDS[tier] : null;
-  const sizing =
-    band == null
-      ? null
-      : currentPercent < band.min
-      ? { tone: "amber", text: `Below ${tier} band (${band.min}–${band.max}%) — room to add` }
-      : currentPercent > band.max
-      ? { tone: "default", text: `Above ${tier} band (${band.min}–${band.max}%)` }
-      : { tone: "positive", text: `Within ${tier} band (${band.min}–${band.max}%)` };
-
-  const convictionNote =
-    conviction >= 20
-      ? "High conviction → high end of tier"
-      : conviction >= 14
-      ? "Middle of tier"
-      : conviction > 0
-      ? "Low score → low end, or drop a tier"
-      : "";
 
   function setMetric(i: number, patch: Partial<Metric>) {
     setMetrics((ms) => ms.map((m, idx) => (idx === i ? { ...m, ...patch } : m)));
@@ -99,10 +78,7 @@ export function HoldingPlaybook({ symbol, currentPercent, initial }: Props) {
           onChange={setTier}
           options={[
             { value: "", label: "— Unassigned —" },
-            ...HOLDING_TIERS.map((t) => ({
-              value: t,
-              label: `${t} (${TIER_BANDS[t].min}–${TIER_BANDS[t].max}%)`,
-            })),
+            ...HOLDING_TIERS.map((t) => ({ value: t, label: t })),
           ]}
         />
         <NumberInput
@@ -112,7 +88,6 @@ export function HoldingPlaybook({ symbol, currentPercent, initial }: Props) {
           min={0}
           max={25}
           step={1}
-          hint={convictionNote}
         />
         <Select
           label="Goal / job"
@@ -122,11 +97,6 @@ export function HoldingPlaybook({ symbol, currentPercent, initial }: Props) {
         />
       </div>
 
-      {sizing && (
-        <div className="mt-4">
-          <Badge tone={sizing.tone as any}>{sizing.text}</Badge>
-        </div>
-      )}
 
       <div className="mt-5 space-y-1.5">
         <label className="label-cap block">Thesis (2 sentences)</label>

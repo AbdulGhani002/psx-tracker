@@ -23,8 +23,8 @@ function timingSafeEqual(a: string, b: string): boolean {
   return diff === 0;
 }
 
-export function cronAuthorised(): boolean {
-  const h = headers();
+export async function cronAuthorised(): Promise<boolean> {
+  const h = await headers();
 
   const secret = process.env.CRON_SECRET ?? "";
   if (secret) {

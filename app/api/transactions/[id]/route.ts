@@ -7,7 +7,7 @@ import { deriveFromTransactions } from "@/lib/calculations";
 
 export const dynamic = "force-dynamic";
 
-type Params = { params: { id: string } };
+type Params = { params: Promise<{ id: string }> };
 
 const patchSchema = z.object({
   type: z.enum(TRANSACTION_TYPES).optional(),
@@ -40,14 +40,16 @@ async function recomputeHolding(symbol: string) {
   );
 }
 
-export async function GET(_req: NextRequest, { params }: Params) {
+export async function GET(_req: NextRequest, props: Params) {
+  const params = await props.params;
   await connectDb();
   const doc = await TransactionModel.findOne({ _id: params.id, userId: await uid() }).lean();
   if (!doc) return NextResponse.json({ error: "not_found" }, { status: 404 });
   return NextResponse.json(doc);
 }
 
-export async function PATCH(req: NextRequest, { params }: Params) {
+export async function PATCH(req: NextRequest, props: Params) {
+  const params = await props.params;
   try {
     const body = await req.json();
     const parsed = patchSchema.parse(body);
@@ -133,7 +135,8 @@ export async function PATCH(req: NextRequest, { params }: Params) {
   }
 }
 
-export async function DELETE(req: NextRequest, { params }: Params) {
+export async function DELETE(req: NextRequest, props: Params) {
+  const params = await props.params;
   await connectDb();
   const hard = req.nextUrl.searchParams.get("hard") === "1" || req.nextUrl.searchParams.get("hard") === "true";
 

@@ -21,7 +21,8 @@ const patchSchema = z.object({
   alertsOn: z.boolean().optional(),
 });
 
-export async function PATCH(req: NextRequest, { params }: { params: { symbol: string } }) {
+export async function PATCH(req: NextRequest, props: { params: Promise<{ symbol: string }> }) {
+  const params = await props.params;
   try {
     const body = await req.json();
     const parsed = patchSchema.parse(body);
@@ -50,7 +51,8 @@ export async function PATCH(req: NextRequest, { params }: { params: { symbol: st
   }
 }
 
-export async function DELETE(_req: NextRequest, { params }: { params: { symbol: string } }) {
+export async function DELETE(_req: NextRequest, props: { params: Promise<{ symbol: string }> }) {
+  const params = await props.params;
   await connectDb();
   const doc = await WatchlistEntryModel.findOneAndDelete({ userId: await uid(), symbol: params.symbol.toUpperCase() }).lean();
   if (!doc) return NextResponse.json({ error: "not_found" }, { status: 404 });

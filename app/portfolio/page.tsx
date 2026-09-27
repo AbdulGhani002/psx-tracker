@@ -32,7 +32,8 @@ type TabKey = (typeof TABS)[number]["key"];
 
 export type PortfolioSearch = { tab?: string; view?: string; range?: string; fy?: string };
 
-export default async function PortfolioPage({ searchParams }: { searchParams: PortfolioSearch }) {
+export default async function PortfolioPage(props: { searchParams: Promise<PortfolioSearch> }) {
+  const searchParams = await props.searchParams;
   const tab: TabKey = (TABS.find((t) => t.key === searchParams?.tab)?.key ?? "holding") as TabKey;
   const [selected, all] = await Promise.all([selectedPortfolio(), listPortfolios()]);
   const name = selected ? selected.name : "All portfolios";

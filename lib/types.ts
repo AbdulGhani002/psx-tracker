@@ -58,12 +58,6 @@ export type Holding = {
 };
 
 export const HOLDING_TIERS = ["Anchor", "Core", "Satellite", "Starter"] as const;
-export const TIER_BANDS: Record<string, { min: number; max: number }> = {
-  Anchor: { min: 12, max: 18 },
-  Core: { min: 7, max: 12 },
-  Satellite: { min: 3, max: 7 },
-  Starter: { min: 1, max: 3 },
-};
 export const GOAL_TAGS = ["Growth", "Income", "Inflation hedge", "Stability", "Diversification"] as const;
 
 export type Transaction = {

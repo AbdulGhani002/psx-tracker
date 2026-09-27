@@ -33,7 +33,8 @@ function SubScore({ label, value, max = 100, reasons, invert }: { label: string;
   );
 }
 
-export default async function StockPage({ params }: { params: { symbol: string } }) {
+export default async function StockPage(props: { params: Promise<{ symbol: string }> }) {
+  const params = await props.params;
   const sym = params.symbol.toUpperCase();
   const [d, pat, news] = await Promise.all([getRating(sym), getPatterns(sym), getNews(sym, 5)]);
   if (!d || d.error) {

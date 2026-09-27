@@ -14,7 +14,8 @@ const schema = z.object({
   isDefault: z.boolean().optional(),
 });
 
-export async function PATCH(req: NextRequest, { params }: { params: { id: string } }) {
+export async function PATCH(req: NextRequest, props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   if (!(await getCurrentUserId())) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   try {
     const parsed = schema.parse(await req.json());
@@ -27,7 +28,8 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
   }
 }
 
-export async function DELETE(_req: NextRequest, { params }: { params: { id: string } }) {
+export async function DELETE(_req: NextRequest, props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   if (!(await getCurrentUserId())) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   const r = await deletePortfolio(params.id);
   return NextResponse.json(r, { status: r.ok ? 200 : 400 });

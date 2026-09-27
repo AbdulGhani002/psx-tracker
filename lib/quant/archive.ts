@@ -15,7 +15,7 @@ import { join } from "node:path";
 import type { EodBar } from "@/lib/timeseries/psx-eod";
 import { buildPanel, type Panel } from "./panel";
 import { marketContext, mergeContext, type MarketContext } from "./context";
-import { FEATURE_NAMES, RANK_FEATURE_NAMES } from "./features";
+import { FEATURE_NAMES, EXTRA_FEATURE_NAMES, RANK_FEATURE_NAMES } from "./features";
 
 const iso = (n: number) => String(n).replace(/(\d{4})(\d{2})(\d{2})/, "$1-$2-$3");
 
@@ -159,7 +159,7 @@ export type ArchivePanel = {
   years: [number, number];
 };
 
-export function buildArchivePanel(dir: string, horizon: number, top = 120, ranks = false, macro: Map<string, number[]> | null = null): ArchivePanel {
+export function buildArchivePanel(dir: string, horizon: number, top = 120, ranks = false, macro: Map<string, number[]> | null = null, fo: { extras?: boolean; xs?: boolean } = {}): ArchivePanel {
   const bars = loadArchive(dir);
   const members = membership(bars, top);
   const memberSymbols = new Set<string>();
@@ -171,7 +171,7 @@ export function buildArchivePanel(dir: string, horizon: number, top = 120, ranks
   const merged = mergeContext(market, macro, dates)!;
   const memberBars = new Map([...bars].filter(([s]) => memberSymbols.has(s)));
   const include = (symbol: string, date: string) => members.get(Number(date.slice(0, 4)))?.has(symbol) ?? false;
-  const panel = buildPanel(memberBars, index, horizon, { context: merged.context, include, minRows: 60, ranks });
+  const panel = buildPanel(memberBars, index, horizon, { context: merged.context, include, minRows: 60, ranks, extras: fo.extras, xs: fo.xs });
   return {
     panel,
     index,
@@ -179,7 +179,7 @@ export function buildArchivePanel(dir: string, horizon: number, top = 120, ranks
     market,
     context: merged.context,
     contextNames: merged.names,
-    featureNames: [...FEATURE_NAMES, ...merged.names, ...(ranks ? RANK_FEATURE_NAMES : [])],
+    featureNames: [...FEATURE_NAMES, ...(fo.extras ? EXTRA_FEATURE_NAMES : []), ...merged.names, ...(ranks ? RANK_FEATURE_NAMES : [])],
     members,
     universe: [...memberSymbols].sort(),
     years: [years[0], years[years.length - 1]],

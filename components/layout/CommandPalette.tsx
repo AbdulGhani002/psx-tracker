@@ -32,6 +32,7 @@ const PAGES: Item[] = [
   { id: "p-watchlist", label: "Watchlists", hint: "names you follow, buy and sell bands", group: "Pages", href: "/watchlist" },
   { id: "p-rebalance", label: "Rebalance", hint: "target allocation, deployment", group: "Pages", href: "/rebalance" },
   { id: "p-analysis", label: "Model", hint: "the model's market read, verdicts and zones", group: "Pages", href: "/analysis" },
+  { id: "p-swing", label: "Swing trades", hint: "buy level, stop-loss and targets, with the tested record", group: "Pages", href: "/swing" },
   { id: "p-changelog", label: "Changelog", hint: "what changed, and why", group: "Pages", href: "/changelog" },
   { id: "p-settings", label: "Settings", hint: "portfolios, tax, alerts, backup", group: "Pages", href: "/settings" },
 ];

@@ -96,7 +96,8 @@ export function binRows(Xraw: number[][], opts: GbmOptions = {}): GbmBinned {
   const valFrac = opts.valFrac ?? 0.15;
   const n = Xraw.length;
   const d = Xraw[0].length;
-  let nVal = Math.max(20, Math.floor(n * valFrac));
+  // valFrac 0: no validation slice at all, every row trains (early stopping off).
+  let nVal = valFrac <= 0 ? 0 : Math.max(20, Math.floor(n * valFrac));
   if (nVal >= n) nVal = Math.max(1, Math.floor(n * 0.2));
   const nTr = n - nVal;
   const cuts = makeCuts(Xraw, nTr, d, bins);
@@ -116,10 +117,11 @@ export function trainGbm(Xraw: number[][], y: number[], opts: GbmOptions = {}, p
   const subsample = opts.subsample ?? 0.7;
   const colsample = opts.colsample ?? 0.8;
   const patience = opts.patience ?? 30;
-  const earlyStop = opts.earlyStop ?? true;
   const rnd = mulberry32(opts.seed ?? 7);
 
   const { cuts, nbins, binned, n, d, nTr } = pre ?? binRows(Xraw, opts);
+  // Nothing to stop on without a validation slice.
+  const earlyStop = (opts.earlyStop ?? true) && nTr < n;
 
   let pos = 0;
   for (let i = 0; i < nTr; i++) pos += y[i];
