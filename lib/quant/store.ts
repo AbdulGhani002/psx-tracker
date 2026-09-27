@@ -93,9 +93,13 @@ export async function loadQuantSnapshot<T>(key: string): Promise<T | null> {
   return (doc?.data as T) ?? null;
 }
 
-type CachedBars = { fetchedAt: string; bars: EodBar[] };
+// `source: "dps-sheet"` marks a series the evening job keeps current from the
+// exchange's end-of-day file (sheet-bars.ts): it is as fresh as the market
+// is, whatever its age, and must not be replaced by a feed that is not
+// adjusted for bonuses and splits.
+type CachedBars = { fetchedAt: string; bars: EodBar[]; source?: string };
 const fresh = (c: CachedBars | null | undefined, maxAgeHours: number) =>
-  !!c && Array.isArray(c.bars) && c.bars.length > 0 && Date.now() - Date.parse(c.fetchedAt) < maxAgeHours * 3600 * 1000;
+  !!c && Array.isArray(c.bars) && c.bars.length > 0 && (c.source === "dps-sheet" || Date.now() - Date.parse(c.fetchedAt) < maxAgeHours * 3600 * 1000);
 
 export function mongoBarsCache(maxAgeHours = 6): BarsCache {
   return {

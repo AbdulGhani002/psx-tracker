@@ -1,7 +1,7 @@
 // Single source of truth for the app version + changelog.
 // Bump APP_VERSION and prepend a CHANGELOG entry on every release.
 
-export const APP_VERSION = "11.7.1";
+export const APP_VERSION = "11.8.0";
 
 export const BUILD_DATE =
   process.env.NEXT_PUBLIC_BUILD_DATE ?? "";
@@ -17,6 +17,16 @@ export type ChangelogEntry = {
 
 // Reverse-chronological. Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: "11.8.0",
+    date: "2026-09-27",
+    title: "Swing trades you hold to a date: five at a time, 1:2 reward to risk, a sell-by on every trade",
+    changes: [
+      "The Swing trades page is now a book of trades that stay put. Each evening after the close, if a slot is free and the market is above its 200-day average, the best-ranked names not already in the book are signalled to buy at the next close. From that close each trade has a stop, a target twice as far away and a date to sell by, fixed for the life of the trade: out at the stop, at the target, or at the close on the sell-by date at whatever the price is, which frees the slot for the next trade. A new day's ranking never changes an open trade. The page shows what to buy tomorrow, every open trade with its profit so far and the sessions left, and every closed trade with its result and why it closed.",
+      "The rule was chosen on the model's out-of-sample ranks from 2007 to 2026, trading exactly what the page trades: five slots, the stop one stock-sized move under the buy (8% on average), the target twice as far over it, a sell-by 15 sessions out, and a name sold sits out two weeks. It made 17.8% a year with a worst fall of 27%; 54% of 1,064 trades made money, the average win was +7.7% and the average loss -5.4%, and a trade lasted 13 sessions on average. The same book on random names made 5.9% a year with falls of about 56%; the market's average stock made 1.4% a year. The first and second halves of the period made 15.9% and 19.7%, and the rules next to this one made 15% to 19%, so it is not a lucky corner of the test. Losing years happened (2008, 2011, 2017, 2018) and are on the page.",
+      "Prices are kept current from the exchange's own end-of-day file (the market-summary download on the PSX data portal), fetched every weekday after the close. Each day's file is kept, the stored price histories are extended from it and adjusted for bonuses and splits from the exchange's previous-close column (not for cash dividends, as before), and a day that follows a missed one is checked so a gap is never mistaken for a split. The model's reading and the swing book are then rebuilt; the Rebuild now button runs the same steps.",
+    ],
+  },
   {
     version: "11.7.1",
     date: "2026-09-27",

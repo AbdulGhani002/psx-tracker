@@ -1,0 +1,7 @@
+[Unit]
+Description=PSX tracker: the day's closing file, the model's reading and the swing book
+After=network-online.target psx-tracker-v2.service
+
+[Service]
+Type=oneshot
+ExecStart=/root/psx-daily-close.sh

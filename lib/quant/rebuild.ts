@@ -2,11 +2,12 @@
 // bars, the model, thirteen charts), longer than the proxy in front of the
 // server allows a request to run. So the button starts a job and the page
 // asks after it: one job per user at a time, kept in this process, with the
-// last error held for a while so a failed rebuild can say why.
+// last error held for a while so a failed rebuild can say why. It is the
+// evening job run by hand (daily.ts): the day's end-of-day file first, if the
+// timer has not fetched it yet, then the reading, then the swing book.
 
 import "server-only";
-import { runAsUser } from "@/lib/auth/current-user";
-import { buildQuantReport } from "./report";
+import { refreshCloses, rebuildUser } from "./daily";
 
 type Job = { startedAt: string; done: boolean; finishedAt?: string; error?: string; charts?: number };
 
@@ -18,9 +19,11 @@ export function startRebuild(userId: string): { started: boolean; job: Job } {
   if (current && !current.done) return { started: false, job: current };
   const job: Job = { startedAt: new Date().toISOString(), done: false };
   jobs.set(userId, job);
-  runAsUser(userId, () => buildQuantReport())
+  refreshCloses()
+    .catch(() => null)
+    .then(() => rebuildUser(userId))
     .then((r) => {
-      job.charts = r.indices.length + r.holdings.length;
+      job.charts = r.charts;
     })
     .catch((e) => {
       job.error = String(e instanceof Error ? e.message : e).slice(0, 300);

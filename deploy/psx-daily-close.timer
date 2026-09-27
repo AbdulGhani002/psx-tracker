@@ -1,0 +1,11 @@
+[Unit]
+Description=PSX tracker: after every close, the day's file and the swing book
+
+[Timer]
+OnCalendar=Mon..Fri *-*-* 14:15:00
+OnCalendar=Mon..Fri *-*-* 16:30:00
+AccuracySec=1min
+Persistent=true
+
+[Install]
+WantedBy=timers.target
