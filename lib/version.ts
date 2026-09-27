@@ -1,7 +1,7 @@
 // Single source of truth for the app version + changelog.
 // Bump APP_VERSION and prepend a CHANGELOG entry on every release.
 
-export const APP_VERSION = "11.6.0";
+export const APP_VERSION = "11.6.1";
 
 export const BUILD_DATE =
   process.env.NEXT_PUBLIC_BUILD_DATE ?? "";
@@ -17,6 +17,15 @@ export type ChangelogEntry = {
 
 // Reverse-chronological. Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: "11.6.1",
+    date: "2026-09-27",
+    title: "Swing trades buy at the next close; the retrained model is live",
+    changes: [
+      "Swing trades now buy the model's top-fifth names at the next close instead of waiting for the buy zone. On 24 years of out-of-sample predictions, with the index above its 200-day, the next-close trade made money 61% of the time and +0.96% a trade after costs (5,627 trades, 9% stopped out, 13 days on average). Waiting for the buy zone filled one signal in ten, and the dips that filled it were the ones that kept going: 45% made money, 41% hit the stop. The same next-close trade on every stock without the model made 0.46% a trade, and on the model's bottom fifth it lost 0.33%. Holding for target 2 instead makes 1.47% a trade on a 56% hit rate. The page shows these numbers beside the setups.",
+      "The model retrained on the 24-year archive with the 11.6.0 design: rank IC 0.129 (t 10.3) and the top fifth ahead of the bottom fifth by 2.71% per 20 sessions, out of sample 2007 to 2026. The model's top fifth, held only while the index is above its 200-day, returned 19.4% a year with a worst fall of 25%. Zones come from each stock's volatility, because the model's own path curve beat that by only 0.3%, under the half-percent bar. The KSE-100 state table is carried over from the previous run, since Yahoo no longer serves the index's history before 2021.",
+    ],
+  },
   {
     version: "11.6.0",
     date: "2026-09-27",

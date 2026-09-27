@@ -6,6 +6,7 @@
 //        [--no-context] [--macro] [--universe kse100|held] [--symbols A,B] [--held A,B]
 //        [--no-validate] [--windows N] [--cache DIR] [--out FILE] [--fixedRounds] [--no-median]
 //        [--archive DIR] [--top 120] [--finalSeeds 3] [--no-outlook] [--no-extras] [--no-xs] [--points FILE]
+//        [--outlook-from FILE]
 //
 // --archive trains on the exchange's 24-year archive (scripts/psx-history.ts)
 // exactly as scripts/quant-long.ts tests it: a universe that changes each
@@ -24,7 +25,7 @@
 // never inside the web server.
 
 import { join } from "node:path";
-import { writeFileSync, statSync } from "node:fs";
+import { writeFileSync, statSync, readFileSync } from "node:fs";
 import { buildPanel, walkForwardPanel, trainFinal, predictEnsemble, calibrationByState, zoneSourceOf, type PanelWalkResult } from "../lib/quant/panel";
 import { indexGate } from "../lib/quant/strategy";
 import { buildFeatures, readTrend, FEATURE_NAMES, EXTRA_FEATURE_NAMES, TARGET_NAMES, DIP_PCT, RANK_FEATURE_NAMES } from "../lib/quant/features";
@@ -200,7 +201,15 @@ Swing trades at the zones' levels (entry at the top of the buy zone, stop at the
   if (!has("no-outlook")) {
     const cacheDir = argOf("cache") || process.env.QUANT_CACHE || join(process.env.TEMP || process.env.TMP || ".", "psx-quant-cache");
     const longIdx = await loadLongIndex(diskBarsCache(cacheDir, 24 * 7), bars.get("KSE100")).catch(() => null);
-    if (!longIdx) console.log("\nKSE-100 long series unavailable (Yahoo ^KSE or the feed); the report will fall back to the model's odds for the index.");
+    const keep = argOf("outlook-from");
+    if (!longIdx && keep) {
+      // Yahoo stopped serving ^KSE in 2026, and nothing else carries the index
+      // back to 1997: reuse the state table a previous run fitted (a stored
+      // model file, or the table on its own) rather than ship none.
+      const j = JSON.parse(readFileSync(keep, "utf8"));
+      indexOutlook = (j.indexOutlook ?? j) as StoredIndexOutlook;
+      console.log(`\nKSE-100 long series unavailable; kept the state table from ${keep} (series ${indexOutlook.seriesFrom} to ${indexOutlook.seriesTo}).`);
+    } else if (!longIdx) console.log("\nKSE-100 long series unavailable (Yahoo ^KSE or the feed); the report will fall back to the model's odds for the index. Pass --outlook-from FILE to keep a previous table.");
     else {
       const states = indexStates(longIdx.bars, opts.horizon, breadth200);
       const { record, years: yearly } = evaluateCells(states, { horizon: opts.horizon, level: 1, shrink: 20, fromYear: 2005 });

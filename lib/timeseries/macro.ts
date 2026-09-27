@@ -8,6 +8,10 @@
 //             it also drives the E&P names that are a fifth of the index
 //   S&P 500   global risk on or off
 //   EEM       the emerging-market basket the foreign PSX money sits in
+//   Nifty 50  the neighbour: India's market, and its pull on regional money
+//   gold      the local store of value when the rupee or equities wobble
+//   US 10y    the world's risk-free rate; dollars leave frontier markets as it rises
+//   DXY       the dollar itself, against the major currencies
 //
 // The series come back shaped like price bars so the same caches that hold
 // stock bars can hold them.
@@ -19,6 +23,10 @@ export const MACRO_SERIES = [
   { key: "oil", symbol: "CL=F", label: "WTI crude" },
   { key: "spx", symbol: "^GSPC", label: "S&P 500" },
   { key: "em", symbol: "EEM", label: "EM equities" },
+  { key: "nifty", symbol: "^NSEI", label: "Nifty 50" },
+  { key: "gold", symbol: "GC=F", label: "Gold" },
+  { key: "us10y", symbol: "^TNX", label: "US 10-year yield (x10)" },
+  { key: "dxy", symbol: "DX-Y.NYB", label: "US dollar index" },
 ] as const;
 
 export type MacroKey = (typeof MACRO_SERIES)[number]["key"];

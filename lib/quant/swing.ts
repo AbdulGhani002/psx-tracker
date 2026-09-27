@@ -1,11 +1,15 @@
 // Swing trades: a buy level, a stop and two profit levels per name, and the
 // record of trading exactly those levels in the past.
 //
-// The levels come from the zones (projection.ts): the entry is the top of the
-// buy zone (or the price, when it already sits inside it), the stop is the
-// fail level (only a tenth of paths like this one close below it), the first
-// profit level is the bottom of the sell zone (half of paths reach it), the
-// second its top (a quarter do). What turns those levels into an edge is not
+// The levels come from the zones (projection.ts): the stop is the fail level
+// (only a tenth of paths like this one close below it), the first profit level
+// is the bottom of the sell zone (half of paths reach it), the second its top
+// (a quarter do). The entry is the next close. Waiting for the top of the buy
+// zone was tested too and lost: on the 24-year walk-forward a limit there
+// filled on one signal in ten, and the dips that filled it were the ones that
+// kept going (41% of those trades hit the stop, 45% made money, +0.48% a
+// trade), where buying the same names at the next close made money on 61% of
+// trades and +0.96% a trade, with 9% stopped out. What turns those levels into an edge is not
 // the levels themselves, which on their own are a volatility-scaled random
 // walk, but WHICH names are traded: the model's rank (the durable signal) and
 // the market's state.
@@ -39,9 +43,10 @@ export type SwingPlan = {
 };
 
 // Null when the price already sits under the stop: the case has failed.
-export function swingPlan(price: number, z: SwingLevels): SwingPlan | null {
+// "market" buys at the price; "zone" waits for the top of the buy zone.
+export function swingPlan(price: number, z: SwingLevels, mode: "market" | "zone" = "market"): SwingPlan | null {
   if (!(price > 0) || !(z.fails > 0) || price <= z.fails) return null;
-  const entryNow = price <= z.buyHigh;
+  const entryNow = mode === "market" || price <= z.buyHigh;
   const entry = entryNow ? price : z.buyHigh;
   if (!(entry > z.fails)) return null;
   const riskPct = ((entry - z.fails) / entry) * 100;
@@ -79,14 +84,17 @@ export type SwingStats = {
   to: string;
 };
 
+// The first rule is the one the Swing trades page follows; the rest are there
+// to show what it is worth against: the same trade without the model, on the
+// names the model says to avoid, in any market, and waiting for a dip.
 export const DEFAULT_SWING_RULES: SwingRule[] = [
-  { name: "Top fifth, strong market, buy in the zone, sell at T1", minPctile: 0.8, strongOnly: true, entry: "zone", target: "t1" },
-  { name: "Top fifth, strong market, buy in the zone, sell at T2", minPctile: 0.8, strongOnly: true, entry: "zone", target: "t2" },
-  { name: "Top fifth, strong market, buy at market, sell at T1", minPctile: 0.8, strongOnly: true, entry: "market", target: "t1" },
-  { name: "Top fifth, any market, buy in the zone, sell at T1", minPctile: 0.8, strongOnly: false, entry: "zone", target: "t1" },
-  { name: "Top tenth, strong market, buy in the zone, sell at T1", minPctile: 0.9, strongOnly: true, entry: "zone", target: "t1" },
-  { name: "Every name, any market, buy in the zone, sell at T1 (no model)", minPctile: 0, strongOnly: false, entry: "zone", target: "t1" },
-  { name: "Bottom fifth, any market, buy in the zone, sell at T1 (what it says to avoid)", minPctile: 0, maxPctile: 0.2, strongOnly: false, entry: "zone", target: "t1" },
+  { name: "Top fifth, strong market, buy at the next close, sell at T1", minPctile: 0.8, strongOnly: true, entry: "market", target: "t1" },
+  { name: "Top fifth, strong market, buy at the next close, sell at T2", minPctile: 0.8, strongOnly: true, entry: "market", target: "t2" },
+  { name: "Top tenth, strong market, buy at the next close, sell at T1", minPctile: 0.9, strongOnly: true, entry: "market", target: "t1" },
+  { name: "Top fifth, any market, buy at the next close, sell at T1", minPctile: 0.8, strongOnly: false, entry: "market", target: "t1" },
+  { name: "Every name, strong market, buy at the next close, sell at T1 (no model)", minPctile: 0, strongOnly: true, entry: "market", target: "t1" },
+  { name: "Bottom fifth, strong market, buy at the next close, sell at T1 (what it says to avoid)", minPctile: 0, maxPctile: 0.2, strongOnly: true, entry: "market", target: "t1" },
+  { name: "Top fifth, strong market, wait for the buy zone, sell at T1", minPctile: 0.8, strongOnly: true, entry: "zone", target: "t1" },
 ];
 
 // The rule's levels for one point: its own path curve over its own volatility.
@@ -165,7 +173,7 @@ export function swingBacktest(
         if (i < 0 || i + 2 >= b.length) continue;
         const z = levelsFor(b, i, horizon, q.p, walk);
         if (!z) continue;
-        const plan = swingPlan(b[i].close, z);
+        const plan = swingPlan(b[i].close, z, rule.entry);
         if (!plan) continue;
         signals++;
         if (!from) from = q.date;
@@ -173,7 +181,7 @@ export function swingBacktest(
         // The fill: the next close for a market order or a name already in its
         // zone; otherwise the first close at or under the limit.
         let f = -1;
-        if (rule.entry === "market" || plan.entryNow) f = i + 1;
+        if (plan.entryNow) f = i + 1;
         else for (let k = i + 1; k <= Math.min(b.length - 1, i + fillWindow); k++) if (b[k].close <= plan.entry) { f = k; break; }
         if (f < 0 || f >= b.length) continue;
         const fill = b[f].close;

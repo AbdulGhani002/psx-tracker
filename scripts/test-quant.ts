@@ -650,12 +650,14 @@ function randomWalk(n: number, drift = 0.0003, vol = 0.015, start = 100): EodBar
 // ------------------------------------------------------------ swing trades
 {
   const z = { buyLow: 90, buyHigh: 95, fails: 85, sellLow: 108, sellHigh: 115 };
-  const above = swingPlan(100, z)!;
+  const above = swingPlan(100, z, "zone")!;
   check("above the zone, the entry is a limit at its top", !above.entryNow && above.entry === 95 && above.stop === 85 && above.t1 === 108 && above.t2 === 115);
   check("risk and reward are measured from the entry", Math.abs(above.riskPct - (10 / 95) * 100) < 1e-9 && Math.abs(above.rewardPct - (13 / 95) * 100) < 1e-9 && above.rr > 1);
-  const inside = swingPlan(92, z)!;
+  const inside = swingPlan(92, z, "zone")!;
   check("inside the zone, the entry is the price", inside.entryNow && inside.entry === 92);
   check("under the stop there is no trade", swingPlan(84, z) === null && swingPlan(85, z) === null);
+  const mkt = swingPlan(100, z)!;
+  check("by default the entry is the next close, with the same stop and targets", mkt.entryNow && mkt.entry === 100 && mkt.stop === 85 && mkt.t1 === 108 && mkt.t2 === 115);
 
   // Two hand-made paths with flat history, then: A dips into its zone and
   // rallies through the first profit level; B falls through its stop.

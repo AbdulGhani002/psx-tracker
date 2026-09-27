@@ -8,14 +8,15 @@ import { ScoreMeter, money } from "@/app/analysis/ZoneBar";
 import { RefreshAnalysis } from "@/app/analysis/RefreshAnalysis";
 import { TradeLadder } from "./TradeLadder";
 
-// Swing trades of one to four weeks: the model's top-ranked names with a buy
-// level, a stop and two profit levels each, beside the record of trading the
-// same rule on 24 years of out-of-sample predictions. The pick rule is the one
-// the record was measured on: the top fifth by the model's rank, taken only
-// while the market index is above its 200-day average.
+// Swing trades of one to four weeks: the model's top-ranked names, bought at
+// the next close, with a stop and two profit levels each, beside the record of
+// trading exactly that rule on 24 years of out-of-sample predictions. The pick
+// rule is the one the record was measured on: the top fifth by the model's
+// rank, taken only while the market index is above its 200-day average; out
+// at the stop, at target 1, or after 20 sessions.
 
-const TESTED_RULE = "Top fifth, strong market, buy in the zone, sell at T1";
-const NO_MODEL_RULE = "Every name, any market";
+const TESTED_RULE = "Top fifth, strong market, buy at the next close, sell at T1";
+const NO_MODEL_RULE = "Every name, strong market, buy at the next close";
 
 const pct = (v: number, d = 1) => `${v >= 0 ? "+" : ""}${v.toFixed(d)}%`;
 
@@ -34,16 +35,17 @@ export function SwingView({ report }: { report: StoredReport | null }) {
   const stats: SwingStats[] = report?.swing ?? [];
   const tested = stats.find((s) => s.rule.startsWith(TESTED_RULE)) ?? null;
   const noModel = stats.find((s) => s.rule.startsWith(NO_MODEL_RULE)) ?? null;
+  const toT2 = stats.find((s) => s.rule.startsWith("Top fifth, strong market, buy at the next close, sell at T2")) ?? null;
 
   const setups = (report?.screen ?? [])
     .filter((r) => r.pctile >= 0.8)
-    .map((r) => ({ r, plan: swingPlan(r.price, r) }))
+    .map((r) => ({ r, plan: swingPlan(r.price, r, "market") }))
     .filter((x): x is { r: (typeof x)["r"]; plan: NonNullable<(typeof x)["plan"]> } => x.plan != null)
     .sort((a, b) => b.r.pctile - a.r.pctile)
     .slice(0, 12);
   const yours = (report?.holdings ?? [])
     .filter((h) => h.zone && (h.plan?.shares ?? 0) > 0)
-    .map((h) => ({ h, plan: swingPlan(h.last, h.zone!) }));
+    .map((h) => ({ h, plan: swingPlan(h.last, h.zone!, "market") }));
 
   return (
     <>
@@ -88,7 +90,7 @@ export function SwingView({ report }: { report: StoredReport | null }) {
             {tested && tested.trades > 0 && (
               <div className="mt-4 pt-4 border-t border-rule">
                 <div className="text-[12px] text-muted mb-2">
-                  This rule on {tested.from.slice(0, 4)}–{tested.to.slice(0, 4)}, out of sample, after 0.4% costs: {tested.trades.toLocaleString("en-US")} trades
+                  Buy at the next close, sell at target 1, the stop or after 20 sessions. Tested {tested.from.slice(0, 4)}–{tested.to.slice(0, 4)}, out of sample, after 0.4% costs: {tested.trades.toLocaleString("en-US")} trades
                 </div>
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                   <Stat label="Trades that made money" value={`${Math.round(tested.winRate * 100)}%`} tone={tested.winRate >= 0.5 ? "positive" : "negative"} />
@@ -96,9 +98,14 @@ export function SwingView({ report }: { report: StoredReport | null }) {
                   <Stat label="Reached target 1" value={`${Math.round(tested.hitTarget * 100)}%`} />
                   <Stat label="Average hold" value={`${tested.avgDays.toFixed(0)} days`} />
                 </div>
-                {noModel && noModel.trades > 0 && (
+                {toT2 && toT2.trades > 0 && (
                   <div className="mt-2 text-[12px] text-muted">
-                    The same levels on every name, without the model: {Math.round(noModel.winRate * 100)}% made money, {pct(noModel.avgRetPct, 2)} a trade.
+                    Holding for target 2 instead: {Math.round(toT2.winRate * 100)}% made money, {pct(toT2.avgRetPct, 2)} a trade, {toT2.avgDays.toFixed(0)} days on average.
+                  </div>
+                )}
+                {noModel && noModel.trades > 0 && (
+                  <div className="mt-1 text-[12px] text-muted">
+                    The same trade on every stock, without the model: {Math.round(noModel.winRate * 100)}% made money, {pct(noModel.avgRetPct, 2)} a trade.
                   </div>
                 )}
               </div>
@@ -128,10 +135,7 @@ export function SwingView({ report }: { report: StoredReport | null }) {
                           </div>
                         </div>
                       </Link>
-                      <div className="text-right">
-                        <ScoreMeter pctile={r.pctile} />
-                        <div className="text-[11.5px] text-muted mt-1">Reward/risk <span className="font-semibold mono-num" style={{ color: "var(--ink)" }}>{plan.rr.toFixed(1)}</span></div>
-                      </div>
+                      <ScoreMeter pctile={r.pctile} />
                     </div>
                     <div className="mt-3">
                       <TradeLadder plan={plan} />
@@ -169,7 +173,7 @@ export function SwingView({ report }: { report: StoredReport | null }) {
           )}
 
           <div className="flex flex-wrap gap-x-5 gap-y-1.5 text-[11.5px] text-muted">
-            <span className="inline-flex items-center gap-1.5"><span className="w-[2px] h-3 rounded-full" style={{ background: "var(--positive)" }} />Buy: the top of the buy zone</span>
+            <span className="inline-flex items-center gap-1.5"><span className="w-[2px] h-3 rounded-full" style={{ background: "var(--positive)" }} />Buy: at the next close</span>
             <span className="inline-flex items-center gap-1.5"><span className="w-[2px] h-3 rounded-full" style={{ background: "var(--negative)" }} />Stop: only a tenth of paths like this close below it</span>
             <span className="inline-flex items-center gap-1.5"><span className="w-[2px] h-3 rounded-full" style={{ background: "var(--blue)" }} />Targets: half of paths reach T1, a quarter T2</span>
             <span>Odds, not promises: a stop is part of every trade.</span>

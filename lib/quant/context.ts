@@ -16,7 +16,7 @@ import type { EodBar } from "@/lib/timeseries/psx-eod";
 import type { MacroKey } from "@/lib/timeseries/macro";
 
 export const MARKET_CONTEXT_NAMES = ["brAbove50", "brAbove200", "brAdv20", "dispersion20", "ewRet20", "ewVol20", "ewGap60"] as const;
-export const MACRO_CONTEXT_NAMES = ["pkrRet28", "pkrRet91", "pkrVol28", "oilRet28", "oilRet91", "spxRet28", "emRet28"] as const;
+export const MACRO_CONTEXT_NAMES = ["pkrRet28", "pkrRet91", "pkrVol28", "oilRet28", "oilRet91", "spxRet28", "emRet28", "niftyRet28", "niftyRel91", "goldRet28", "us10yChg28", "dxyRet28"] as const;
 
 const clip = (v: number, lim: number) => (v > lim ? lim : v < -lim ? -lim : v);
 const ln = Math.log;
@@ -146,8 +146,17 @@ function volOver(bars: EodBar[], date: string, days: number): number {
   return Math.sqrt(steps.reduce((s, v) => s + (v - m) ** 2, 0) / steps.length) * Math.sqrt(252);
 }
 
+// The change in a level (not a price) over a calendar window: the yield.
+function chgOver(bars: EodBar[], date: string, days: number): number {
+  const i = lastOnOrBefore(bars, date);
+  const j = lastOnOrBefore(bars, shift(date, days));
+  if (i < 0 || j < 0 || i === j) return 0;
+  return bars[i].close - bars[j].close;
+}
+
 export function macroContext(macro: Map<MacroKey, EodBar[]>, dates: string[]): Map<string, number[]> {
   const pkr = macro.get("usdpkr") ?? [], oil = macro.get("oil") ?? [], spx = macro.get("spx") ?? [], em = macro.get("em") ?? [];
+  const nifty = macro.get("nifty") ?? [], gold = macro.get("gold") ?? [], us10y = macro.get("us10y") ?? [], dxy = macro.get("dxy") ?? [];
   const out = new Map<string, number[]>();
   for (const d of dates) {
     out.set(d, [
@@ -158,6 +167,13 @@ export function macroContext(macro: Map<MacroKey, EodBar[]>, dates: string[]): M
       clip(retOver(oil, d, 91), 0.6) * 2.5,
       clip(retOver(spx, d, 28), 0.2) * 8,
       clip(retOver(em, d, 28), 0.25) * 6,
+      clip(retOver(nifty, d, 28), 0.25) * 6,
+      // India against the emerging-market basket: where regional money is going.
+      clip(retOver(nifty, d, 91) - retOver(em, d, 91), 0.3) * 4,
+      clip(retOver(gold, d, 28), 0.2) * 8,
+      // ^TNX is the yield times ten: a move of 10 is one percentage point.
+      clip(chgOver(us10y, d, 28) / 10, 1) * 1.5,
+      clip(retOver(dxy, d, 28), 0.1) * 15,
     ]);
   }
   return out;
