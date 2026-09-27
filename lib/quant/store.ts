@@ -43,7 +43,7 @@ export type StoredQuantModel = {
   rankNames: string[]; // empty when the model was trained without cross-sectional ranks
   // The feature blocks the panel was built with; the report rebuilds today's
   // rows the same way. Absent on models stored before either existed.
-  featureSet?: { extras: boolean; xs: boolean };
+  featureSet?: { extras: boolean; xs: boolean; events?: boolean };
   targetNames: string[];
   universe: string[];
   universeSource: string;

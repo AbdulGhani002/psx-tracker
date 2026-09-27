@@ -27,7 +27,8 @@
 // are computed on every `horizon`-th date only.
 
 import type { EodBar } from "@/lib/timeseries/psx-eod";
-import { buildFeatures, FEATURE_NAMES, EXTRA_FEATURE_NAMES, EXTRA_RANK_ONLY, TARGET_NAMES, REL_TARGET, LOW_TARGETS, HIGH_TARGETS, RANK_FEATURE_NAMES, RANK_SOURCE, type FeatureRow } from "./features";
+import { buildFeatures, FEATURE_NAMES, EXTRA_FEATURE_NAMES, EXTRA_RANK_ONLY, TARGET_NAMES, REL_TARGET, LOW_TARGETS, HIGH_TARGETS, RANK_FEATURE_NAMES, RANK_SOURCE, type FeatureRow, type EventLike } from "./features";
+import { EVENT_FEATURE_NAMES } from "./events";
 import { pathCurve, depthAt, WALK_CURVE } from "./projection";
 import { trainMlp, predictMlpAll, type MlpModel, type TrainOptions } from "./mlp";
 import { trainGbmMulti, predictGbm, type GbmModel, type GbmOptions } from "./gbm";
@@ -46,6 +47,7 @@ export type PanelBuildOptions = {
   ranks?: boolean; // append each name's cross-sectional ranks for the date
   extras?: boolean; // the EXTRA_FEATURE_NAMES block, see features.ts
   xs?: boolean; // attach the cross-sectional view (PanelRow.xs)
+  events?: Map<string, EventLike[]>; // corporate actions per name: adds the event block
 };
 
 export function buildPanel(bars: Map<string, EodBar[]>, index: EodBar[], horizon: number, o: PanelBuildOptions = {}): Panel {
@@ -53,7 +55,7 @@ export function buildPanel(bars: Map<string, EodBar[]>, index: EodBar[], horizon
   const dateSet = new Set<string>();
   const per: Array<[string, FeatureRow[]]> = [];
   for (const [symbol, b] of bars) {
-    let rows = buildFeatures(b, index, horizon, o.context ?? null, { extras: o.extras });
+    let rows = buildFeatures(b, index, horizon, o.context ?? null, { extras: o.extras, events: o.events ? o.events.get(symbol) ?? [] : undefined });
     if (o.include) rows = rows.filter((r) => o.include!(symbol, r.date));
     if (rows.length < minRows) continue;
     per.push([symbol, rows]);
@@ -64,7 +66,7 @@ export function buildPanel(bars: Map<string, EodBar[]>, index: EodBar[], horizon
   const rows: PanelRow[] = [];
   for (const [symbol, rs] of per) for (const r of rs) rows.push({ ...r, symbol, di: di.get(r.date)! });
   rows.sort((a, b) => a.di - b.di || (a.symbol < b.symbol ? -1 : a.symbol > b.symbol ? 1 : 0));
-  const nOwn = FEATURE_NAMES.length + (o.extras ? EXTRA_FEATURE_NAMES.length : 0);
+  const nOwn = FEATURE_NAMES.length + (o.extras ? EXTRA_FEATURE_NAMES.length : 0) + (o.events ? EVENT_FEATURE_NAMES.length : 0);
   if (o.xs) attachCrossSection(rows, nOwn, o.context && o.context.size > 0 ? o.context.values().next().value!.length : 0);
   if (o.extras) {
     const cols = EXTRA_RANK_ONLY.map((name) => FEATURE_NAMES.length + (EXTRA_FEATURE_NAMES as readonly string[]).indexOf(name));

@@ -4,6 +4,8 @@ import { Section } from "@/components/layout/Section";
 import { Badge } from "@/components/ui/Badge";
 import { getRating, getPatterns, getNews } from "@/lib/analytics";
 import { fmtRs } from "@/lib/format";
+import { EventRecordCard } from "@/app/holdings/[symbol]/EventRecordCard";
+import { getEventRecord } from "@/lib/quant/event-record";
 
 export const dynamic = "force-dynamic";
 
@@ -36,7 +38,7 @@ function SubScore({ label, value, max = 100, reasons, invert }: { label: string;
 export default async function StockPage(props: { params: Promise<{ symbol: string }> }) {
   const params = await props.params;
   const sym = params.symbol.toUpperCase();
-  const [d, pat, news] = await Promise.all([getRating(sym), getPatterns(sym), getNews(sym, 5)]);
+  const [d, pat, news, eventRecord] = await Promise.all([getRating(sym), getPatterns(sym), getNews(sym, 5), getEventRecord(sym).catch(() => null)]);
   if (!d || d.error) {
     return (
       <div className="fade-in">
@@ -145,6 +147,9 @@ export default async function StockPage(props: { params: Promise<{ symbol: strin
         ) : (
           <p className="text-muted text-sm">No recent coverage tagged to {sym} — its news score stays neutral (50) rather than guessed.</p>
         )}
+      </Section>
+      <Section number="05" title="Dividends, bonuses and splits" description="Every payout, bonus issue and split on the exchange's own record, with the price against the market in the 20 sessions before the ex-date and the 5 and 20 after.">
+        <EventRecordCard record={eventRecord} />
       </Section>
     </div>
   );

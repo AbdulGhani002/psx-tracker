@@ -20,6 +20,9 @@ import { FEATURE_NAMES, TARGET_NAMES, LOW_TARGETS, HIGH_TARGETS, REL_TARGET, SIG
 import { pathCurve, depthAt, WALK_CURVE } from "../lib/quant/projection";
 import { strategyBacktest } from "../lib/quant/strategy";
 import type { EodBar } from "../lib/timeseries/psx-eod";
+import { readFileSync } from "node:fs";
+import { extractActions, eventFeaturesAt, EVENT_FEATURE_NAMES, type CorporateAction } from "../lib/quant/events";
+import type { RawRow } from "../lib/quant/archive";
 import { has, argOf, num } from "./quant-cli";
 
 const ARCHIVE = argOf("archive") || "C:/CC/Data/psx-history";
@@ -135,6 +138,7 @@ type Variant = {
   mlp?: TrainOptions;
   thin?: number;
   label?: "rel" | "relRisk"; // relRisk: percentile of fwdRel / sigma on the date
+  events?: boolean; // add the corporate-action block (lib/quant/events.ts)
 };
 
 const GBM_BASE: GbmOptions = { rounds: 40, lr: 0.05, maxDepth: 4, minLeaf: 100, lambda: 1, subsample: 0.7, colsample: 0.8, bins: 64, patience: 30, seed: 7, earlyStop: false };
@@ -154,6 +158,10 @@ const ALL: Record<string, Variant> = {
   mlp: { name: "mlp", feats: "xs", learner: "mlp", mlp: MLP_OPTS, thin: 3 },
   mlpExtra: { name: "mlpExtra", feats: "extra", learner: "mlp", mlp: MLP_OPTS, thin: 3 },
   extraRisk: { name: "extraRisk", feats: "extra", learner: "gbm", gbm: GBM_FULL, label: "relRisk" },
+  eventBig: { name: "eventBig", feats: "extra", learner: "gbm", gbm: GBM_BIG, events: true },
+  xsEventBig: { name: "xsEventBig", feats: "xs", learner: "gbm", gbm: GBM_BIG, events: true },
+  extraSmall: { name: "extraSmall", feats: "extra", learner: "gbm", gbm: GBM_FULL },
+  eventSmall: { name: "eventSmall", feats: "extra", learner: "gbm", gbm: GBM_FULL, events: true },
   xsRisk: { name: "xsRisk", feats: "xs", learner: "gbm", gbm: GBM_FULL, label: "relRisk" },
   mlpRisk: { name: "mlpRisk", feats: "xs", learner: "mlp", mlp: MLP_OPTS, thin: 3, label: "relRisk" },
 };
@@ -218,6 +226,20 @@ async function main() {
     console.log(`Extra features: ${EXTRA_NAMES.length} per row. ${((Date.now() - t0) / 1000).toFixed(0)}s`);
   }
   const di = Int32Array.from(usable.map((r) => r.di));
+  // The corporate-action block, from the raw sheets' LDCP, per row.
+  const nEv = EVENT_FEATURE_NAMES.length;
+  const evRows: Float64Array[] = [];
+  let evRank: Float32Array[] | null = null;
+  if (VARIANTS.some((v) => ALL[v]?.events)) {
+    const actionsBy = new Map<string, CorporateAction[]>();
+    for (const sym of arch.panel.symbols) {
+      try { actionsBy.set(sym, extractActions(JSON.parse(readFileSync(`${ARCHIVE}/symbols/${sym}.json`, "utf8")) as RawRow[])); } catch { actionsBy.set(sym, []); }
+    }
+    for (const r of usable) evRows.push(Float64Array.from(eventFeaturesAt(actionsBy.get(r.symbol) ?? [], r.date)));
+    evRank = xsRanks(di, evRows, nEv);
+    const nAct = [...actionsBy.values()].reduce((s2, a) => s2 + a.length, 0);
+    console.log(`Event block: ${nEv} features from ${nAct.toLocaleString()} actions on ${actionsBy.size} names. ${((Date.now() - t0) / 1000).toFixed(0)}s`);
+  }
   // Percentile of the forward relative return per unit of the name's own
   // volatility, within each date: the label for the relRisk variants.
   const relRisk = new Float64Array(usable.length);
@@ -252,18 +274,21 @@ async function main() {
   const matrixFor = (v: Variant): Float64Array[] =>
     usable.map((r, k) => {
       if (v.feats === "base") return Float64Array.from(r.x);
+      const ne = v.events ? nEv : 0;
       if (v.feats === "extra") {
-        // Base features, the extras raw (the drifting levels as ranks), context.
-        const a = new Float64Array(nOwn + EXTRA_NAMES.length + nCtx);
+        // Base features, the extras raw (the drifting levels as ranks), events, context.
+        const a = new Float64Array(nOwn + EXTRA_NAMES.length + ne + nCtx);
         for (let j = 0; j < nOwn; j++) a[j] = r.x[j];
         for (let j = 0; j < EXTRA_NAMES.length; j++) a[nOwn + j] = rankOnlyIdx.includes(j) ? xs![k][nOwn + j] : extras[k][j];
-        for (let j = 0; j < nCtx; j++) a[nOwn + EXTRA_NAMES.length + j] = r.x[nOwn + j];
+        for (let j = 0; j < ne; j++) a[nOwn + EXTRA_NAMES.length + j] = evRows[k][j];
+        for (let j = 0; j < nCtx; j++) a[nOwn + EXTRA_NAMES.length + ne + j] = r.x[nOwn + j];
         return a;
       }
-      // xs: every own and extra feature as its rank on the date, context raw.
-      const a = new Float64Array(nOwn + EXTRA_NAMES.length + nCtx);
+      // xs: every own, extra and event feature as its rank on the date, context raw.
+      const a = new Float64Array(nOwn + EXTRA_NAMES.length + ne + nCtx);
       for (let j = 0; j < nOwn + EXTRA_NAMES.length; j++) a[j] = xs![k][j];
-      for (let j = 0; j < nCtx; j++) a[nOwn + EXTRA_NAMES.length + j] = r.x[nOwn + j];
+      for (let j = 0; j < ne; j++) a[nOwn + EXTRA_NAMES.length + j] = evRank![k][j];
+      for (let j = 0; j < nCtx; j++) a[nOwn + EXTRA_NAMES.length + ne + j] = r.x[nOwn + j];
       return a;
     });
 

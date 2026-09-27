@@ -1,7 +1,7 @@
 // Single source of truth for the app version + changelog.
 // Bump APP_VERSION and prepend a CHANGELOG entry on every release.
 
-export const APP_VERSION = "11.6.1";
+export const APP_VERSION = "11.7.0";
 
 export const BUILD_DATE =
   process.env.NEXT_PUBLIC_BUILD_DATE ?? "";
@@ -17,6 +17,16 @@ export type ChangelogEntry = {
 
 // Reverse-chronological. Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: "11.7.0",
+    date: "2026-09-27",
+    title: "Every dividend, bonus and split on record, and what the price did around each",
+    changes: [
+      "Holding and stock pages have a new section, Dividends, bonuses and splits: every payout, bonus issue and split the exchange's closing sheets record for the company (2005, then 2013 onward), with the price against the market in the 20 sessions before each ex-date and the 5 and 20 after, the company's averages, and the same averages across every listed name. The record comes from the previous close the exchange adjusts on each ex-date, so it covers delisted names as well: 4,389 cash dividends, 224 bonus issues and 58 splits on 537 companies.",
+      "Across every stock, the 20 sessions before a cash dividend's ex-date beat the market by 3.4% on average (59% of the time), and the 20 after were flat (+0.1%). Bonus issues ran up 9.0% before; splits 18.6%.",
+      "The record was tested as a model input and left out. On the 24-year walk-forward, adding the dividend, bonus and split block lowered rank IC from 0.129 to 0.124 and the spread from 2.75% to 2.62% per 20 sessions, and left the dip odds where they were (AUC 0.575 either way). The run-up happens between a dividend's announcement and its ex-date, and the sheets only show the ex-date, when the run-up is over. The block stays in the code behind a switch for when announcement dates are available.",
+    ],
+  },
   {
     version: "11.6.1",
     date: "2026-09-27",

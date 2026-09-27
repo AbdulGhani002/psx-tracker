@@ -16,6 +16,8 @@ import { BuyWhatIf } from "./BuyWhatIf";
 import { TrimWhatIf } from "./TrimWhatIf";
 import { DisclosedModelEditor } from "./DisclosedModelEditor";
 import { SellPlanPanel } from "./SellPlanPanel";
+import { EventRecordCard } from "./EventRecordCard";
+import { getEventRecord } from "@/lib/quant/event-record";
 import { buildLots } from "@/lib/calculations/lots";
 import { currentTaxYear } from "@/lib/dates";
 import { getSellDiscipline, getDecisionsFor } from "@/lib/data-decisions";
@@ -74,9 +76,10 @@ export default async function HoldingDetail(props: Props) {
   const h = holding as any;
   // Sell-discipline context: fired triggers, spread, and this symbol's own
   // decision history. Best-effort — a feed being down must not sink the page.
-  const [discipline, symbolDecisions] = await Promise.all([
+  const [discipline, symbolDecisions, eventRecord] = await Promise.all([
     getSellDiscipline().catch(() => null),
     getDecisionsFor(symbol).catch(() => []),
+    getEventRecord(symbol).catch(() => null),
   ]);
   const disc = discipline?.positions.find((x) => x.signal.symbol === symbol) ?? null;
 
@@ -487,6 +490,14 @@ export default async function HoldingDetail(props: Props) {
         </Section>
       )}
 
+      <Section
+        number="12"
+        title="Dividends, bonuses and splits"
+        display="What the price did around each one."
+        description="Every payout, bonus issue and split on the exchange's own record, with the price against the market in the 20 sessions before the ex-date and the 5 and 20 after, beside the same averages across every listed company."
+      >
+        <EventRecordCard record={eventRecord} />
+      </Section>
     </div>
   );
 }

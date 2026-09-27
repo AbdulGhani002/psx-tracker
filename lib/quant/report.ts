@@ -33,6 +33,8 @@ import { indexStates, cellOutlook, strengthTests, type CellOutlook, type Strengt
 import { readMarket, readName, triggerFor, edgeLine, VERDICT_RANK, type MarketRead, type ModelVerdict, type ModelZone, type NameStanding, type DecileEdge, type PlanInput, type PlanRole } from "@/lib/quant/analysis";
 import type { StrategyResult } from "@/lib/quant/strategy";
 import type { SwingStats } from "@/lib/quant/swing";
+import type { EventsSnapshot } from "@/lib/quant/event-record";
+import type { EventLike } from "@/lib/quant/features";
 
 export const INDICES: Array<{ symbol: string; title: string }> = [
   { symbol: "KSE100", title: "KSE-100" },
@@ -282,7 +284,14 @@ export async function buildQuantReport(): Promise<QuantReport> {
     const c = await contextFor(model, stockBars, featureIndex);
     noModelReason = c.reason;
     if (c.context) {
-      const panel = buildPanel(stockBars, featureIndex, model.horizon, { context: c.context, ranks: (model.rankNames ?? []).length > 0, extras: !!model.featureSet?.extras, xs: !!model.featureSet?.xs, minRows: 1 });
+      // A model trained on the event block needs today's actions per name:
+      // they come from the record the training machine imports (quant:events).
+      let events: Map<string, EventLike[]> | undefined;
+      if (model.featureSet?.events) {
+        const snap = await loadQuantSnapshot<EventsSnapshot>("quant:events").catch(() => null);
+        events = new Map(Object.entries(snap?.symbols ?? {}).map(([sym, rows]) => [sym, rows.map(([date, kind, , yieldPct]) => ({ date, kind, yieldPct }))]));
+      }
+      const panel = buildPanel(stockBars, featureIndex, model.horizon, { context: c.context, ranks: (model.rankNames ?? []).length > 0, extras: !!model.featureSet?.extras, xs: !!model.featureSet?.xs, events, minRows: 1 });
       const firstRecent = panel.dates[Math.max(0, panel.dates.length - 5)];
       for (const r of panel.rows) {
         lastRows.set(r.symbol, r);

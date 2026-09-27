@@ -24,6 +24,7 @@ import { indexStates, fitCells, cellOutlook, cellKey, evaluateCells, strengthTes
 import { membership, equalWeightIndex, adjustedSeries, appendLive, type RawRow } from "../lib/quant/archive";
 import { strategyBacktest, indexGate } from "../lib/quant/strategy";
 import { swingPlan, swingBacktest } from "../lib/quant/swing";
+import { classifyAction, extractActions, eventFeaturesAt, EVENT_FEATURE_NAMES } from "../lib/quant/events";
 import type { PanelPoint } from "../lib/quant/panel";
 import type { EodBar } from "../lib/timeseries/psx-eod";
 
@@ -685,6 +686,45 @@ function randomWalk(n: number, drift = 0.0003, vol = 0.015, start = 100): EodBar
   check("the winner's gain and the loser's loss are counted", st.winRate === 0.5 && st.avgWinPct > 0 && st.avgLossPct < 0);
   const [strongOnly] = swingBacktest(pts, new Map([["A", A.out], ["B", B.out]]), new Map([[A.out[sig].date, false]]), 20, [{ name: "strong", minPctile: 0, strongOnly: true, entry: "zone", target: "t1" }], { stepDays: 1 });
   check("a strong-market rule takes nothing in a weak market", strongOnly.signals === 0 && strongOnly.trades === 0);
+}
+
+// ------------------------------------------------------ corporate actions
+{
+  check("a round rupee off the price is a cash dividend", classifyAction(100, 95).kind === "cash" && Math.abs(classifyAction(100, 95).cash - 5) < 1e-9);
+  check("a round quarter-share issue is a bonus", classifyAction(125, 100).kind === "bonus" && Math.abs(classifyAction(125, 100).ratioPct - 25) < 1e-9);
+  check("a price cut to a tenth is a split", classifyAction(1000, 100).kind === "split");
+  check("an ambiguous small step reads as the (commoner) dividend", classifyAction(110, 100).kind === "cash");
+  // Raw sheets: [yyyymmdd, o, h, l, c, v, ldcp].
+  const day = (n: number) => 20240101 + n; // fine for the handful of days used here
+  const raw: RawRow[] = [
+    [day(0), 100, 100, 100, 100, 1, 100],
+    [day(1), 96, 96, 96, 96, 1, 95], // Rs 5 dividend
+    [day(2), 97, 97, 97, 97, 1, 96],
+    [day(3), 78, 78, 78, 78, 1, 77.6], // 25% bonus
+    [day(4), 79, 79, 79, 79, 1, 78],
+  ];
+  const acts = extractActions(raw);
+  check("the actions are read off LDCP, in order", acts.length === 2 && acts[0].kind === "cash" && acts[1].kind === "bonus" && acts[0].date === "2024-01-02");
+  check("a dividend carries its yield on the price it was paid at", Math.abs(acts[0].yieldPct - 5) < 1e-9);
+  const f0 = eventFeaturesAt(acts, "2024-01-01"), f1 = eventFeaturesAt(acts, "2024-01-03");
+  check("before the first ex-date the block is empty", f0[0] === 0 && f0[1] === 0);
+  check("after it, the 12-month yield counts it", Math.abs(f1[0] - 0.5) < 1e-9 && f1[1] === 0.25);
+  check("the block at a date ignores later actions", eventFeaturesAt(acts, "2024-01-03")[7] === 0 && eventFeaturesAt(acts, "2024-01-05")[7] === 1);
+
+  // The panel: the event block widens the row and never reads ahead.
+  const index = randomWalk(1100, 0.0004, 0.01, 40000);
+  const names = new Map<string, EodBar[]>();
+  for (let s = 0; s < 10; s++) names.set("E" + s, randomWalk(1100, 0.0002, 0.015, 60 + 5 * s));
+  const d = [...names.values()][0];
+  const evs = new Map([["E0", [{ date: d[400].date, kind: "cash" as const, yieldPct: 4 }, { date: d[800].date, kind: "cash" as const, yieldPct: 5 }]]]);
+  const p = buildPanel(names, index, 20, { extras: true, xs: true, events: evs });
+  const width = FEATURE_NAMES.length + EXTRA_FEATURE_NAMES.length + EVENT_FEATURE_NAMES.length;
+  check("the event block widens every row", p.rows.every((r) => r.x.length === width && r.xs?.length === width), width);
+  const e0 = FEATURE_NAMES.length + EXTRA_FEATURE_NAMES.length;
+  const at = (date: string) => p.rows.find((r) => r.symbol === "E0" && r.date === date)!;
+  check("a dividend enters the row on its ex-date, not before", at(d[399].date).x[e0] === 0 && at(d[400].date).x[e0] > 0);
+  const firstOnly = eventFeaturesAt([evs.get("E0")![0]], d[799].date);
+  check("and a later one is not visible the day before its ex-date", at(d[799].date).x.slice(e0, e0 + EVENT_FEATURE_NAMES.length).every((v, j) => Math.abs(v - firstOnly[j]) < 1e-12) && at(d[800].date).x[e0] > at(d[799].date).x[e0]);
 }
 
 console.log("\n" + pass + " passed, " + fail + " failed");

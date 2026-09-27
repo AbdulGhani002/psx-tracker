@@ -16,6 +16,7 @@ import type { EodBar } from "@/lib/timeseries/psx-eod";
 import { buildPanel, type Panel } from "./panel";
 import { marketContext, mergeContext, type MarketContext } from "./context";
 import { FEATURE_NAMES, EXTRA_FEATURE_NAMES, RANK_FEATURE_NAMES } from "./features";
+import { extractActions, EVENT_FEATURE_NAMES, type CorporateAction } from "./events";
 
 const iso = (n: number) => String(n).replace(/(\d{4})(\d{2})(\d{2})/, "$1-$2-$3");
 
@@ -89,6 +90,17 @@ export function appendLive(archive: EodBar[], live: EodBar[], tolerance = 0.005)
   return added;
 }
 
+// Every name's corporate actions, read off the raw sheets' LDCP (events.ts).
+export function loadActions(dir: string, symbols: Iterable<string>): Map<string, CorporateAction[]> {
+  const out = new Map<string, CorporateAction[]>();
+  for (const s of symbols) {
+    const f = join(dir, "symbols", s + ".json");
+    if (!existsSync(f)) continue;
+    out.set(s, extractActions(JSON.parse(readFileSync(f, "utf8")) as RawRow[]).filter((a) => a.kind !== "other"));
+  }
+  return out;
+}
+
 // Per calendar year, the `top` names by median traded value in the previous year.
 export function membership(bars: Map<string, EodBar[]>, top: number): Map<number, Set<string>> {
   const byYear = new Map<number, Map<string, number[]>>();
@@ -159,7 +171,7 @@ export type ArchivePanel = {
   years: [number, number];
 };
 
-export function buildArchivePanel(dir: string, horizon: number, top = 120, ranks = false, macro: Map<string, number[]> | null = null, fo: { extras?: boolean; xs?: boolean } = {}): ArchivePanel {
+export function buildArchivePanel(dir: string, horizon: number, top = 120, ranks = false, macro: Map<string, number[]> | null = null, fo: { extras?: boolean; xs?: boolean; events?: boolean } = {}): ArchivePanel {
   const bars = loadArchive(dir);
   const members = membership(bars, top);
   const memberSymbols = new Set<string>();
@@ -171,7 +183,8 @@ export function buildArchivePanel(dir: string, horizon: number, top = 120, ranks
   const merged = mergeContext(market, macro, dates)!;
   const memberBars = new Map([...bars].filter(([s]) => memberSymbols.has(s)));
   const include = (symbol: string, date: string) => members.get(Number(date.slice(0, 4)))?.has(symbol) ?? false;
-  const panel = buildPanel(memberBars, index, horizon, { context: merged.context, include, minRows: 60, ranks, extras: fo.extras, xs: fo.xs });
+  const events = fo.events ? loadActions(dir, memberSymbols) : undefined;
+  const panel = buildPanel(memberBars, index, horizon, { context: merged.context, include, minRows: 60, ranks, extras: fo.extras, xs: fo.xs, events });
   return {
     panel,
     index,
@@ -179,7 +192,7 @@ export function buildArchivePanel(dir: string, horizon: number, top = 120, ranks
     market,
     context: merged.context,
     contextNames: merged.names,
-    featureNames: [...FEATURE_NAMES, ...(fo.extras ? EXTRA_FEATURE_NAMES : []), ...merged.names, ...(ranks ? RANK_FEATURE_NAMES : [])],
+    featureNames: [...FEATURE_NAMES, ...(fo.extras ? EXTRA_FEATURE_NAMES : []), ...(fo.events ? EVENT_FEATURE_NAMES : []), ...merged.names, ...(ranks ? RANK_FEATURE_NAMES : [])],
     members,
     universe: [...memberSymbols].sort(),
     years: [years[0], years[years.length - 1]],

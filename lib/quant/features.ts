@@ -13,6 +13,10 @@
 // included because that is the part of its move that is its own.
 
 import type { EodBar } from "@/lib/timeseries/psx-eod";
+import { eventFeaturesAt, type CorporateAction } from "./events";
+
+// What the event block needs of an action: when, what, and how much it paid.
+export type EventLike = Pick<CorporateAction, "date" | "kind" | "yieldPct">;
 
 export type FeatureRow = {
   date: string;
@@ -244,11 +248,13 @@ function extraAt(i: number, c: number[], v: number[], ix: number[], r: Float64Ar
   ];
 }
 
-export type FeatureOptions = { extras?: boolean };
+export type FeatureOptions = { extras?: boolean; events?: EventLike[] };
 
 // `context` is an optional per-date vector shared by every name on that date
 // (market breadth, macro); it is appended to each row's features unchanged.
-// With `extras` the EXTRA_FEATURE_NAMES block goes between the two.
+// With `extras` the EXTRA_FEATURE_NAMES block goes between the two, and with
+// `events` (the name's corporate actions, by date) the EVENT_FEATURE_NAMES
+// block after it.
 export function buildFeatures(bars: EodBar[], index: EodBar[], horizon = 5, context?: Map<string, number[]> | null, fo: FeatureOptions = {}): FeatureRow[] {
   const byDate = new Map(index.map((b) => [b.date, b]));
   const ctxWidth = context && context.size > 0 ? context.values().next().value!.length : 0;
@@ -361,6 +367,7 @@ export function buildFeatures(bars: EodBar[], index: EodBar[], horizon = 5, cont
     ];
 
     if (fo.extras) x.push(...extraAt(i, closes, vols, idx, dayRet));
+    if (fo.events) x.push(...eventFeaturesAt(fo.events as CorporateAction[], rows[i].date));
     if (ctxWidth > 0) x.push(...(context!.get(rows[i].date) ?? ctxZero));
 
     const hasFuture = i + horizon < n;
