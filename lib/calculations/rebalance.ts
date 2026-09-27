@@ -39,7 +39,6 @@ export type RebalanceInput = {
   allowSelling: boolean;
   orderPrices: Record<string, number | "">;
   redistribute: boolean;
-  concentrationCap?: number;
 };
 
 export function computeRebalance({
@@ -50,7 +49,6 @@ export function computeRebalance({
   allowSelling,
   orderPrices,
   redistribute,
-  concentrationCap = 25,
 }: RebalanceInput): RebalanceResult {
   const cashIn = Math.max(0, freshCash) + Math.max(0, cashFromBalance);
   const targetTotal = totalValue + cashIn;
@@ -186,11 +184,6 @@ export function computeRebalance({
 
   const warnings: string[] = [];
   for (const r of rows) {
-    if (r.finalPct > concentrationCap) {
-      warnings.push(
-        `${r.symbol} would be ${r.finalPct.toFixed(1)}% of the portfolio — above your ${concentrationCap}% concentration cap.`
-      );
-    }
     if (r.livePrice > 0 && r.orderPrice > r.livePrice * 1.0001) {
       warnings.push(
         `${r.symbol} order price is above the live quote — a limit buy may not fill until the market rises.`

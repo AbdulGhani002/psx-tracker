@@ -66,7 +66,6 @@ const patchSchema = z.object({
       fvHigh: z.number().min(0).default(0),
       fvMethod: z.string().max(200).default(""),
       invalidators: z.array(z.object({ text: z.string().max(300), occurredAt: z.string().default("") })).max(12).default([]),
-      maxWeightPct: z.number().min(0).max(100).default(0),
       timeStopMonths: z.number().min(0).max(120).default(0),
       cumOcf3y: z.number().nullable().default(null),
       openedAt: z.string().default(""),

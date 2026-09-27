@@ -14,7 +14,6 @@ const patchSchema = z.object({
   cgtRateNonFiler: z.number().min(0).max(100).optional(),
   pmexCommissionPerLot: z.number().min(0).optional(),
   pmexCgtPercent: z.number().min(0).max(100).optional(),
-  concentrationCap: z.number().min(0).max(100).optional(),
   brokeragePct: z.number().min(0).max(5).optional(),
   mfCashReservePct: z.number().min(0).max(100).optional(),
   strictBuyZones: z.boolean().optional(),

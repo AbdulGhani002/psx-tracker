@@ -340,16 +340,14 @@ export default async function HoldingDetail({ params }: Props) {
         number="08"
         title="What if I buy more?"
         display="Averaging math before you place the order."
-        description="New average cost, cash needed with real PSX brokerage, and your weight against the concentration cap — the buy-side mirror of the sell-side CGT preview. Nothing is saved."
+        description="New average cost, cash needed with real PSX brokerage, and your weight after the buy — the buy-side mirror of the sell-side CGT preview. Nothing is saved."
       >
         <BuyWhatIf
-          symbol={symbol}
           shares={derived.shares}
           totalCost={derived.totalCost}
           currentPrice={currentPrice}
           marketValue={marketValue}
           portfolioValue={summary.totalValue}
-          concentrationCap={(settings as any).concentrationCap ?? 25}
         />
       </Section>
 
@@ -357,7 +355,7 @@ export default async function HoldingDetail({ params }: Props) {
         number="10"
         title="Sell discipline"
         display={disc && disc.fired.length > 0 ? `${disc.fired.length} of your rules ${disc.fired.length === 1 ? "has" : "have"} fired.` : "The exit, pre-committed."}
-        description="A position you would not buy today at today's price is a position held by inertia. Set YOUR fair-value band, falsifiable invalidators, caps and stops — the engine checks them without emotion and the Decisions page nags until you act or log a conscious hold."
+        description="A position you would not buy today at today's price is a position held by inertia. Set YOUR fair-value band, falsifiable invalidators and stops — the engine checks them without emotion and the Decisions page nags until you act or log a conscious hold."
       >
         <SellPlanPanel
           symbol={symbol}
@@ -376,7 +374,6 @@ export default async function HoldingDetail({ params }: Props) {
             fvHigh: h.plan?.fvHigh ?? 0,
             fvMethod: h.plan?.fvMethod ?? "",
             invalidators: (h.plan?.invalidators ?? []).map((i: any) => ({ text: i.text, occurredAt: i.occurredAt ?? "" })),
-            maxWeightPct: h.plan?.maxWeightPct ?? 0,
             timeStopMonths: h.plan?.timeStopMonths ?? 0,
             cumOcf3y: h.plan?.cumOcf3y ?? null,
             openedAt: h.plan?.openedAt ?? "",

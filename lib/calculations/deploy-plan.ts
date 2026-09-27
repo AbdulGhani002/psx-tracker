@@ -78,7 +78,6 @@ export type DeployInput = {
   fundsValue: number;
   brokerCash: number;
   reservePct: number; // e.g. 5
-  concentrationCap: number; // e.g. 25
   freshCash?: number; // new money for this run; 0 = deploy from the fund only
   unpriced?: string[];
 };
@@ -91,7 +90,6 @@ export function planDeployment({
   fundsValue,
   brokerCash,
   reservePct,
-  concentrationCap,
   freshCash = 0,
   unpriced = [],
 }: DeployInput): DeployPlan {
@@ -100,7 +98,6 @@ export function planDeployment({
   const cash = Math.max(0, num(brokerCash));
   const fresh = Math.max(0, num(freshCash));
   const pct = Number.isFinite(reservePct) && reservePct > 0 ? Math.min(100, reservePct) : 0;
-  const cap = Number.isFinite(concentrationCap) && concentrationCap > 0 ? concentrationCap : 100;
 
   const cashLike = funds + cash;
   const totalInvestable = equity + cashLike;
@@ -187,26 +184,12 @@ export function planDeployment({
   // that is the book the weights are meant to describe.
   const projectedBook = equity + deployable;
 
-  // The cap binds against the book as it ACTUALLY ends up, not the book you
-  // would have had if every rupee were deployed — and how much is deployed
-  // depends on the cap, so the two define each other. Solving the worst case
-  // (this name buys, nothing else does) closes the loop exactly:
-  //   (current + spend) / (equity + spend) <= cap  =>
-  //   spend <= (cap*equity - current) / (1 - cap)
-  // Any later buy only grows the book and dilutes this weight further, so a
-  // plan that satisfies this can never breach the cap.
-  const c = cap / 100;
-  const maxSpendUnderCap = (currentValue: number): number => {
-    if (c >= 1) return Infinity;
-    return Math.max(0, (c * equity - currentValue) / (1 - c));
-  };
-
   const state = priced.map((x) => {
     const targetValue = (x.targetPct / 100) * projectedBook;
-    // Room = distance to target, capped by concentration, then scaled by how
-    // much this price deserves. A name 15% above its band gets a fraction of
-    // the gap, not the whole thing.
-    const rawRoom = Math.max(0, Math.min(targetValue - x.currentValue, maxSpendUnderCap(x.currentValue)));
+    // Room = distance to target, scaled by how much this price deserves. A name
+    // 15% above its band gets a fraction of the gap, not the whole thing. No
+    // single-name cap: the target weight is the only limit on a name's size.
+    const rawRoom = Math.max(0, targetValue - x.currentValue);
     const room = rawRoom * x.zoneFactor;
     return { c: x, targetValue, room, allowance: x.currentValue + room, shares: 0, spend: 0 };
   });
@@ -232,21 +215,16 @@ export function planDeployment({
   }
 
   // Greedy remainder: buy one more share of whichever name would still sit
-  // furthest below the allowance its price earns, while it fits in what is left
-  // and stays under the cap. The cap is checked against the book as it stands,
-  // so early buys are tested conservatively.
+  // furthest below the allowance its price earns, while it fits in what is left.
   let guard = 0;
   while (guard++ < MAX_ITERS) {
     let best: (typeof state)[number] | null = null;
     let bestRatio = Infinity;
-    const deployedSoFar = state.reduce((s, x) => s + x.spend, 0);
     for (const x of state) {
       const price = x.c.price;
       if (price > leftover + 1e-9) continue;
       const postValue = x.c.currentValue + x.spend + price;
       if (postValue > x.allowance + 1e-9) continue; // never past the earned allowance
-      const bookAfter = equity + deployedSoFar + price;
-      if (bookAfter > 0 && (postValue / bookAfter) * 100 > cap + 1e-9) continue; // cap
       const ratio = x.allowance > 0 ? postValue / x.allowance : Infinity;
       if (ratio < bestRatio) {
         bestRatio = ratio;
@@ -286,11 +264,6 @@ export function planDeployment({
   const pullFromFunds = Math.max(0, deployed - freshCashUsed - brokerCashUsed);
   const keptInFunds = funds - pullFromFunds;
 
-  for (const r of rows) {
-    if (r.finalPct > cap + 1e-9) {
-      warnings.push(`${r.symbol} would be ${r.finalPct.toFixed(1)}% of the equity book — above your ${cap}% cap.`);
-    }
-  }
   if (keptInFunds < reserveRequired - 1e-6) {
     warnings.push(
       `This plan would leave Rs ${rs(keptInFunds)} in the fund, under your Rs ${rs(reserveRequired)} reserve.`

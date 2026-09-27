@@ -5,7 +5,7 @@ export type Position = { symbol: string; sector: string; marketValue: number };
 
 export type ConcentrationResult = {
   totalValue: number;
-  positions: { symbol: string; sector: string; value: number; pct: number; overCap: boolean }[];
+  positions: { symbol: string; sector: string; value: number; pct: number }[];
   sectors: { sector: string; value: number; pct: number }[];
   top1Pct: number;
   top3Pct: number;
@@ -15,13 +15,12 @@ export type ConcentrationResult = {
   verdict: "well diversified" | "moderately concentrated" | "highly concentrated";
 };
 
-export function analyzeConcentration(positions: Position[], capPct: number): ConcentrationResult {
+export function analyzeConcentration(positions: Position[]): ConcentrationResult {
   const live = positions.filter((p) => p.marketValue > 0);
   const totalValue = live.reduce((s, p) => s + p.marketValue, 0);
   const rows = live
-    .map((p) => ({ symbol: p.symbol, sector: p.sector || "Unknown", value: p.marketValue, pct: totalValue > 0 ? (p.marketValue / totalValue) * 100 : 0, overCap: false }))
+    .map((p) => ({ symbol: p.symbol, sector: p.sector || "Unknown", value: p.marketValue, pct: totalValue > 0 ? (p.marketValue / totalValue) * 100 : 0 }))
     .sort((a, b) => b.value - a.value);
-  for (const r of rows) r.overCap = r.pct > capPct;
 
   const sectorMap = new Map<string, number>();
   for (const r of rows) sectorMap.set(r.sector, (sectorMap.get(r.sector) ?? 0) + r.value);

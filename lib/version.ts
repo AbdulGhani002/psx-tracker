@@ -1,7 +1,7 @@
 // Single source of truth for the app version + changelog.
 // Bump APP_VERSION and prepend a CHANGELOG entry on every release.
 
-export const APP_VERSION = "11.5.0";
+export const APP_VERSION = "11.5.1";
 
 export const BUILD_DATE =
   process.env.NEXT_PUBLIC_BUILD_DATE ?? "";
@@ -17,6 +17,14 @@ export type ChangelogEntry = {
 
 // Reverse-chronological. Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: "11.5.1",
+    date: "2026-09-27",
+    title: "No concentration cap: a position can be as large as you choose",
+    changes: [
+      "The single-stock concentration cap is gone, and nothing flags a large position any more. Settings no longer has a cap. On a holding's page there is no Max weight, no sell rule that fires on weight, no over-the-cap warning in the buy what-if, and no hard cap or trim on the tier badge. The Rebalance page and the deployment plan buy a name up to its target weight without holding it back or warning about its share of the book, and Telegram sends no concentration nag. Weights are still shown wherever they were.",
+    ],
+  },
   {
     version: "11.5.0",
     date: "2026-09-23",

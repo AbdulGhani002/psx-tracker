@@ -15,7 +15,7 @@ const PALETTE = [
   "var(--series-8)",
 ];
 
-export function SectorBar({ entries, totalValue }: { entries: Entry[]; totalValue: number }) {
+export function SectorBar({ entries }: { entries: Entry[] }) {
   return (
     <div>
       <div className="flex w-full h-7 mb-4 border border-ink">
@@ -47,11 +47,6 @@ export function SectorBar({ entries, totalValue }: { entries: Entry[]; totalValu
           </li>
         ))}
       </ul>
-      {totalValue > 0 && entries.some((e) => e.percent > 40) && (
-        <p className="text-[12px] mt-3" style={{ color: "var(--accent-deep)" }}>
-          Concentration flag — one sector exceeds 40% of the portfolio.
-        </p>
-      )}
     </div>
   );
 }

@@ -82,7 +82,6 @@ const HoldingSchema = new Schema(
             type: [new Schema({ text: { type: String, default: "" }, occurredAt: { type: String, default: "" } }, { _id: false })],
             default: [],
           },
-          maxWeightPct: { type: Number, default: 0 }, // 0 = use the global concentration cap
           timeStopMonths: { type: Number, default: 0 }, // 0 = off
           // Cash-conversion inputs: PAT comes from the scraped financials, but NO
           // free feed carries operating cash flow — the user transcribes the 3-year

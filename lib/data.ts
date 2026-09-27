@@ -441,7 +441,6 @@ export type RiskAnalysis = {
   correlation: CorrelationResult;
   stressBase: { equity: number; funds: number; savings: number; cash: number };
   safeRatePct: number;
-  concentrationCap: number;
 };
 
 // Concentration + correlation + the base figures for the (client-side) stress
@@ -451,12 +450,11 @@ export async function getRiskAnalysis(): Promise<RiskAnalysis> {
 }
 
 async function computeRiskAnalysis(): Promise<RiskAnalysis> {
-  const [summary, nw, settings] = await Promise.all([getPortfolioSummary(), getNetWorth().catch(() => null), getAppSettings()]);
-  const cap = (settings as any).concentrationCap ?? 25;
+  const [summary, nw] = await Promise.all([getPortfolioSummary(), getNetWorth().catch(() => null)]);
   const positions = summary.positions
     .filter((p) => p.marketValue > 0)
     .map((p) => ({ symbol: p.symbol, sector: p.sector, marketValue: p.marketValue }));
-  const concentration = analyzeConcentration(positions, cap);
+  const concentration = analyzeConcentration(positions);
 
   let correlation: CorrelationResult = { symbols: [], matrix: [], avgPairwise: null, mostCorrelated: null };
   try {
@@ -480,7 +478,7 @@ async function computeRiskAnalysis(): Promise<RiskAnalysis> {
     cash: 0,
   };
 
-  return { concentration, correlation, stressBase, safeRatePct: 3, concentrationCap: cap };
+  return { concentration, correlation, stressBase, safeRatePct: 3 };
 }
 
 // --- Precomputed feed snapshots ---------------------------------------------
@@ -1268,7 +1266,6 @@ async function _getAppSettings(): Promise<AppSettings> {
     cgtRateNonFiler: doc?.cgtRateNonFiler ?? DEFAULT_SETTINGS.cgtRateNonFiler,
     pmexCommissionPerLot: doc?.pmexCommissionPerLot ?? DEFAULT_SETTINGS.pmexCommissionPerLot,
     pmexCgtPercent: doc?.pmexCgtPercent ?? DEFAULT_SETTINGS.pmexCgtPercent,
-    concentrationCap: doc?.concentrationCap ?? DEFAULT_SETTINGS.concentrationCap,
     mfCashReservePct: (doc as any)?.mfCashReservePct ?? DEFAULT_SETTINGS.mfCashReservePct,
     brokeragePct: (doc as any)?.brokeragePct ?? DEFAULT_SETTINGS.brokeragePct,
     strictBuyZones: (doc as any)?.strictBuyZones ?? (DEFAULT_SETTINGS as any).strictBuyZones ?? false,
@@ -1998,7 +1995,6 @@ async function _getDeploymentPlan(): Promise<DeploymentPlan> {
     // so below rather than presenting it as counted money.
     brokerCash: cashSummary?.balance ?? 0,
     reservePct: (settings as any).mfCashReservePct ?? 5,
-    concentrationCap: (settings as any).concentrationCap ?? 25,
     unpriced: board.unpriced,
   });
   const serverWarnings: string[] = [];
@@ -2147,10 +2143,10 @@ export const getDeploymentPlan = cache(_getDeploymentPlan);
 // The budget is passed as FRESH cash with no reserve of its own, because the
 // ladder has already taken its reserve out of the pool. Charging a second
 // reserve here would quietly shrink every rung. Equity value is still real, so
-// target weights and the concentration cap bind against the actual book.
+// target weights bind against the actual book.
 export async function getLadderBuys(budget: number): Promise<DeployPlan | null> {
   if (!(budget > 0)) return null;
-  const { candidates, summary, settings, board } = await buildDeployContext();
+  const { candidates, summary, board } = await buildDeployContext();
   if (candidates.length === 0) return null;
   return planDeployment({
     candidates,
@@ -2158,7 +2154,6 @@ export async function getLadderBuys(budget: number): Promise<DeployPlan | null> 
     fundsValue: 0,
     brokerCash: 0,
     reservePct: 0,
-    concentrationCap: (settings as any).concentrationCap ?? 25,
     freshCash: budget,
     unpriced: board.unpriced,
   });

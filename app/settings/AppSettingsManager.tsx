@@ -20,7 +20,6 @@ type Settings = {
   podWhtNonFiler: number;
   pmexCommissionPerLot: number;
   pmexCgtPercent: number;
-  concentrationCap: number;
   mfCashReservePct: number;
   inflationPct: number;
   equityRiskPremiumPct: number;
@@ -125,10 +124,8 @@ export function AppSettingsManager({ initial, telegramConfigured }: { initial: S
           ]}
           hint="Drives the tax report and the filer/non-filer meter."
         />
-        <NumberInput label="Concentration cap (%)" value={s.concentrationCap} onChange={(v) => set("concentrationCap", v)} min={0} max={100} step={1} suffix="%" />
         <NumberInput label="Fund cash reserve (%)" value={s.mfCashReservePct ?? 5} onChange={(v) => set("mfCashReservePct", v)} min={0} max={100} step={0.5} suffix="%" hint="Share of total wealth that never leaves the money-market fund. Buy-zone deployment plans subtract it before anything is spendable." />
         <NumberInput label="Inflation (CPI) %" value={s.inflationPct} onChange={(v) => set("inflationPct", v)} min={0} max={100} step={0.5} suffix="%" hint="0 = automatic (live PBS CPI, computed from the official index). Set a value only to OVERRIDE the feed." />
-        <div />
 
         <NumberInput label="Dividend WHT — filer (%)" value={s.dividendWhtFiler} onChange={(v) => set("dividendWhtFiler", v)} min={0} max={100} step={0.5} suffix="%" />
         <NumberInput label="Dividend WHT — non-filer (%)" value={s.dividendWhtNonFiler} onChange={(v) => set("dividendWhtNonFiler", v)} min={0} max={100} step={0.5} suffix="%" />

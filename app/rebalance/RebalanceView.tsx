@@ -23,7 +23,6 @@ export function RebalanceView({ positions, totalValue, availableCashBalance }: P
   const [allowSelling, setAllowSelling] = useState(false);
   const [redistribute, setRedistribute] = useState(true);
   const [orderPrices, setOrderPrices] = useState<Record<string, number | "">>({});
-  const concentrationCap = 25;
 
   const cashFromBalance = useBalance ? Math.min(balanceToUse, availableCashBalance) : 0;
 
@@ -37,9 +36,8 @@ export function RebalanceView({ positions, totalValue, availableCashBalance }: P
         allowSelling,
         orderPrices,
         redistribute,
-        concentrationCap,
       }),
-    [positions, freshCash, cashFromBalance, totalValue, allowSelling, orderPrices, redistribute, concentrationCap]
+    [positions, freshCash, cashFromBalance, totalValue, allowSelling, orderPrices, redistribute]
   );
 
   const { rows, cashIn, deployed, cashAfter, leftoverDeployed, warnings } = result;

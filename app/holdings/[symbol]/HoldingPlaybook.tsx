@@ -44,10 +44,8 @@ export function HoldingPlaybook({ symbol, currentPercent, initial }: Props) {
       ? null
       : currentPercent < band.min
       ? { tone: "amber", text: `Below ${tier} band (${band.min}–${band.max}%) — room to add` }
-      : currentPercent > band.cap
-      ? { tone: "negative", text: `Over the ${band.cap}% hard cap — trim` }
       : currentPercent > band.max
-      ? { tone: "amber", text: `Above ${tier} band — watch the ${band.cap}% cap` }
+      ? { tone: "default", text: `Above ${tier} band (${band.min}–${band.max}%)` }
       : { tone: "positive", text: `Within ${tier} band (${band.min}–${band.max}%)` };
 
   const convictionNote =

@@ -7,19 +7,17 @@ import { fmtRs, fmtNum, fmtPct } from "@/lib/format";
 import { computePSXFees } from "@/lib/calculations/fees";
 
 type Props = {
-  symbol: string;
   shares: number; // current shares
   totalCost: number; // current cost basis (incl. past fees)
   currentPrice: number;
   marketValue: number;
   portfolioValue: number; // total equity value today
-  concentrationCap: number; // % single-stock cap from Settings
 };
 
 // The mirror of the sell-side CGT preview: what a BUY does to your average
 // cost, your weight, and what it really costs with brokerage. Pure arithmetic
 // on numbers already on this page — nothing is fetched or stored.
-export function BuyWhatIf({ symbol, shares, totalCost, currentPrice, marketValue, portfolioValue, concentrationCap }: Props) {
+export function BuyWhatIf({ shares, totalCost, currentPrice, marketValue, portfolioValue }: Props) {
   const [qty, setQty] = useState(0);
   const [price, setPrice] = useState(currentPrice > 0 ? Number(currentPrice.toFixed(2)) : 0);
 
@@ -37,10 +35,9 @@ export function BuyWhatIf({ symbol, shares, totalCost, currentPrice, marketValue
     const newValue = marketValue + gross;
     const newPortfolio = portfolioValue + gross;
     const newWeightPct = newPortfolio > 0 ? (newValue / newPortfolio) * 100 : 0;
-    return { gross, fees, outlay, newShares, newCost, newAvg, oldAvg, newWeightPct };
+    const oldWeightPct = portfolioValue > 0 ? (marketValue / portfolioValue) * 100 : 0;
+    return { gross, fees, outlay, newShares, newCost, newAvg, oldAvg, newWeightPct, oldWeightPct };
   }, [qty, price, shares, totalCost, marketValue, portfolioValue]);
-
-  const overCap = r != null && concentrationCap > 0 && r.newWeightPct > concentrationCap;
 
   return (
     <Card>
@@ -71,20 +68,10 @@ export function BuyWhatIf({ symbol, shares, totalCost, currentPrice, marketValue
             </div>
             <div>
               <div className="label-cap">Weight</div>
-              <div className="font-mono mono-num text-[16px]" style={{ color: overCap ? "var(--negative)" : undefined }}>
-                {fmtPct(r.newWeightPct / 100, 1)}
-              </div>
-              <div className="text-[10px]" style={{ color: overCap ? "var(--negative)" : "var(--muted)" }}>
-                {overCap ? `over your ${concentrationCap}% cap` : `cap ${concentrationCap}%`}
-              </div>
+              <div className="font-mono mono-num text-[16px]">{fmtPct(r.newWeightPct / 100, 1)}</div>
+              <div className="text-[10px] text-muted">from {fmtPct(r.oldWeightPct / 100, 1)} today</div>
             </div>
           </div>
-          {overCap && (
-            <p className="text-[12px] mt-3" style={{ color: "var(--negative)" }}>
-              This buy would push {symbol} past the single-stock cap you set in Settings — deliberate concentration or a
-              rebalance signal, your call.
-            </p>
-          )}
         </div>
       )}
       <p className="text-[11px] text-muted mt-4">

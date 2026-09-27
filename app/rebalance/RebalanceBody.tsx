@@ -64,7 +64,6 @@ export async function RebalanceBody() {
           fundsValue={plan.fundsValue}
           brokerCash={plan.brokerCash}
           reservePct={plan.reservePct}
-          concentrationCap={(settings as any).concentrationCap ?? 25}
           fundsLabel={plan.fundsLabel}
           sells={plan.board.sells.map((r) => ({ symbol: r.symbol, price: r.price, sharesHeld: r.sharesHeld, minHoldingShares: r.minHoldingShares, sellableShares: r.sellableShares, sellZoneLow: r.sellZoneLow, sellZoneHigh: r.sellZoneHigh, sell: r.sell }))}
           heldAtCore={plan.board.heldAtCore.map((r) => ({ symbol: r.symbol, sharesHeld: r.sharesHeld, minHoldingShares: r.minHoldingShares }))}

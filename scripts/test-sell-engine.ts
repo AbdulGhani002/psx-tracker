@@ -18,7 +18,7 @@ const FILER = { filerStatus: "filer", dividendWhtFiler: 15, dividendWhtNonFiler:
 const CFG: EngineConfig = { settings: FILER, netRiskFreePct: 8.74, cashConversionWeak: 0.7, cyclicalEpsPeakRatio: 0.85 };
 
 const BASE: PositionSignal = {
-  symbol: "TEST", classification: "", price: 100, avgCost: 80, weightPct: 10, maxWeightPct: 25,
+  symbol: "TEST", classification: "", price: 100, avgCost: 80, weightPct: 10,
   fairValueHigh: null, fairValueLow: null, fairValueBase: null, invalidatorsOccurred: [],
   earningsYieldPct: null, dividendYieldPct: null, peTtm: null, sectorMedianPe: null,
   epsLatest: null, epsMax5y: null, rateDirection: "unknown", cumOcf3y: null, cumPat3y: null,
@@ -46,9 +46,8 @@ ok("negative spread fires", oc.some((t) => t.type === "opportunity_cost"));
 ok("spread math", near(opportunitySpreadPct({ ...BASE, earningsYieldPct: 8, dividendYieldPct: 4 }, CFG), 6.8 - 8.74, 0.001));
 ok("no risk-free feed → no fire (never guessed)", !evaluateTriggers({ ...BASE, earningsYieldPct: 8, dividendYieldPct: 4 }, { ...CFG, netRiskFreePct: null }).some((t) => t.type === "opportunity_cost"));
 
-console.log("\nconcentration — flagged no matter how loved");
-ok("over cap fires", evaluateTriggers({ ...BASE, weightPct: 26, maxWeightPct: 25 }, CFG).some((t) => t.type === "concentration"));
-ok("at cap silent", !evaluateTriggers({ ...BASE, weightPct: 25, maxWeightPct: 25 }, CFG).some((t) => t.type === "concentration"));
+console.log("\nweight — a large position is never a trigger by itself");
+ok("60% of the book fires nothing", evaluateTriggers({ ...BASE, weightPct: 60 }, CFG).length === 0);
 
 console.log("\ncyclical peak — low P/E on peak earnings + rising rates = SELL, not bargain");
 const CYC: PositionSignal = { ...BASE, classification: "cyclical", peTtm: 4.5, sectorMedianPe: 8, epsLatest: 10, epsMax5y: 10.5, rateDirection: "rising" };
@@ -108,12 +107,12 @@ ok("mentions the ceiling", chase.message.includes("53.00"));
 console.log("\nsuppression — override is allowed, forgetting is not");
 const decisions = [
   { symbol: "PTL", action: "hold_through_trigger" as const, firedTriggers: ["price_target"], timestamp: "2026-07-01T00:00:00Z" },
-  { symbol: "MEBL", action: "trim" as const, firedTriggers: ["concentration"], timestamp: "2026-07-10T00:00:00Z" },
+  { symbol: "MEBL", action: "trim" as const, firedTriggers: ["opportunity_cost"], timestamp: "2026-07-10T00:00:00Z" },
 ];
 ok("hold_through suppresses that trigger 90d", triggerSuppressed("price_target", "PTL", decisions, "2026-07-17T00:00:00Z"));
 ok("...but not other triggers", !triggerSuppressed("opportunity_cost", "PTL", decisions, "2026-07-17T00:00:00Z"));
 ok("...and not forever", !triggerSuppressed("price_target", "PTL", decisions, "2026-10-15T00:00:00Z"));
-ok("a recent trim suppresses re-nagging 30d", triggerSuppressed("concentration", "MEBL", decisions, "2026-07-17T00:00:00Z"));
+ok("a recent trim suppresses re-nagging 30d", triggerSuppressed("opportunity_cost", "MEBL", decisions, "2026-07-17T00:00:00Z"));
 ok("other symbols unaffected", !triggerSuppressed("price_target", "LUCK", decisions, "2026-07-17T00:00:00Z"));
 
 console.log(`\n${pass} passed, ${fail} failed`);

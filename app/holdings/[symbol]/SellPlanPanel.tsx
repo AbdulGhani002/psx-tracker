@@ -12,7 +12,7 @@ type Plan = {
   classification: string;
   fvLow: number; fvBase: number; fvHigh: number; fvMethod: string;
   invalidators: Invalidator[];
-  maxWeightPct: number; timeStopMonths: number;
+  timeStopMonths: number;
   cumOcf3y: number | null; openedAt: string;
   fvHighRaisedCount?: number; targetRaisedCount?: number; thesisEditCount?: number;
 };
@@ -55,7 +55,7 @@ export function SellPlanPanel(p: Props) {
           classification: plan.classification,
           fvLow: plan.fvLow, fvBase: plan.fvBase, fvHigh: plan.fvHigh, fvMethod: plan.fvMethod,
           invalidators: plan.invalidators,
-          maxWeightPct: plan.maxWeightPct, timeStopMonths: plan.timeStopMonths,
+          timeStopMonths: plan.timeStopMonths,
           cumOcf3y: plan.cumOcf3y, openedAt: plan.openedAt,
         },
       };
@@ -108,7 +108,7 @@ export function SellPlanPanel(p: Props) {
               </span>
             ) : (<span className="text-muted">needs a feed</span>)}
           </span>
-          <span>Weight: <span className="font-mono">{p.weightPct.toFixed(1)}%</span>{plan.maxWeightPct > 0 && <span className="text-muted"> / cap {plan.maxWeightPct}%</span>}</span>
+          <span>Weight: <span className="font-mono">{p.weightPct.toFixed(1)}%</span></span>
         </div>
         {p.fired.length > 0 && (
           <div className="mt-3 space-y-1.5">
@@ -147,7 +147,6 @@ export function SellPlanPanel(p: Props) {
             <span className="label-cap block mb-1">Method (yours, named)</span>
             <input value={plan.fvMethod} onChange={(e) => set("fvMethod", e.target.value)} className={inputCls} placeholder='e.g. "EV/EBITDA + residual income + normalised EPS"' />
           </label>
-          <NumberInput label="Max weight (%)" value={plan.maxWeightPct} onChange={(v) => set("maxWeightPct", v)} min={0} max={100} step={1} hint="0 = use the global cap." />
           <NumberInput label="Time stop (months)" value={plan.timeStopMonths} onChange={(v) => set("timeStopMonths", v)} min={0} max={120} step={1} hint="0 = off. Nags when held this long with the thesis unproven." />
           <NumberInput label="3y operating cash flow (sum)" value={plan.cumOcf3y ?? 0} onChange={(v) => set("cumOcf3y", v === 0 ? null : v)} step={1}
             hint={p.cumPat3y != null ? `From the cash-flow statement. 3y PAT (scraped, same units): ${fmtRs(p.cumPat3y)}. No free feed carries OCF — 0 = not entered.` : "From the annual report's cash-flow statement. 0 = not entered."} />

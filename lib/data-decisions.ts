@@ -100,7 +100,7 @@ async function _getSellDiscipline(): Promise<{
   config: EngineConfig;
 }> {
   const [settings, summary, holdings, txs, netRiskFree, rateDirection, sectorPe, decisions] = await Promise.all([
-    getAppSettings() as unknown as Promise<TaxSettings & { concentrationCap?: number }>,
+    getAppSettings() as unknown as Promise<TaxSettings>,
     getPortfolioSummary(),
     getAllHoldings(),
     getAllTransactions(),
@@ -156,7 +156,6 @@ async function _getSellDiscipline(): Promise<{
       price: p.currentPrice,
       avgCost: p.avgCost,
       weightPct: p.currentPercent,
-      maxWeightPct: plan.maxWeightPct > 0 ? plan.maxWeightPct : settings.concentrationCap ?? 25,
       fairValueHigh: plan.fvHigh > 0 ? plan.fvHigh : null,
       fairValueLow: plan.fvLow > 0 ? plan.fvLow : null,
       fairValueBase: plan.fvBase > 0 ? plan.fvBase : null,

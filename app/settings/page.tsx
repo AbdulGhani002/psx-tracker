@@ -28,7 +28,7 @@ export default async function SettingsPage() {
       </Card>
 
       <Card title="Tax and trading" eyebrow="Filer status, tax rates, brokerage">
-        <p className="text-[12.5px] text-muted mb-3">These feed the CGT tab, the rebalance concentration cap and the trade form&apos;s fee estimate. Check rates against the current FBR schedule and your broker.</p>
+        <p className="text-[12.5px] text-muted mb-3">These feed the CGT tab and the trade form&apos;s fee estimate. Check rates against the current FBR schedule and your broker.</p>
         <AppSettingsManager initial={{ ...appSettings, telegramBotToken: "" }} telegramConfigured={!!appSettings.telegramBotToken} />
       </Card>
 

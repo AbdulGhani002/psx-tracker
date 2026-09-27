@@ -143,7 +143,7 @@ console.log("\n=== ATTACK 6: All-HOLD portfolio ===");
   }
 }
 
-console.log("\n=== ATTACK 7: Concentration cap warning ===");
+console.log("\n=== ATTACK 7: A concentrated book is not flagged ===");
 {
   const positions = withPercents([
     pos("MEGA", 1000, 1, 95),
@@ -155,12 +155,10 @@ console.log("\n=== ATTACK 7: Concentration cap warning ===");
     allowSelling: false,
     orderPrices: {},
     redistribute: false,
-    concentrationCap: 90,
   });
   console.log(`MEGA finalPct=${r.rows[0].finalPct.toFixed(1)}%, warnings=${r.warnings.length}`);
-  const hasWarn = r.warnings.some(w => w.includes("MEGA") && w.includes("concentration"));
-  if (!hasWarn && r.rows[0].finalPct > 90) {
-    console.log("VULN: No concentration cap warning!");
+  if (r.warnings.some(w => w.includes("concentration") || w.includes("cap"))) {
+    console.log("VULN: Concentration was flagged — the cap is gone and nothing should warn about a name's weight!");
     vulnCount++;
   }
 }

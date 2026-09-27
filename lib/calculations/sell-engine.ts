@@ -26,7 +26,6 @@ export type TriggerType =
   | "price_target"
   | "thesis_broken"
   | "opportunity_cost"
-  | "concentration"
   | "cyclical_peak"
   | "cash_conversion"
   | "time_stop"
@@ -57,7 +56,6 @@ export type PositionSignal = {
   price: number;
   avgCost: number;
   weightPct: number;
-  maxWeightPct: number; // per-position cap; 0 → caller passes the global cap
   fairValueHigh: number | null; // MY ceiling — null when no plan set
   fairValueLow: number | null;
   fairValueBase: number | null;
@@ -166,16 +164,9 @@ export function evaluateTriggers(p: PositionSignal, cfg: EngineConfig): FiredTri
     );
   }
 
-  // 4. Concentration — flagged no matter how much you love it.
-  if (p.maxWeightPct > 0 && p.weightPct > p.maxWeightPct) {
-    f(
-      "concentration",
-      `${p.symbol} is ${p.weightPct.toFixed(1)}% of the book — over your ${p.maxWeightPct.toFixed(0)}% cap. ` +
-        `The trim quantity is the weight delta, not a feeling.`
-    );
-  }
+  // A position's size is never a trigger: concentrating is the owner's call.
 
-  // 5. Cyclical peak.
+  // 4. Cyclical peak.
   if (cyclicalPeakFires(p, cfg)) {
     f(
       "cyclical_peak",
@@ -185,7 +176,7 @@ export function evaluateTriggers(p: PositionSignal, cfg: EngineConfig): FiredTri
     );
   }
 
-  // 6. Cash conversion.
+  // 5. Cash conversion.
   const cc = cashConversion(p.cumOcf3y, p.cumPat3y);
   if (cc && cc.grade !== "ok") {
     f(
@@ -197,7 +188,7 @@ export function evaluateTriggers(p: PositionSignal, cfg: EngineConfig): FiredTri
     );
   }
 
-  // 7. Time stop — held long with the thesis unproven.
+  // 6. Time stop — held long with the thesis unproven.
   if (p.timeStopMonths > 0 && p.monthsHeld != null && p.monthsHeld >= p.timeStopMonths) {
     f(
       "time_stop",

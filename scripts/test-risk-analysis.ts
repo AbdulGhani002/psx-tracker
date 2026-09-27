@@ -8,11 +8,10 @@ const con = analyzeConcentration(
     { symbol: "A", sector: "Banks", marketValue: 60000 },
     { symbol: "B", sector: "Banks", marketValue: 30000 },
     { symbol: "C", sector: "Power", marketValue: 10000 },
-  ],
-  25
+  ]
 );
 ok("total = 100k", con.totalValue === 100000);
-ok("A = 60%, over cap", Math.abs(con.positions[0].pct - 60) < 1e-9 && con.positions[0].overCap, `${con.positions[0].pct}`);
+ok("A = 60%", Math.abs(con.positions[0].pct - 60) < 1e-9, `${con.positions[0].pct}`);
 ok("top1 = 60%", Math.abs(con.top1Pct - 60) < 1e-9);
 ok("HHI = 0.46", Math.abs(con.hhi - 0.46) < 1e-9, `${con.hhi}`);
 ok("effective holdings ≈ 2.17", Math.abs(con.effectiveHoldings - 2.1739) < 0.01, `${con.effectiveHoldings.toFixed(2)}`);

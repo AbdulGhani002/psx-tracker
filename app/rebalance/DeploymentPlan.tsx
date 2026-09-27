@@ -28,7 +28,6 @@ type Props = {
   fundsValue: number;
   brokerCash: number;
   reservePct: number;
-  concentrationCap: number;
   fundsLabel: string;
   sells: SellRow[];
   heldAtCore: Array<{ symbol: string; sharesHeld: number; minHoldingShares: number }>;
@@ -48,7 +47,6 @@ export function DeploymentPlan({
   fundsValue,
   brokerCash,
   reservePct,
-  concentrationCap,
   fundsLabel,
   sells,
   heldAtCore,
@@ -66,10 +64,9 @@ export function DeploymentPlan({
         fundsValue,
         brokerCash,
         reservePct,
-        concentrationCap,
         freshCash,
       }),
-    [candidates, equityValue, fundsValue, brokerCash, reservePct, concentrationCap, freshCash]
+    [candidates, equityValue, fundsValue, brokerCash, reservePct, freshCash]
   );
 
   const zoneOf = (symbol: string) => zones.find((z) => z.symbol === symbol);
