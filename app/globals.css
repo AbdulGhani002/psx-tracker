@@ -350,6 +350,10 @@ table { font-variant-numeric: tabular-nums; }
 
 .table-zar { width: 100%; font-size: 13px; }
 .table-zar th { text-align: left; font-size: 11px; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); font-weight: 500; padding: 10px 12px; border-bottom: 1px solid var(--rule); white-space: nowrap; }
+/* A numeric column's header sits over its numbers: the rule above would
+   otherwise outrank the text-right utility and leave every header flush left. */
+.table-zar th.text-right { text-align: right; }
+.table-zar th.text-center { text-align: center; }
 .table-zar td { padding: 12px 12px; border-bottom: 1px solid var(--rule); vertical-align: middle; }
 .table-zar tr:last-child td { border-bottom: 0; }
 .table-zar tbody tr:hover td { background: #fafbfc; }

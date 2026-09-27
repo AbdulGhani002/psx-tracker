@@ -1,7 +1,7 @@
 // Single source of truth for the app version + changelog.
 // Bump APP_VERSION and prepend a CHANGELOG entry on every release.
 
-export const APP_VERSION = "11.7.0";
+export const APP_VERSION = "11.7.1";
 
 export const BUILD_DATE =
   process.env.NEXT_PUBLIC_BUILD_DATE ?? "";
@@ -17,6 +17,14 @@ export type ChangelogEntry = {
 
 // Reverse-chronological. Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: "11.7.1",
+    date: "2026-09-27",
+    title: "Table headers sit over their numbers",
+    changes: [
+      "Right-aligned columns had left-aligned headers in every table on the site (the shared table style outranked the alignment each header asked for), so a heading looked as if it belonged to the column beside it: the Swing trades page's stops and targets, the holdings table, trades, payouts, cash, CGT, analytics and the dividend record. Headers of number columns now sit flush right over their numbers.",
+    ],
+  },
   {
     version: "11.7.0",
     date: "2026-09-27",
