@@ -376,8 +376,10 @@ export const getBookFigures = cache(_getBookFigures);
 // The share book in dollars (lib/analytics/dollarized.ts): the flows of the
 // shares on the page (parked names left out, as every figure here leaves
 // them) against what those shares are worth now.
+export const getUsdPkrSeries = cache(async () => loadUsdPkr().catch(() => [] as Awaited<ReturnType<typeof loadUsdPkr>>));
+
 async function _getDollarized(): Promise<Dollarized | null> {
-  const [summary, txs, rates] = await Promise.all([getPortfolioSummary(), getAllTransactions(), loadUsdPkr().catch(() => [])]);
+  const [summary, txs, rates] = await Promise.all([getPortfolioSummary(), getAllTransactions(), getUsdPkrSeries()]);
   const parked = new Set(summary.parked.map((p) => p.symbol));
   return dollarize(
     txs.filter((t) => !parked.has(t.symbol)),

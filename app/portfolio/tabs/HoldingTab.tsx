@@ -7,7 +7,8 @@ import { SetupBanner } from "@/components/layout/SetupBanner";
 import { HoldingsTable, type HoldingRow } from "@/app/holdings/HoldingsTable";
 import { ParkedHoldings } from "@/components/dashboard/ParkedHoldings";
 import { getPortfolioSummary, checkDataAvailability, getSparklines, getShariahStatus, getAllTransactions, getFbrPack, getAllHoldings } from "@/lib/data";
-import { getToday, getAllocation, getBookFigures, getDollarized } from "@/lib/analytics/dashboard";
+import { getToday, getAllocation, getBookFigures, getDollarized, getUsdPkrSeries } from "@/lib/analytics/dashboard";
+import { holdingDollars } from "@/lib/analytics/dollarized";
 import { getPriceFreshness } from "@/lib/prices";
 import { currentTaxYear } from "@/lib/dates";
 import { fmtRs, fmtSignedRs, fmtDollars, fmtSignedDollars } from "@/lib/format";
@@ -21,7 +22,7 @@ const signedPct = (v: number, d = 2) => `${v >= 0 ? "+" : "−"}${Math.abs(v).to
 // The Holding tab: twelve figures (the last two in dollars), the market
 // value line beside the holdings donut, then the table of positions.
 export async function HoldingTab() {
-  const [avail, summary, today, alloc, txs, book, allHoldings, dz] = await Promise.all([checkDataAvailability(), getPortfolioSummary(), getToday(), getAllocation(), getAllTransactions(), getBookFigures(), getAllHoldings(), getDollarized().catch(() => null)]);
+  const [avail, summary, today, alloc, txs, book, allHoldings, dz, usdRates] = await Promise.all([checkDataAvailability(), getPortfolioSummary(), getToday(), getAllocation(), getAllTransactions(), getBookFigures(), getAllHoldings(), getDollarized().catch(() => null), getUsdPkrSeries()]);
   const parkedNotes = Object.fromEntries(allHoldings.filter((h) => h.parked && h.parkedNote).map((h) => [h.symbol, h.parkedNote as string]));
   const cur = currentTaxYear();
   const pack = await getFbrPack(cur.endYear).catch(() => null);
@@ -60,6 +61,10 @@ export async function HoldingTab() {
       todayPct: d ? d.changePct / 100 : null,
       todayProfit: d ? d.profit : null,
       shariah: shariahBySym.get(r.symbol) ?? null,
+      usd: (() => {
+        const hd = holdingDollars(txs.filter((t) => t.symbol === r.symbol), r.marketValue, usdRates);
+        return hd ? { total: hd.totalUsd, totalPct: hd.totalPct, costUsd: hd.costUsd, valueUsd: hd.valueUsd, rateNow: hd.rateNow } : null;
+      })(),
     };
   });
 

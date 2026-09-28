@@ -1,7 +1,7 @@
 // Single source of truth for the app version + changelog.
 // Bump APP_VERSION and prepend a CHANGELOG entry on every release.
 
-export const APP_VERSION = "11.9.0";
+export const APP_VERSION = "11.9.1";
 
 export const BUILD_DATE =
   process.env.NEXT_PUBLIC_BUILD_DATE ?? "";
@@ -17,6 +17,15 @@ export type ChangelogEntry = {
 
 // Reverse-chronological. Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: "11.9.1",
+    date: "2026-09-28",
+    title: "Every holding in dollars",
+    changes: [
+      "The holdings table has a P&L in $ column beside Total P&L: the same unrealised gain plus dividends, in dollars. Each purchase and each dividend is converted at the USD/PKR rate of its own day, and the shares at today's rate. A sale takes out its share of the dollar cost the way it takes out its share of the rupee cost, so the two columns measure the same position. Hover it for what the shares are worth and cost in dollars, and the rupee figure to compare. It sorts, and it is in the export.",
+      "Each stock's page has a P&L in dollars figure beside the rupee one, with what the shares cost at the rates you paid. The market value's dollar line now uses the same corrected USD/PKR series as the rest of the app.",
+    ],
+  },
   {
     version: "11.9.0",
     date: "2026-09-28",

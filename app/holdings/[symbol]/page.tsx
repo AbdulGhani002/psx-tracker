@@ -41,8 +41,12 @@ import {
   fmtSignedRs,
   fmtSignedPct,
   fmtPct,
+  fmtDollars,
+  fmtSignedDollars,
 } from "@/lib/format";
 import { getUsdPkr } from "@/lib/fx";
+import { getUsdPkrSeries } from "@/lib/analytics/dashboard";
+import { holdingDollars } from "@/lib/analytics/dollarized";
 
 export const dynamic = "force-dynamic";
 
@@ -52,7 +56,7 @@ export default async function HoldingDetail(props: Props) {
   const params = await props.params;
   const symbol = params.symbol.toUpperCase();
   // Fire every independent fetch at once instead of eight serial round-trips.
-  const [holding, transactions, lookThrough, market, prices, summary, intrinsicAll, usdPkr, settings] = await Promise.all([
+  const [holding, transactions, lookThrough, market, prices, summary, intrinsicAll, usdPkr, settings, usdRates] = await Promise.all([
     getHoldingBySymbol(symbol),
     getTransactionsBySymbol(symbol),
     getLookThroughFor(symbol).catch(() => null),
@@ -62,6 +66,7 @@ export default async function HoldingDetail(props: Props) {
     getIntrinsicValuations().catch(() => null),
     getUsdPkr(),
     getAppSettings(),
+    getUsdPkrSeries(),
   ]);
   if (!holding) notFound();
 
@@ -73,6 +78,10 @@ export default async function HoldingDetail(props: Props) {
   const unrealizedPL = marketValue - derived.totalCost;
   const unrealizedPct = derived.totalCost > 0 ? unrealizedPL / derived.totalCost : 0;
   const yieldOnCost = derived.totalCost > 0 ? derived.dividendsReceived / derived.totalCost : 0;
+  // The same position in dollars: each purchase and dividend at its own day's
+  // USD/PKR rate, the shares at today's.
+  const hd = derived.shares > 0 && currentPrice > 0 ? holdingDollars(transactions, marketValue, usdRates) : null;
+  const rupeeTotalPct = derived.totalCost > 0 ? (unrealizedPL + derived.dividendsReceived) / derived.totalCost : null;
   const h = holding as any;
   // Sell-discipline context: fired triggers, spread, and this symbol's own
   // decision history. Best-effort — a feed being down must not sink the page.
@@ -150,7 +159,7 @@ export default async function HoldingDetail(props: Props) {
         <Stat label="Shares Held" value={fmtNum(derived.shares)} />
         <Stat label="Avg Cost" value={fmtRs(derived.avgCost, true)} />
         <Stat label="Current Price" value={fmtRs(currentPrice, true)} />
-        <Stat label="Market Value" value={fmtRs(marketValue)} hint={usdPkr ? `≈ ${fmtUsd(marketValue, usdPkr, false)} · ${fmtUsd(derived.totalCost, usdPkr, false)} invested` : undefined} />
+        <Stat label="Market Value" value={fmtRs(marketValue)} hint={hd ? `≈ ${fmtDollars(hd.valueUsd)} at Rs ${hd.rateNow.toFixed(2)} a dollar` : usdPkr ? `≈ ${fmtUsd(marketValue, usdPkr, false)}` : undefined} />
         <Stat
           label="Unrealised P/L"
           value={fmtSignedRs(unrealizedPL)}
@@ -158,6 +167,14 @@ export default async function HoldingDetail(props: Props) {
           tone={unrealizedPL >= 0 ? "positive" : "negative"}
         />
         <Stat label="Dividends" value={fmtRs(derived.dividendsReceived)} hint={`Yield on cost ${fmtPct(yieldOnCost, 2)}`} />
+        {hd && (
+          <Stat
+            label="P&L in dollars"
+            value={fmtSignedDollars(hd.totalUsd)}
+            hint={`${fmtSignedPct(hd.totalPct != null ? hd.totalPct / 100 : null)} with dividends, against ${fmtSignedPct(rupeeTotalPct)} in rupees · cost ${fmtDollars(hd.costUsd)} at the rates you paid`}
+            tone={hd.totalUsd >= 0 ? "positive" : "negative"}
+          />
+        )}
       </StatRow>
 
       {market && (market.week52High != null || market.indices.length > 0) && (

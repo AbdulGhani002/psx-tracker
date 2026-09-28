@@ -87,6 +87,91 @@ export function dollarize(txs: Flow[], valueNowPkr: number, rates: RatePoint[]):
   };
 }
 
+// One name in dollars: the rupee cost basis (lib/calculations/holding.ts) run
+// again with every amount at its own day's rate. A buy or a right adds its
+// dollars; a sale takes out its proportion of the dollar cost, the way it
+// takes out its proportion of the rupee cost; bonuses and splits move shares
+// only. So the dollar figures line up with the rupee ones beside them in the
+// holdings table: unrealised on what the shares still held cost, and the
+// Total P&L's unrealised plus dividends.
+export type DollarBasisTx = { date: string | Date; type: string; shares?: number | null; netAmount?: number | null; ratio?: string | null };
+
+export function dollarCostBasis(txs: DollarBasisTx[], rates: RatePoint[]): { shares: number; costUsd: number; dividendsUsd: number; realizedUsd: number; firstDate: string | null } {
+  const s = { shares: 0, costUsd: 0, dividendsUsd: 0, realizedUsd: 0, firstDate: null as string | null };
+  const sorted = [...txs].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+  for (const tx of sorted) {
+    const d = iso(tx.date);
+    const r = rateOn(rates, d);
+    if (!r) continue;
+    const usd = Number(tx.netAmount ?? 0) / r;
+    const n = Number(tx.shares ?? 0);
+    switch (tx.type) {
+      case "BUY":
+      case "RIGHT":
+        s.shares += n;
+        s.costUsd += usd;
+        if (!s.firstDate) s.firstDate = d;
+        break;
+      case "SELL": {
+        const sold = Math.abs(n);
+        if (s.shares <= 0 || sold <= 0) break;
+        const removed = s.costUsd * Math.min(1, sold / s.shares);
+        s.realizedUsd += usd - removed;
+        s.costUsd -= removed;
+        s.shares -= sold;
+        break;
+      }
+      case "DIVIDEND":
+        s.dividendsUsd += usd;
+        break;
+      case "BONUS":
+        s.shares += n;
+        break;
+      case "SPLIT": {
+        const [from, to] = String(tx.ratio ?? "").split(":").map((x) => Number(x.trim()));
+        if (from && to) s.shares *= to / from;
+        break;
+      }
+    }
+  }
+  return s;
+}
+
+export type HoldingDollars = {
+  rateNow: number;
+  valueUsd: number; // the shares held, at today's rate
+  costUsd: number; // what they cost, each purchase at its day's rate
+  dividendsUsd: number; // every dividend on the name, at its pay day's rate
+  unrealizedUsd: number;
+  unrealizedPct: number | null; // on costUsd
+  totalUsd: number; // unrealised plus dividends, as the table's Total P&L
+  totalPct: number | null; // on costUsd
+  firstDate: string | null;
+  rateFirst: number | null;
+};
+
+export function holdingDollars(txs: DollarBasisTx[], marketValuePkr: number, rates: RatePoint[]): HoldingDollars | null {
+  if (rates.length === 0) return null;
+  const b = dollarCostBasis(txs, rates);
+  if (!(b.costUsd > 0)) return null;
+  const rateNow = rates[rates.length - 1].close;
+  const valueUsd = marketValuePkr / rateNow;
+  const unrealizedUsd = valueUsd - b.costUsd;
+  const totalUsd = unrealizedUsd + b.dividendsUsd;
+  return {
+    rateNow,
+    valueUsd,
+    costUsd: b.costUsd,
+    dividendsUsd: b.dividendsUsd,
+    unrealizedUsd,
+    unrealizedPct: (unrealizedUsd / b.costUsd) * 100,
+    totalUsd,
+    totalPct: (totalUsd / b.costUsd) * 100,
+    firstDate: b.firstDate,
+    rateFirst: b.firstDate ? rateOn(rates, b.firstDate) : null,
+  };
+}
+
 // Dollars put in, net, as of each date: every buy less every sale up to it,
 // each at its own day's rate. The dollar twin of the chart's dashed line
 // (which, like it, leaves dividends out).

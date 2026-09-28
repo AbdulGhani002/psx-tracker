@@ -3,7 +3,8 @@
 //
 //   npx tsx scripts/test-dollarized.ts
 
-import { rateOn, flowOf, dollarize, investedUsdSeries } from "../lib/analytics/dollarized";
+import { rateOn, flowOf, dollarize, investedUsdSeries, dollarCostBasis, holdingDollars } from "../lib/analytics/dollarized";
+import { deriveFromTransactions } from "../lib/calculations/holding";
 import { hourlyMedians, mergeFx } from "../lib/timeseries/macro";
 
 let pass = 0, fail = 0;
@@ -65,6 +66,39 @@ check("before the hourly prices begin, the daily close stands", mm.get("2026-09-
 check("an hourly day replaces the daily close (the bad 268.55 goes)", mm.get("2026-09-24") === 276.89);
 check("a daily close 3% off its hourly neighbours is dropped, one in line kept", !mm.has("2026-09-07") && mm.get("2026-09-08") === 277.15);
 check("the merged series runs in date order", merged.map((b) => b.date).join() === "2026-09-01,2026-09-05,2026-09-08,2026-09-09,2026-09-24");
+
+// One name in dollars. At a rate of one, the dollar basis must be the rupee
+// basis step for step: same shares, cost, realised and dividends.
+const seq = [
+  { date: "2025-01-02", type: "BUY", shares: 100, netAmount: 10000, ratio: "" },
+  { date: "2025-02-03", type: "BUY", shares: 50, netAmount: 6000, ratio: "" },
+  { date: "2025-03-03", type: "BONUS", shares: 15, netAmount: 0, ratio: "" },
+  { date: "2025-04-01", type: "SELL", shares: -40, netAmount: 5200, ratio: "" },
+  { date: "2025-05-05", type: "DIVIDEND", shares: 0, netAmount: 700, ratio: "" },
+  { date: "2025-06-02", type: "SPLIT", shares: 0, netAmount: 0, ratio: "1:2" },
+  { date: "2025-07-01", type: "RIGHT", shares: 20, netAmount: 1500, ratio: "" },
+  { date: "2025-08-01", type: "SELL", shares: -60, netAmount: 4100, ratio: "" },
+];
+const rupee = deriveFromTransactions(seq as any);
+const dollar = dollarCostBasis(seq, [{ date: "2000-01-01", close: 1 }]);
+check("at a rate of one the dollar basis is the rupee basis", near(dollar.shares, rupee.shares) && near(dollar.costUsd, rupee.totalCost, 1e-6) && near(dollar.realizedUsd, rupee.realizedPL, 1e-6) && near(dollar.dividendsUsd, rupee.dividendsReceived), `${dollar.shares}/${rupee.shares} ${dollar.costUsd.toFixed(2)}/${rupee.totalCost.toFixed(2)}`);
+
+// 100 shares for Rs 28,000 at 280 ($100), 100 for Rs 30,000 at 300 ($100);
+// half sold for Rs 33,000 at 300 (out goes $100 of cost, $10 realised); a
+// Rs 3,000 dividend at 300 ($10); the 100 left worth Rs 36,000 at 300.
+const fxr = [{ date: "2025-01-01", close: 280 }, { date: "2025-06-01", close: 300 }];
+const pos = [
+  { date: "2025-01-02", type: "BUY", shares: 100, netAmount: 28000 },
+  { date: "2025-06-02", type: "BUY", shares: 100, netAmount: 30000 },
+  { date: "2025-07-01", type: "SELL", shares: -100, netAmount: 33000 },
+  { date: "2025-08-01", type: "DIVIDEND", shares: 0, netAmount: 3000 },
+];
+const hd = holdingDollars(pos, 36000, fxr)!;
+check("a sale takes out its share of the dollar cost", near(dollarCostBasis(pos, fxr).costUsd, 100) && near(dollarCostBasis(pos, fxr).realizedUsd, 10));
+check("unrealised in dollars, on what the shares held cost in dollars", near(hd.valueUsd, 120) && near(hd.unrealizedUsd, 20) && near(hd.unrealizedPct, 20));
+check("with dividends, the table's Total P&L in dollars", near(hd.dividendsUsd, 10) && near(hd.totalUsd, 30) && near(hd.totalPct, 30));
+check("and the rupee at the first purchase", hd.firstDate === "2025-01-02" && hd.rateFirst === 280 && hd.rateNow === 300);
+check("nothing held or no rates, nothing to show", holdingDollars([...pos, { date: "2025-09-01", type: "SELL", shares: -100, netAmount: 36000 }], 0, fxr) === null && holdingDollars(pos, 36000, []) === null);
 
 console.log("\n" + pass + " passed, " + fail + " failed");
 if (fail > 0) process.exit(1);

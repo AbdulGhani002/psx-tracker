@@ -5,11 +5,13 @@ import { useMemo, useState } from "react";
 import { CompanyMark } from "@/components/ui/CompanyMark";
 import { Badge } from "@/components/ui/Badge";
 import { ParkButton } from "@/components/ui/ParkButton";
-import { fmtRs, fmtNum, fmtSignedPct, fmtSignedRs, fmtPct } from "@/lib/format";
+import { fmtRs, fmtNum, fmtSignedPct, fmtSignedRs, fmtPct, fmtSignedDollars, fmtDollars } from "@/lib/format";
 
 // The active holdings table, the way Zar lays it out: the name with its
 // mark and the KMI leaf, then quantity, prices, today's and total P&L,
-// market value, investment, dividend yield, weight and a Sell button.
+// market value, investment, dividend yield, weight and a Sell button. P&L in
+// $ is the Total P&L again in dollars: each purchase and dividend at its own
+// day's USD/PKR rate, the shares at today's (lib/analytics/dollarized.ts).
 // Rows arrive as plain numbers so sorting happens here on the number, never
 // on the formatted string.
 
@@ -34,9 +36,11 @@ export type HoldingRow = {
   todayPct: number | null;
   todayProfit: number | null;
   shariah: "KMI30" | "KMIALL" | "NON" | null;
+  // Unrealised plus dividends in dollars, on the dollar cost of the shares held.
+  usd?: { total: number; totalPct: number | null; costUsd: number; valueUsd: number; rateNow: number } | null;
 };
 
-type SortKey = "symbol" | "shares" | "avgCost" | "price" | "today" | "total" | "unrealized" | "marketValue" | "totalCost" | "yield" | "weight";
+type SortKey = "symbol" | "shares" | "avgCost" | "price" | "today" | "total" | "usd" | "unrealized" | "marketValue" | "totalCost" | "yield" | "weight";
 
 const VALUE: Record<SortKey, (r: HoldingRow) => number | string | null> = {
   symbol: (r) => r.symbol,
@@ -45,6 +49,7 @@ const VALUE: Record<SortKey, (r: HoldingRow) => number | string | null> = {
   price: (r) => (r.priceKnown ? r.price : null),
   today: (r) => r.todayProfit,
   total: (r) => (r.priceKnown ? r.unrealizedPL + r.dividendsReceived : null),
+  usd: (r) => (r.priceKnown && r.usd ? r.usd.total : null),
   unrealized: (r) => (r.priceKnown ? r.unrealizedPL : null),
   marketValue: (r) => (r.priceKnown ? r.marketValue : null),
   totalCost: (r) => r.totalCost,
@@ -59,6 +64,7 @@ const ALL_COLUMNS: Array<{ key: SortKey; label: string; align: "left" | "right";
   { key: "price", label: "Curr. price", align: "right" },
   { key: "today", label: "Today P&L", align: "right" },
   { key: "total", label: "Total P&L", align: "right" },
+  { key: "usd", label: "P&L in $", align: "right" },
   { key: "unrealized", label: "Unrealized profit", align: "right" },
   { key: "marketValue", label: "Market value", align: "right" },
   { key: "totalCost", label: "Total investment", align: "right" },
@@ -78,6 +84,13 @@ const Money = ({ v, pct, tone = true }: { v: number; pct?: number | null; tone?:
   <div style={{ color: tone ? (v >= 0 ? "var(--positive)" : "var(--negative)") : undefined }}>
     <div className="mono-num">{fmtSignedRs(v)}</div>
     {pct != null && <div className="mono-num text-[11px] opacity-80">{v >= 0 ? "↗" : "↘"} {fmtSignedPct(pct)}</div>}
+  </div>
+);
+
+const Dollars = ({ v, pct, title }: { v: number; pct?: number | null; title?: string }) => (
+  <div style={{ color: v >= 0 ? "var(--positive)" : "var(--negative)" }} title={title}>
+    <div className="mono-num">{fmtSignedDollars(v)}</div>
+    {pct != null && <div className="mono-num text-[11px] opacity-80">{v >= 0 ? "↗" : "↘"} {fmtSignedPct(pct / 100)}</div>}
   </div>
 );
 
@@ -114,8 +127,8 @@ export function HoldingsTable({ rows, staleAfterDays }: { rows: HoldingRow[]; st
   }
 
   function exportCsv() {
-    const header = ["symbol", "name", "quantity", "avgPrice", "price", "marketValue", "investment", "unrealized", "unrealizedPct", "dividends", "weightPct"];
-    const lines = [header.join(",")].concat(view.map((r) => [r.symbol, `"${r.name.replace(/"/g, '""')}"`, r.shares, r.avgCost.toFixed(2), r.priceKnown ? r.price.toFixed(2) : "", r.marketValue.toFixed(0), r.totalCost.toFixed(0), r.unrealizedPL.toFixed(0), r.unrealizedPct.toFixed(2), r.dividendsReceived.toFixed(0), r.currentPercent.toFixed(2)].join(",")));
+    const header = ["symbol", "name", "quantity", "avgPrice", "price", "marketValue", "investment", "unrealized", "unrealizedPct", "dividends", "weightPct", "pnlUsd", "pnlUsdPct"];
+    const lines = [header.join(",")].concat(view.map((r) => [r.symbol, `"${r.name.replace(/"/g, '""')}"`, r.shares, r.avgCost.toFixed(2), r.priceKnown ? r.price.toFixed(2) : "", r.marketValue.toFixed(0), r.totalCost.toFixed(0), r.unrealizedPL.toFixed(0), r.unrealizedPct.toFixed(2), r.dividendsReceived.toFixed(0), r.currentPercent.toFixed(2), r.usd ? r.usd.total.toFixed(0) : "", r.usd?.totalPct != null ? r.usd.totalPct.toFixed(2) : ""].join(",")));
     const blob = new Blob([lines.join("\n")], { type: "text/csv;charset=utf-8" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
@@ -227,6 +240,20 @@ export function HoldingsTable({ rows, staleAfterDays }: { rows: HoldingRow[]; st
                     return <td key={key} className="text-right">{r.todayProfit != null ? <Money v={r.todayProfit} pct={r.todayPct} /> : <span className="text-muted">–</span>}</td>;
                   case "total":
                     return <td key={key} className="text-right">{r.priceKnown ? <Money v={total} pct={totalPct} /> : <span className="text-muted">–</span>}</td>;
+                  case "usd":
+                    return (
+                      <td key={key} className="text-right">
+                        {r.priceKnown && r.usd ? (
+                          <Dollars
+                            v={r.usd.total}
+                            pct={r.usd.totalPct}
+                            title={`Worth ${fmtDollars(r.usd.valueUsd)} at Rs ${r.usd.rateNow.toFixed(2)} a dollar; the shares cost ${fmtDollars(r.usd.costUsd)} at the rates you paid. In rupees: ${totalPct != null ? fmtSignedPct(totalPct) : "–"}.`}
+                          />
+                        ) : (
+                          <span className="text-muted">–</span>
+                        )}
+                      </td>
+                    );
                   case "unrealized":
                     return <td key={key} className="text-right">{r.priceKnown ? <Money v={r.unrealizedPL} pct={r.unrealizedPct} /> : <span className="text-muted">–</span>}</td>;
                   case "marketValue":
