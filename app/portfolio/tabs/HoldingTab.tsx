@@ -7,17 +7,21 @@ import { SetupBanner } from "@/components/layout/SetupBanner";
 import { HoldingsTable, type HoldingRow } from "@/app/holdings/HoldingsTable";
 import { ParkedHoldings } from "@/components/dashboard/ParkedHoldings";
 import { getPortfolioSummary, checkDataAvailability, getSparklines, getShariahStatus, getAllTransactions, getFbrPack, getAllHoldings } from "@/lib/data";
-import { getToday, getAllocation, getBookFigures } from "@/lib/analytics/dashboard";
+import { getToday, getAllocation, getBookFigures, getDollarized } from "@/lib/analytics/dashboard";
 import { getPriceFreshness } from "@/lib/prices";
 import { currentTaxYear } from "@/lib/dates";
-import { fmtRs, fmtSignedRs } from "@/lib/format";
+import { fmtRs, fmtSignedRs, fmtDollars, fmtSignedDollars } from "@/lib/format";
 
 const STALE_AFTER_DAYS = 7;
 
-// The Holding tab: ten figures, the market value line beside the holdings
-// donut, then the table of positions.
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+const dayMonth = (iso: string) => `${Number(iso.slice(8, 10))} ${MONTHS[Number(iso.slice(5, 7)) - 1]}${iso.slice(0, 4) !== new Date().toISOString().slice(0, 4) ? " " + iso.slice(0, 4) : ""}`;
+const signedPct = (v: number, d = 2) => `${v >= 0 ? "+" : "−"}${Math.abs(v).toFixed(d)}%`;
+
+// The Holding tab: twelve figures (the last two in dollars), the market
+// value line beside the holdings donut, then the table of positions.
 export async function HoldingTab() {
-  const [avail, summary, today, alloc, txs, book, allHoldings] = await Promise.all([checkDataAvailability(), getPortfolioSummary(), getToday(), getAllocation(), getAllTransactions(), getBookFigures(), getAllHoldings()]);
+  const [avail, summary, today, alloc, txs, book, allHoldings, dz] = await Promise.all([checkDataAvailability(), getPortfolioSummary(), getToday(), getAllocation(), getAllTransactions(), getBookFigures(), getAllHoldings(), getDollarized().catch(() => null)]);
   const parkedNotes = Object.fromEntries(allHoldings.filter((h) => h.parked && h.parkedNote).map((h) => [h.symbol, h.parkedNote as string]));
   const cur = currentTaxYear();
   const pack = await getFbrPack(cur.endYear).catch(() => null);
@@ -68,7 +72,7 @@ export async function HoldingTab() {
         </div>
       )}
 
-      <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-5 gap-3 stagger">
+      <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-3 stagger">
         <StatCard label="Investment value" value={fmtRs(book.costBasis)} hint={`What you hold cost${hasFunds ? `: shares ${fmtRs(book.equity.cost)} · funds ${fmtRs(book.funds.cost + book.savings.principal)}` : ""} · money put in, net ${fmtRs(book.invested)}`} />
         <StatCard label="Unrealized gain/loss" value={fmtSignedRs(unrealizedAll)} tone={unrealizedAll >= 0 ? "positive" : "negative"} delta={pct(unrealizedAll, book.costBasis)} deltaTone={unrealizedAll >= 0 ? "positive" : "negative"} hint={hasFunds ? `Shares ${fmtSignedRs(book.equity.unrealized)} · funds ${fmtSignedRs(book.funds.gain + book.savings.profit)}` : undefined} />
         <StatCard label="Today's return" value={fmtSignedRs(book.todayProfit)} tone={book.todayProfit >= 0 ? "positive" : "negative"} delta={book.todayPct != null ? `${book.todayPct >= 0 ? "+" : ""}${book.todayPct.toFixed(2)}%` : undefined} deltaTone={book.todayProfit >= 0 ? "positive" : "negative"} hint={hasFunds ? `Shares ${fmtSignedRs(book.equity.todayProfit)} · funds ${fmtSignedRs(book.funds.perDay)} a day` : undefined} />
@@ -79,11 +83,24 @@ export async function HoldingTab() {
         <StatCard label="Total return" value={fmtSignedRs(book.totalReturn)} tone={book.totalReturn >= 0 ? "positive" : "negative"} delta={pct(book.totalReturn, book.invested)} deltaTone={book.totalReturn >= 0 ? "positive" : "negative"} hint={`Unrealised ${fmtSignedRs(unrealizedAll)} · realised ${fmtSignedRs(book.equity.realized)} · dividends ${fmtSignedRs(book.equity.dividends)}, on the money put in`} />
         <StatCard label="Deductions" value={fmtRs(fees)} hint="Brokerage and levies on trades" />
         <StatCard label={`CGT (${cur.label})`} value={pack ? fmtRs(pack.cgt.cgt) : "–"} hint={pack ? `${pack.cgt.rate}% on ${fmtSignedRs(pack.cgt.netGain)} net gain` : undefined} />
+        <StatCard
+          label="Worth in dollars"
+          value={dz ? fmtDollars(dz.valueUsd) : "–"}
+          hint={dz ? `At Rs ${dz.rateNow.toFixed(2)} a dollar (${dayMonth(dz.rateDate)}) · put in, net: ${fmtDollars(dz.putInUsd)} at each day's rate` : "No USD/PKR rate to hand"}
+        />
+        <StatCard
+          label="Dollarized return"
+          value={dz ? fmtSignedDollars(dz.returnUsd) : "–"}
+          tone={dz ? (dz.returnUsd >= 0 ? "positive" : "negative") : undefined}
+          delta={dz?.returnPct != null ? signedPct(dz.returnPct) : undefined}
+          deltaTone={dz ? (dz.returnUsd >= 0 ? "positive" : "negative") : undefined}
+          hint={dz && dz.rateFirst && dz.firstDate && dz.rupeePct != null ? `The rupee since your first buy (${dayMonth(dz.firstDate)}): Rs ${dz.rateFirst.toFixed(2)} → Rs ${dz.rateNow.toFixed(2)} a dollar, ${signedPct(dz.rupeePct, 1)}` : undefined}
+        />
       </div>
 
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-3 mt-3">
         <div className="xl:col-span-2 min-h-[340px]">
-          <NetWorthChart title="Market value of shares" value={summary.totalValue} />
+          <NetWorthChart title="Market value of shares" value={summary.totalValue} usdRate={dz?.rateNow ?? null} />
         </div>
         <Card title="Holdings" action={<span className="text-[12px] text-muted">{held.length} positions</span>}>
           <AllocationDonut slices={held.map((p) => ({ label: p.symbol, value: p.marketValue }))} maxSlices={8} centerValue={String(held.length)} centerLabel="names" />

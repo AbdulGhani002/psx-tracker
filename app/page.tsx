@@ -10,10 +10,10 @@ import { RefreshPrices } from "@/components/layout/RefreshPrices";
 import { NetWorthChart } from "@/components/dashboard/NetWorthChart";
 import { StatCard } from "@/components/ui/StatCard";
 import { getPortfolioSummary, checkDataAvailability, getAttribution } from "@/lib/data";
-import { getToday, getPortfolioCards, getRecentActivity, getPerformance, getAllocation, getBookFigures } from "@/lib/analytics/dashboard";
+import { getToday, getPortfolioCards, getRecentActivity, getPerformance, getAllocation, getBookFigures, getDollarized } from "@/lib/analytics/dashboard";
 import { getRecentAnnouncements } from "@/lib/announcements";
 import { AnnouncementsList } from "@/components/dashboard/AnnouncementsList";
-import { fmtRs, fmtSignedRs, fmtDate } from "@/lib/format";
+import { fmtRs, fmtSignedRs, fmtDate, fmtDollars, fmtSignedDollars } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
 
@@ -26,19 +26,28 @@ function Fallback({ h = 120 }: { h?: number }) {
   return <Skeleton className="w-full" style={{ height: h, borderRadius: 10 }} />;
 }
 
+const signedPct = (v: number, d = 2) => `${v >= 0 ? "+" : "−"}${Math.abs(v).toFixed(d)}%`;
 const initials = (name: string) => name.trim().split(/\s+/).slice(0, 2).map((p) => p[0]?.toUpperCase() ?? "").join("") || "P";
 
 async function TopCards() {
-  const [avail, book, alloc] = await Promise.all([checkDataAvailability(), getBookFigures(), getAllocation()]);
+  const [avail, book, alloc, dz] = await Promise.all([checkDataAvailability(), getBookFigures(), getAllocation(), getDollarized().catch(() => null)]);
   const hasFunds = book.funds.count > 0 || book.savings.balance > 0;
   const other = book.funds.gain + book.savings.profit;
   return (
     <>
       {!avail.available && <SetupBanner reason={avail.reason} />}
-      <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-5 gap-3 stagger">
+      <div className="grid grid-cols-2 md:grid-cols-3 2xl:grid-cols-6 gap-3 stagger">
         <StatCard label="Total net worth" value={fmtRs(book.netWorth)} hint={`Shares ${fmtRs(book.equity.value)}${hasFunds ? ` · funds ${fmtRs(book.funds.value + book.savings.balance)}` : ""} · cash ${fmtRs(book.cash)}`} />
         <StatCard label="Today's P&L" value={fmtSignedRs(book.todayProfit)} tone={book.todayProfit >= 0 ? "positive" : "negative"} delta={book.todayPct != null ? `${book.todayPct >= 0 ? "+" : ""}${book.todayPct.toFixed(2)}%` : undefined} deltaTone={book.todayProfit >= 0 ? "positive" : "negative"} hint={hasFunds ? `Shares ${fmtSignedRs(book.equity.todayProfit)} · funds ${fmtSignedRs(book.funds.perDay)} a day` : undefined} />
         <StatCard label="Total return" value={fmtSignedRs(book.totalReturn)} tone={book.totalReturn >= 0 ? "positive" : "negative"} delta={book.totalReturnPct != null ? `${book.totalReturnPct >= 0 ? "+" : ""}${book.totalReturnPct.toFixed(2)}%` : undefined} deltaTone={book.totalReturn >= 0 ? "positive" : "negative"} hint={`Unrealised ${fmtSignedRs(book.equity.unrealized + other)} · realised ${fmtSignedRs(book.equity.realized)} · dividends ${fmtSignedRs(book.equity.dividends)}`} />
+        <StatCard
+          label="Dollarized return"
+          value={dz ? fmtSignedDollars(dz.returnUsd) : "–"}
+          tone={dz ? (dz.returnUsd >= 0 ? "positive" : "negative") : undefined}
+          delta={dz?.returnPct != null ? signedPct(dz.returnPct) : undefined}
+          deltaTone={dz ? (dz.returnUsd >= 0 ? "positive" : "negative") : undefined}
+          hint={dz ? `Shares worth ${fmtDollars(dz.valueUsd)} at Rs ${dz.rateNow.toFixed(2)} a dollar; ${fmtDollars(dz.putInUsd)} put in at each day's rate` : undefined}
+        />
         <StatCard label="Invested" value={fmtRs(book.invested)} hint={`Money put in, net of what came back · what you hold cost ${fmtRs(book.costBasis)}`} />
         <StatCard label="Available cash" value={fmtRs(alloc.availableCash)} />
       </div>

@@ -1,7 +1,7 @@
 // Single source of truth for the app version + changelog.
 // Bump APP_VERSION and prepend a CHANGELOG entry on every release.
 
-export const APP_VERSION = "11.8.1";
+export const APP_VERSION = "11.9.0";
 
 export const BUILD_DATE =
   process.env.NEXT_PUBLIC_BUILD_DATE ?? "";
@@ -17,6 +17,16 @@ export type ChangelogEntry = {
 
 // Reverse-chronological. Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: "11.9.0",
+    date: "2026-09-28",
+    title: "Returns in dollars",
+    changes: [
+      "The Holding tab has two new figures: what the shares are worth in dollars at today's USD/PKR rate, and the dollarized return. The dollarized return is the Total return card's sum done in dollars: every buy, sale and dividend converted at the rate of its own day, against what the shares are worth now at today's rate. A gain that only kept pace with a falling rupee shows up as no gain. The card also shows what the rupee did against the dollar since your first buy. The overview carries the dollarized return beside the total return.",
+      "The market value chart has a Rs / $ switch. In dollars, each day's value is at that day's rate and the dashed invested line is every buy and sale at its own day's rate, so the gap between the lines is what a dollar holder made. The choice is remembered on the device.",
+      "USD/PKR is Yahoo's, taken from its hourly prices: each day's median hour. Yahoo's daily closes had been mixing in a second feed about 3% off the market (268.5 against 277 for most of September), while the hourly prices matched two independent references to half a percent. The same corrected series now feeds the model's report.",
+    ],
+  },
   {
     version: "11.8.1",
     date: "2026-09-28",

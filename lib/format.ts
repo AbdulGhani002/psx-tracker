@@ -61,6 +61,17 @@ export function fmtUsd(rs: number | null | undefined, rate: number | null | unde
   return (compact ? USD_COMPACT : USD_FULL).format(rs / rate);
 }
 
+// An amount already in dollars, whole.
+export function fmtDollars(v: number | null | undefined): string {
+  if (v == null || !Number.isFinite(v)) return "—";
+  return USD_FULL.format(v);
+}
+
+export function fmtSignedDollars(v: number | null | undefined): string {
+  if (v == null || !Number.isFinite(v)) return "—";
+  return `${v >= 0 ? "+" : "−"}${USD_FULL.format(Math.abs(v))}`;
+}
+
 export function fmtCompact(v: number | null | undefined): string {
   if (v == null || !Number.isFinite(v)) return "—";
   const abs = Math.abs(v);

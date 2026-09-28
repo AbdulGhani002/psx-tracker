@@ -20,6 +20,7 @@ import { deriveFromTransactions } from "@/lib/calculations";
 import { computeCashBalance } from "@/lib/calculations/cash";
 import { monthlyReturns, monthlyTable, drawdowns, dailyPnl, summarise, type MonthlyTable, type Drawdown, type DailyPnl, type PerfSummary } from "./performance";
 import type { BenchmarkPoint } from "@/lib/timeseries/portfolio-history";
+import { dollarize, loadUsdPkr, type Dollarized } from "./dollarized";
 
 export type NameDay = {
   symbol: string;
@@ -371,6 +372,20 @@ async function _getBookFigures(): Promise<BookFigures> {
   };
 }
 export const getBookFigures = cache(_getBookFigures);
+
+// The share book in dollars (lib/analytics/dollarized.ts): the flows of the
+// shares on the page (parked names left out, as every figure here leaves
+// them) against what those shares are worth now.
+async function _getDollarized(): Promise<Dollarized | null> {
+  const [summary, txs, rates] = await Promise.all([getPortfolioSummary(), getAllTransactions(), loadUsdPkr().catch(() => [])]);
+  const parked = new Set(summary.parked.map((p) => p.symbol));
+  return dollarize(
+    txs.filter((t) => !parked.has(t.symbol)),
+    summary.totalValue,
+    rates
+  );
+}
+export const getDollarized = cache(_getDollarized);
 
 export async function heldSymbols(): Promise<string[]> {
   const holdings = await getAllHoldings();

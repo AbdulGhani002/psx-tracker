@@ -68,6 +68,73 @@ export function despike(bars: EodBar[], limit = 0.15): EodBar[] {
   return keep;
 }
 
+// Yahoo's daily USD/PKR closes sometimes interleave a second feed: in
+// September 2026 most of them came from one about 3% off the market (268.5
+// against 277, some outside their own day's range), while the hourly prices,
+// two independent references and Yahoo's own quote all read 277. So the
+// rupee is taken from the hourly prices where Yahoo keeps them (about two
+// years): each Karachi day's median hour, which matched the references to
+// half a percent from 2024 on. Before that come the daily closes, and a
+// daily close inside the hourly window that stands more than 1.5% off its
+// hourly-backed neighbours is dropped.
+export function hourlyMedians(timestamps: number[], closes: Array<number | null>, tzOffsetHours = 5): Map<string, number> {
+  const byDay = new Map<string, number[]>();
+  for (let i = 0; i < timestamps.length; i++) {
+    const c = closes[i];
+    if (c == null || !Number.isFinite(c) || c <= 0) continue;
+    const d = new Date((timestamps[i] + tzOffsetHours * 3600) * 1000).toISOString().slice(0, 10);
+    const g = byDay.get(d);
+    if (g) g.push(c);
+    else byDay.set(d, [c]);
+  }
+  const out = new Map<string, number>();
+  for (const [d, v] of byDay) {
+    const s = [...v].sort((a, b) => a - b);
+    out.set(d, s.length % 2 ? s[(s.length - 1) / 2] : (s[s.length / 2 - 1] + s[s.length / 2]) / 2);
+  }
+  return out;
+}
+
+export function mergeFx(daily: EodBar[], hourly: Map<string, number>, tolerance = 0.015): EodBar[] {
+  const hDates = [...hourly.keys()].sort();
+  const firstHourly = hDates[0] ?? "9999";
+  const nearest = (d: string): number | null => {
+    let lo = 0, hi = hDates.length - 1, at = -1;
+    while (lo <= hi) {
+      const m = (lo + hi) >> 1;
+      if (hDates[m] <= d) { at = m; lo = m + 1; } else hi = m - 1;
+    }
+    const before = at >= 0 ? hourly.get(hDates[at])! : null;
+    const after = at + 1 < hDates.length ? hourly.get(hDates[at + 1])! : null;
+    return before != null && after != null ? (before + after) / 2 : before ?? after;
+  };
+  const out = new Map<string, number>();
+  for (const b of daily) {
+    if (!(b.close > 0)) continue;
+    if (b.date >= firstHourly && !hourly.has(b.date)) {
+      const ref = nearest(b.date);
+      if (ref != null && Math.abs(b.close / ref - 1) > tolerance) continue;
+    }
+    out.set(b.date, b.close);
+  }
+  for (const [d, v] of hourly) out.set(d, v);
+  return [...out.entries()].sort((a, b) => a[0].localeCompare(b[0])).map(([date, close]) => ({ date, close, volume: 0, vwap: close }));
+}
+
+export async function fetchYahooHourlyMedians(symbol: string): Promise<Map<string, number>> {
+  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?range=730d&interval=1h`;
+  const res = await fetch(url, { headers: { "user-agent": "Mozilla/5.0 (compatible; psx-tracker/0.1)", accept: "application/json" }, cache: "no-store" });
+  if (!res.ok) return new Map();
+  const body: any = await res.json().catch(() => null);
+  const r = body?.chart?.result?.[0];
+  return hourlyMedians(r?.timestamp ?? [], r?.indicators?.quote?.[0]?.close ?? []);
+}
+
+export async function fetchUsdPkrDaily(): Promise<EodBar[]> {
+  const [daily, hourly] = await Promise.all([fetchYahooDaily("PKR=X").catch(() => [] as EodBar[]), fetchYahooHourlyMedians("PKR=X").catch(() => new Map<string, number>())]);
+  return mergeFx(daily, hourly);
+}
+
 export type MacroCache = {
   get(key: string): Promise<EodBar[] | null>;
   put(key: string, bars: EodBar[]): Promise<void>;
@@ -81,7 +148,7 @@ export async function loadMacro(cache: MacroCache | null = null): Promise<Map<Ma
     const cacheKey = `MACRO:${s.key}`;
     let bars = cache ? await cache.get(cacheKey).catch(() => null) : null;
     if (!bars || bars.length === 0) {
-      bars = await fetchYahooDaily(s.symbol).catch(() => []);
+      bars = await (s.key === "usdpkr" ? fetchUsdPkrDaily() : fetchYahooDaily(s.symbol)).catch(() => []);
       if (bars.length > 0 && cache) await cache.put(cacheKey, bars).catch(() => {});
     }
     if (!bars || bars.length < 500) return null;

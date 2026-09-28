@@ -4,6 +4,7 @@ import { eodSeriesCached as fetchEodSeries, manyEodCached as fetchManyEod } from
 import { fetchYahooDaily, type YahooRange } from "./yahoo";
 import { riskFreeIndex, type RateStep } from "./sbp-rate";
 import { computeCashBalance } from "../calculations/cash";
+import { loadUsdPkr, investedUsdSeries } from "../analytics/dollarized";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 function daysBetween(aIso: string, bIso: string): number {
@@ -157,6 +158,9 @@ export type BenchmarkPoint = {
   portfolioUsd: number | null;
   sp500: number | null;
   usdpkr: number | null;
+  usdRate: number | null; // rupees per dollar that day
+  valueUsd: number | null; // portfolioValue at that day's rate
+  investedUsd: number | null; // the dashed line in dollars: each buy and sale at its own day's rate
   riskFree: number | null;
 } & Record<WorldIndexKey, number | null>;
 
@@ -215,7 +219,7 @@ export async function buildBenchmarkSeries({
     await Promise.all([
       fetchEodSeries("KSE100"),
       fetchEodSeries("KMI30"),
-      fetchYahooDaily("USDPKR=X", yahooRange),
+      loadUsdPkr().catch(() => []),
       fetchYahooDaily("^GSPC", yahooRange),
       fetchYahooDaily("GC=F", yahooRange), // gold, USD per troy ounce
       fetchManyEod(symbols),
@@ -453,6 +457,7 @@ export async function buildBenchmarkSeries({
     v != null && b > 0 ? (v / b) * 100 : null;
 
   const hasUsd = base.usd > 0;
+  const investedUsd = hasUsd ? investedUsdSeries(transactions, trimmed.map((r) => r.date), usdpkrSeries) : [];
   const points: BenchmarkPoint[] = trimmed.map((r, i) => ({
     date: r.date,
     portfolioValue: r.portfolioValue,
@@ -467,6 +472,9 @@ export async function buildBenchmarkSeries({
     portfolioUsd: hasUsd ? twrUsd[i] ?? null : null,
     sp500: idx100(r.sp, base.sp),
     usdpkr: idx100(r.usd, base.usd),
+    usdRate: r.usd,
+    valueUsd: r.usd ? r.portfolioValue / r.usd : null,
+    investedUsd: hasUsd ? investedUsd[i] ?? null : null,
     riskFree: riskFree[i] ?? null,
     ...(Object.fromEntries(WORLD_KEYS.map((k) => [k, idx100(r.world[k], worldBase[k])])) as Record<WorldIndexKey, number | null>),
   }));

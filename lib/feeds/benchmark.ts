@@ -2,7 +2,7 @@ import { getAllTransactions, getSbpRateSteps, getSavingsValued, getMutualFundsVa
 import { buildBenchmarkSeries, type BenchmarkSeries } from "@/lib/timeseries/portfolio-history";
 
 export const BENCHMARK_RANGES = ["1M", "3M", "90D", "1Y", "3Y", "ALL"] as const;
-export const benchmarkKey = (range: string) => `benchmark:${range}`;
+export const benchmarkKey = (range: string) => `benchmark:v2:${range}`;
 
 // Cached wrapper shared by the API route and the Wealth page: the series needs
 // a dozen live external fetches (PSX EOD per symbol + Yahoo for FX, gold and
