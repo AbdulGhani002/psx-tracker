@@ -14,7 +14,7 @@
 // unknown and simply drops out of the average, rather than scoring zero and
 // quietly dragging the total toward neutral.
 
-import { fetchEodSeries } from "@/lib/timeseries/psx-eod";
+import { eodSeriesCached } from "@/lib/timeseries/eod-cache";
 import { fetchYahooDaily } from "@/lib/timeseries/yahoo";
 import { getSbpRateSteps, getInflationLive, getFeedSnapshot, saveFeedSnapshot } from "@/lib/data";
 import { getFlows } from "@/lib/analytics";
@@ -91,7 +91,7 @@ export async function computeAutoSignals(): Promise<AutoSignals> {
 
   // --- the index against its own averages -----------------------------------
   try {
-    const kse = await fetchEodSeries("KSE100");
+    const kse = await eodSeriesCached("KSE100");
     const closes = kse.map((p) => p.close).filter((c) => c > 0);
     if (closes.length >= 200) {
       indexLevel = closes[closes.length - 1];

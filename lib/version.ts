@@ -1,7 +1,7 @@
 // Single source of truth for the app version + changelog.
 // Bump APP_VERSION and prepend a CHANGELOG entry on every release.
 
-export const APP_VERSION = "11.8.0";
+export const APP_VERSION = "11.8.1";
 
 export const BUILD_DATE =
   process.env.NEXT_PUBLIC_BUILD_DATE ?? "";
@@ -17,6 +17,15 @@ export type ChangelogEntry = {
 
 // Reverse-chronological. Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: "11.8.1",
+    date: "2026-09-28",
+    title: "The KSE-100 chart and the top bar's index are current again",
+    changes: [
+      "The KSE-100, KMI-30 and KSE-30 had stopped at 23 September: the exchange's index series no longer answers the server, and the end-of-day stock file carries no index lines. They now come from the exchange's index board every evening after the close, which gives the day's official close and the one before it. A session the evening job misses is rebuilt from the index's constituents, their free-float shares at each day's closes from the kept stock files, and fitted to the official closes on either side. Rebuilt that way, 24 and 25 September came out to the paisa of the official closes of all three indices, so 24 September, the one day filled in, is as good as official.",
+      "The market-regime signals (the index against its 50- and 200-day averages) and the ladder's backtest read the KSE-100 from the same stored series as the charts, instead of the feed that stopped answering.",
+    ],
+  },
   {
     version: "11.8.0",
     date: "2026-09-27",

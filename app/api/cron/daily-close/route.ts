@@ -21,7 +21,7 @@ export async function POST(req: Request) {
   const body: any = await req.json().catch(() => ({}));
   const t0 = Date.now();
   const from = typeof body?.from === "string" && /^\d{4}-\d{2}-\d{2}$/.test(body.from) ? body.from : undefined;
-  const { sheets, bars } = await refreshCloses({ from });
+  const { sheets, bars, indices } = await refreshCloses({ from });
   const latest = bars.latest ?? sheets.latest;
   const users = await getAllUserIds();
   const results: Array<Record<string, unknown>> = [];
@@ -42,6 +42,7 @@ export async function POST(req: Request) {
     seconds: Math.round((Date.now() - t0) / 1000),
     sheets,
     bars: { ...bars, days: bars.days.slice(-5), adjusted: bars.adjusted.slice(-20) },
+    indices,
     users: results,
   });
 }

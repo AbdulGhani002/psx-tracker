@@ -31,6 +31,8 @@ import { appendSheetDay, followsGap, unknownDaysBetween } from "../lib/quant/she
 import { addSessions, sessionsBetween, stepTrade, pickTrades, newTrade, bookLevels, swingBookBacktest, SWING_BOOK_RULE, type BookTrade } from "../lib/quant/swing";
 import { advanceBook, type SwingBook } from "../lib/quant/swing-book";
 import type { DayRow } from "../lib/timeseries/psx-history";
+import { parseIndexBoard, parseIndexConstituents, parseAsOf } from "../lib/timeseries/dps-indices";
+import { boardCloses, indexDayRatio, bridgeIndex } from "../lib/quant/index-bars";
 import type { PanelPoint } from "../lib/quant/panel";
 import type { EodBar } from "../lib/timeseries/psx-eod";
 
@@ -886,6 +888,47 @@ function randomWalk(n: number, drift = 0.0003, vol = 0.015, start = 100): EodBar
   check("the book trades, and keeps to its slots", withModel.trades > 20 && withModel.exposurePct <= 100.0001, withModel.trades);
   check("on a planted edge the model's book beats the same book on random names", withModel.avgRetPct > noModel.avgRetPct && withModel.cagrPct > noModel.cagrPct, `${withModel.avgRetPct.toFixed(2)} vs ${noModel.avgRetPct.toFixed(2)}`);
   check("every closed trade has its reason and its sell-by", withModel.hitTarget + withModel.hitStop + withModel.hitTime > 0.999);
+}
+
+// ------------------------------------------------ the index board and bridge
+{
+  const boardHtml = `<div class="topbar">As of  Sep 28, 2026 2:44 AM</div><table><thead class="tbl__head"><tr><th>Index</th><th class="right">High</th><th class="right">Low</th><th class="right">Current</th><th class="right">Change</th><th class="right">% Change</th></tr></thead><tbody class="tbl__body">`
+    + `<tr><td><a class="link" href="javascript:;" data-code="KSE100"><b>KSE100</b></a></td><td class="right" data-order="171159.73">171,159.73</td><td class="right" data-order="169890.56">169,890.56</td><td class="right" data-order="170765.22">170,765.22</td><td class="right change__text--noc" data-order="0"><i class=""></i> 0.00</td><td class="right change__text--noc" data-order="0"><i class=""></i> 0.00%</td></tr>`
+    + `<tr><td><a class="link" href="javascript:;" data-code="KMI30"><b>KMI30</b></a></td><td class="right" data-order="245058.52">245,058.52</td><td class="right" data-order="242993.97">242,993.97</td><td class="right" data-order="244391.3">244,391.30</td><td class="right change__text--neg" data-order="-812.5"><i class="icon-down-dir"></i> -812.50</td><td class="right change__text--neg" data-order="-0.33">-0.33%</td></tr></tbody></table>`;
+  const board = parseIndexBoard(boardHtml);
+  check("the index board reads every index with its level and change", board.rows.size === 2 && board.rows.get("KSE100")!.current === 170765.22 && board.rows.get("KMI30")!.change === -812.5 && board.rows.get("KSE100")!.high === 171159.73);
+  check("and the time it is as of, in Karachi", board.asOfDate === "2026-09-28" && board.asOfMinutes === 2 * 60 + 44);
+  check("noon and midnight read right", parseAsOf("As of Sep 29, 2026 12:05 PM")?.minutes === 12 * 60 + 5 && parseAsOf("As of Sep 29, 2026 12:30 AM")?.minutes === 30 && parseAsOf("no time here") === null);
+  const consHtml = `<tbody class="tbl__body"><tr><td data-order="ABL"><a class="tbl__symbol" href="/company/ABL" data-title="Allied Bank Limited" target="_blank"><strong>ABL</strong></a></td><td>Allied Bank Limited</td><td class="right" data-order="170.2">170.20</td><td class="right" data-order="170.2">170.20</td><td class="right change__text--pos" data-order="0.19"><i class="icon-up-dir"></i> 0.19</td><td class="right change__text--pos" data-order="0.11199999999999999"><i class="icon-up-dir"></i> 0.11%</td><td class="right">0.41%</td><td class="right change__text--noc" data-order="0">0.00</td><td class="right" data-order="48441">48,441</td><td class="right" data-order="114507383">115</td><td class="right" data-order="19489156586.6">19,489</td></tr></tbody>`;
+  const cons = parseIndexConstituents(consHtml);
+  check("a constituent reads with its weight, volume and exact free float", cons.length === 1 && cons[0].symbol === "ABL" && cons[0].current === 170.2 && cons[0].weightPct === 0.41 && cons[0].volume === 48441 && cons[0].freeFloat === 114507383);
+
+  // Which close the board is giving.
+  const mk = (asOfDate: string, current: number, change: number) => ({ asOfDate, asOfMinutes: 0, rows: new Map([["KSE100", { code: "KSE100", high: 0, low: 0, current, change, changePct: 0 }]]) });
+  check("before Monday's open, the level is Friday's close", JSON.stringify(boardCloses(mk("2026-09-28", 170765.22, 0), "KSE100", "2026-09-25")) === JSON.stringify({ close: 170765.22, prevClose: null }));
+  check("during Monday, the level less the change is Friday's close", Math.abs(boardCloses(mk("2026-09-28", 171000, 234.78), "KSE100", "2026-09-25")!.close - 170765.22) < 1e-6);
+  const after = boardCloses(mk("2026-09-28", 171000, 234.78), "KSE100", "2026-09-28")!;
+  check("after Monday's close, the level is Monday's close and the level less the change Friday's", after.close === 171000 && Math.abs(after.prevClose! - 170765.22) < 1e-6);
+  check("a board two sessions on says nothing, nor one without the index", boardCloses(mk("2026-09-29", 171000, 10), "KSE100", "2026-09-25") === null && boardCloses(mk("2026-09-28", 1, 0), "KMI30", "2026-09-25") === null);
+
+  // Rebuilding from constituents: exact where the units are the index's own.
+  const units = new Map([["A", 10], ["B", 5], ["C", 2]]);
+  const level = new Map([["A", 100], ["B", 50], ["C", 200]]);
+  const k = 1000 / (10 * 100 + 5 * 50 + 2 * 200);
+  const d1 = new Map<string, DayRow>([["A", ["A", 0, 0, 0, 101, 7, 100]], ["B", ["B", 0, 0, 0, 49, 3, 50]]]); // C did not trade
+  const d2 = new Map<string, DayRow>([["A", ["A", 0, 0, 0, 103, 7, 101]], ["B", ["B", 0, 0, 0, 50, 3, 49]], ["C", ["C", 0, 0, 0, 190, 1, 200]]]);
+  const i1 = k * (10 * 101 + 5 * 49 + 2 * 200), i2 = k * (10 * 103 + 5 * 50 + 2 * 190);
+  check("a name that did not trade counts at its last close on both sides", Math.abs(indexDayRatio(units, d1, level) - (10 * 101 + 5 * 49 + 400) / (10 * 100 + 5 * 50 + 400)) < 1e-12);
+  const days = [{ date: "2026-09-24", rows: d1 }, { date: "2026-09-25", rows: d2 }];
+  const p = bridgeIndex({ date: "2026-09-23", close: 1000 }, days, units, level, new Map([["2026-09-25", i2]]));
+  check("the missed day is rebuilt exactly, the official day kept", Math.abs(p[0].close - i1) < 1e-9 && p[0].rebuilt && p[1].close === i2 && !p[1].rebuilt);
+  const q = bridgeIndex({ date: "2026-09-23", close: 1000 }, days, units, level, new Map([["2026-09-25", i2 * 1.001]]));
+  check("a gap to the official close is spread over the missed days, and the series passes through it", q[1].close === i2 * 1.001 && Math.abs(q[0].close / i1 - Math.sqrt(1.001)) < 1e-9);
+  const r = bridgeIndex({ date: "2026-09-23", close: 1000 }, days, units, level, new Map());
+  check("with no official close after them, rebuilt days keep their own moves", Math.abs(r[0].close - i1) < 1e-9 && Math.abs(r[1].close - i2) < 1e-9 && r.every((x) => x.rebuilt));
+  const three = [...days, { date: "2026-09-28", rows: new Map<string, DayRow>([["A", ["A", 0, 0, 0, 104, 7, 103]]]) }];
+  const s3 = bridgeIndex({ date: "2026-09-23", close: 1000 }, three, units, level, new Map([["2026-09-24", 1004], ["2026-09-28", 1010]]));
+  check("with official closes on both sides of a day, each is kept and the day between fitted", s3[0].close === 1004 && s3[2].close === 1010 && s3[1].rebuilt && s3[1].close > 1004 && s3[1].close < 1010);
 }
 
 console.log("\n" + pass + " passed, " + fail + " failed");

@@ -14,7 +14,8 @@
 // arithmetic over about 1,200 bars and takes milliseconds, so only the fetch is
 // worth storing.
 
-import { fetchEodSeries, type EodPoint } from "@/lib/timeseries/psx-eod";
+import type { EodPoint } from "@/lib/timeseries/psx-eod";
+import { eodSeriesCached } from "@/lib/timeseries/eod-cache";
 import { getFeedSnapshot, saveFeedSnapshot } from "@/lib/data";
 import {
   runBacktest,
@@ -88,7 +89,7 @@ async function getSeries(force = false): Promise<Bar[]> {
     Date.now() - new Date(cached.updatedAt).getTime() < FRESH_MS;
   if (!force && fresh) return cached.data as Bar[];
   try {
-    const live = await fetchEodSeries("KSE100");
+    const live = await eodSeriesCached("KSE100");
     if (live.length > 0) {
       await saveFeedSnapshot(EOD_CACHE_KEY, live, "ok", live.length + " sessions").catch(() => {});
       return live;
