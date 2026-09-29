@@ -1,7 +1,7 @@
 // Single source of truth for the app version + changelog.
 // Bump APP_VERSION and prepend a CHANGELOG entry on every release.
 
-export const APP_VERSION = "11.9.1";
+export const APP_VERSION = "11.9.2";
 
 export const BUILD_DATE =
   process.env.NEXT_PUBLIC_BUILD_DATE ?? "";
@@ -17,6 +17,14 @@ export type ChangelogEntry = {
 
 // Reverse-chronological. Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: "11.9.2",
+    date: "2026-09-29",
+    title: "Rebalance page without the buy-zone order sizer",
+    changes: [
+      "The Buy zones and your cash section (money to deploy, the orders sized from your buy bands, the fund and reserve notes) is gone from the Rebalance page and the portfolio's Rebalance tab. The target allocation, its donut and the rebalance calculator stay as they were, and the zone alerts on Telegram still size their orders the same way.",
+    ],
+  },
   {
     version: "11.9.1",
     date: "2026-09-28",

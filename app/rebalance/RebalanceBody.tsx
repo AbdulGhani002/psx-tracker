@@ -1,4 +1,3 @@
-import Link from "next/link";
 import { Card } from "@/components/ui/Card";
 import { StatCard } from "@/components/ui/StatCard";
 import { AllocationDonut } from "@/components/charts/AllocationDonut";
@@ -6,13 +5,12 @@ import { SetupBanner } from "@/components/layout/SetupBanner";
 import { RebalanceView } from "./RebalanceView";
 import { TargetsEditor } from "./TargetsEditor";
 import { AddCompany } from "./AddCompany";
-import { DeploymentPlan } from "./DeploymentPlan";
 import { getPortfolioSummary, getAllHoldings, getDeploymentPlan, getAppSettings, checkDataAvailability } from "@/lib/data";
 import { fmtRs } from "@/lib/format";
 
 // Rebalancing, laid out the way Zar lays it out: the target allocation table
-// beside its donut, the money free to deploy, then the trades that get the
-// book to its targets. Used by the Rebalance page and the portfolio tab.
+// beside its donut, then the trades that get the book to its targets. Used by
+// the Rebalance page and the portfolio tab.
 export async function RebalanceBody() {
   const avail = await checkDataAvailability();
   const [summary, holdings, plan, settings] = await Promise.all([getPortfolioSummary(), getAllHoldings(), getDeploymentPlan(), getAppSettings()]);
@@ -56,22 +54,6 @@ export async function RebalanceBody() {
           <AllocationDonut slices={relevant.filter((p) => (p.targetPercent ?? 0) > 0).map((p) => ({ label: p.symbol, value: p.targetPercent }))} maxSlices={10} centerValue={`${Math.round(targetTotal)}%`} centerLabel="assigned" />
         </Card>
       </div>
-
-      <Card className="mt-3" title="Buy zones and your cash" eyebrow={`Your bands against live prices, sized to your targets and paid from the fund, with ${plan.reservePct}% of total wealth kept back`} action={<Link href="/watchlist" className="text-[12px] link-underline">Edit zones</Link>}>
-        <DeploymentPlan
-          candidates={plan.candidates}
-          equityValue={plan.equityValue}
-          fundsValue={plan.fundsValue}
-          brokerCash={plan.brokerCash}
-          reservePct={plan.reservePct}
-          fundsLabel={plan.fundsLabel}
-          sells={plan.board.sells.map((r) => ({ symbol: r.symbol, price: r.price, sharesHeld: r.sharesHeld, minHoldingShares: r.minHoldingShares, sellableShares: r.sellableShares, sellZoneLow: r.sellZoneLow, sellZoneHigh: r.sellZoneHigh, sell: r.sell }))}
-          heldAtCore={plan.board.heldAtCore.map((r) => ({ symbol: r.symbol, sharesHeld: r.sharesHeld, minHoldingShares: r.minHoldingShares }))}
-          zones={plan.board.rows.map((r) => ({ symbol: r.symbol, buyZoneLow: r.buyZoneLow, buyZoneHigh: r.buyZoneHigh }))}
-          serverWarnings={plan.serverWarnings}
-          watchedCount={plan.board.rows.length}
-        />
-      </Card>
 
       <Card className="mt-3" title="Rebalance your portfolio" eyebrow="Enter the cash you have and it is deployed against your targets in whole shares">
         <RebalanceView positions={relevant} totalValue={summary.totalValue} availableCashBalance={0} />
