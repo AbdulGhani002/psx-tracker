@@ -146,6 +146,22 @@ async function seriesHeads(): Promise<SeriesHead[]> {
   return out;
 }
 
+// The latest close of every name, by symbol (the pages' price for a name not
+// held, where the live price is not fetched): from the last five closing
+// sheets, newest first, which is one small read; from the stored series only
+// when there are no sheets yet.
+export async function latestCloses(): Promise<Map<string, { date: string; close: number }>> {
+  await connectDb();
+  const docs = (await FeedSnapshotModel.find({ key: { $gt: SHEET_PREFIX, $lt: SHEET_PREFIX + "~" }, status: { $ne: "holiday" } }, { key: 1, data: 1 }).sort({ key: -1 }).limit(5).lean()) as any[];
+  const out = new Map<string, { date: string; close: number }>();
+  for (const d of docs) {
+    const date = String(d.data?.date ?? String(d.key).slice(SHEET_PREFIX.length));
+    for (const r of (d.data?.rows ?? []) as DayRow[]) if (!out.has(r[0]) && r[4] > 0) out.set(r[0], { date, close: r[4] });
+  }
+  if (out.size > 0) return out;
+  return new Map((await seriesHeads()).map((h) => [h.symbol, { date: h.date, close: h.close }]));
+}
+
 async function lastBarsDate(): Promise<string | null> {
   const heads = await seriesHeads();
   return heads.length ? heads.map((h) => h.date).sort().pop()! : null;

@@ -1,0 +1,10 @@
+[Unit]
+Description=PSX tracker: every night, the next 30 company pages for the quality figures
+
+[Timer]
+OnCalendar=*-*-* 02:40:00
+AccuracySec=5min
+Persistent=true
+
+[Install]
+WantedBy=timers.target

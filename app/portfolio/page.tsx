@@ -4,6 +4,7 @@ import { Skeleton } from "@/components/ui/Skeleton";
 import { selectedPortfolio, listPortfolios } from "@/lib/portfolios";
 import { HoldingTab } from "./tabs/HoldingTab";
 import { AnalyticsTab } from "./tabs/AnalyticsTab";
+import { QualityTab } from "./tabs/QualityTab";
 import { TradesTab } from "./tabs/TradesTab";
 import { PayoutsTab } from "./tabs/PayoutsTab";
 import { CashTab } from "./tabs/CashTab";
@@ -14,13 +15,14 @@ import { SettingsTab } from "./tabs/SettingsTab";
 export const dynamic = "force-dynamic";
 
 // One portfolio (or all of them together), with the tabs Zar gives a
-// portfolio: holding, analytics, trade history, payouts, cash, CGT, zakat,
+// portfolio: holding, analytics, quality, trade history, payouts, cash, CGT, zakat,
 // rebalance and settings. Which portfolio is a cookie set by the switcher or
 // the sidebar; every reader below already filters by it.
 
 const TABS = [
   { key: "holding", label: "Holding" },
   { key: "analytics", label: "Analytics" },
+  { key: "quality", label: "Quality" },
   { key: "trades", label: "Trade history" },
   { key: "payouts", label: "Payouts" },
   { key: "cash", label: "Cash" },
@@ -69,6 +71,7 @@ export default async function PortfolioPage(props: { searchParams: Promise<Portf
       <Suspense fallback={<Skeleton className="w-full" style={{ height: 420, borderRadius: 10 }} />}>
         {tab === "holding" && <HoldingTab />}
         {tab === "analytics" && <AnalyticsTab search={searchParams} />}
+        {tab === "quality" && <QualityTab />}
         {tab === "trades" && <TradesTab />}
         {tab === "payouts" && <PayoutsTab />}
         {tab === "cash" && <CashTab />}

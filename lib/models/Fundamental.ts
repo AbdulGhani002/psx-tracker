@@ -10,6 +10,25 @@ const AnnualSchema = new Schema(
     profitAfterTax: { type: Number, default: null },
     netMarginPct: { type: Number, default: null },
     revenue: { type: Number, default: null },
+    grossMarginPct: { type: Number, default: null },
+  },
+  { _id: false }
+);
+
+// The statement of financial position read from the company's latest
+// readable filed report (lib/prices/balance-sheet.ts). Rupees.
+const BalanceSheetSchema = new Schema(
+  {
+    periodEnd: { type: String, required: true },
+    equity: { type: Number, required: true },
+    totalAssets: { type: Number, required: true },
+    consolidated: { type: Boolean, default: false },
+    method: { type: String, default: "" },
+    unit: { type: Number, default: 1 },
+    page: { type: Number, default: 0 },
+    source: { type: String, default: "" }, // the filing's PDF
+    reportTitle: { type: String, default: "" },
+    readAt: { type: Date, default: () => new Date() },
   },
   { _id: false }
 );
@@ -41,6 +60,12 @@ const FundamentalSchema = new Schema(
     pegTtm: { type: Number, default: null },
     sharesOutstanding: { type: Number, default: null },
     marketCapThousands: { type: Number, default: null },
+    fiscalYearEndMonth: { type: Number, default: null },
+    balanceSheet: { type: BalanceSheetSchema, default: null },
+    // The newest report last tried for a balance sheet, so a scanned filing
+    // is not downloaded again every run.
+    balanceTried: { type: new Schema({ url: String, at: Date, ok: Boolean }, { _id: false }), default: null },
+    qualityCheckedAt: { type: Date, default: null },
     payouts: { type: [PayoutSchema], default: [] }, // authoritative PSX payout history
     source: { type: String, default: "psx-dps" },
     fetchedAt: { type: Date, default: () => new Date() },

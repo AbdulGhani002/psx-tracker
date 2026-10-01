@@ -1,4 +1,7 @@
 import Link from "next/link";
+import { Suspense } from "react";
+import { Skeleton } from "@/components/ui/Skeleton";
+import { CompanyQualityPanel } from "@/components/quality/CompanyQualityPanel";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { Section } from "@/components/layout/Section";
 import { Badge } from "@/components/ui/Badge";
@@ -108,6 +111,16 @@ export default async function StockPage(props: { params: Promise<{ symbol: strin
             </dl>
           </div>
         </div>
+      </Section>
+
+      <Section
+        number="02b"
+        title="Quality & value"
+        description="What the company earns on its equity against what that equity costs, what the market charges for its earnings over a cycle, and the quadrant and grade that puts it in. The same figures, for every holding at once, are on the portfolio's Quality tab."
+      >
+        <Suspense fallback={<Skeleton className="w-full" style={{ height: 260, borderRadius: 10 }} />}>
+          <CompanyQualityPanel symbol={sym} />
+        </Suspense>
       </Section>
 
       <Section number="03" title="Chart patterns" description="Reversal and continuation shapes detected from the recent price swings. A heuristic, not a signal — confirm with volume.">

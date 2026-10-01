@@ -15,6 +15,7 @@ export type AnnualFinancial = {
   profitAfterTax: number | null; // in thousands of rupees, as PSX reports
   netMarginPct: number | null; // net profit margin %
   revenue: number | null; // sales / total income (thousands), as PSX reports
+  grossMarginPct?: number | null; // gross profit margin %, where the portal gives one
 };
 
 export type CompanyFundamentals = {
@@ -32,6 +33,7 @@ export type CompanyFundamentals = {
   pegTtm: number | null; // PSX's reported PEG
   sharesOutstanding: number | null; // PSX "Shares" stat
   marketCapThousands: number | null; // PSX "Market Cap (000's)"
+  fiscalYearEndMonth: number | null; // 1..12, from the company profile ("Fiscal Year End June")
   fetchedAt: string; // ISO
   source: string;
 };
@@ -99,6 +101,7 @@ export function parseFinancials(html: string, symbol: string): CompanyFundamenta
   const epsCells = extractRow(panel, "EPS").map(parseNum);
   const profitCells = extractRow(panel, "Profit after Taxation").map(parseNum);
   const marginCells = extractRow(panel, "Net Profit Margin \\(%\\)").map(parseNum);
+  const grossCells = extractRow(panel, "Gross Profit Margin \\(%\\)").map(parseNum);
   // Revenue is labelled differently by sector: Sales for manufacturers, Total
   // Income / Mark-up Earned for banks. Use whichever row exists.
   const revLabels = ["Sales", "Net Sales", "Total Income", "Mark-up Earned", "Revenue"];
@@ -117,6 +120,7 @@ export function parseFinancials(html: string, symbol: string): CompanyFundamenta
     profitAfterTax: profitCells[i] ?? null,
     netMarginPct: marginCells[i] ?? null,
     revenue: revCells[i] ?? null,
+    grossMarginPct: grossCells[i] ?? null,
   }));
 
   const latestEps = annual[0]?.eps ?? null;
@@ -147,9 +151,29 @@ export function parseFinancials(html: string, symbol: string): CompanyFundamenta
     pegTtm: parseStat(html, "PEG"),
     sharesOutstanding: parseStat(html, "Shares"),
     marketCapThousands: parseStat(html, "Market Cap"),
+    fiscalYearEndMonth: parseFiscalYearEnd(html),
     fetchedAt: new Date().toISOString(),
     source: "psx-dps",
   };
+}
+
+const FY_MONTHS = ["january", "february", "march", "april", "may", "june", "july", "august", "september", "october", "november", "december"];
+// "Fiscal Year End June" in the company profile -> 6.
+export function parseFiscalYearEnd(html: string): number | null {
+  const t = html.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ");
+  const m = /Fiscal Year End\s+([A-Za-z]+)/i.exec(t);
+  const k = m ? FY_MONTHS.findIndex((x) => x.startsWith(m[1].toLowerCase().slice(0, 3))) : -1;
+  return k >= 0 ? k + 1 : null;
+}
+
+// The company page itself, for callers that read more than one thing off it.
+export async function fetchCompanyPage(symbol: string): Promise<string | null> {
+  try {
+    const res = await fetch(PSX_URL(symbol.toUpperCase()), { headers: { "user-agent": UA, accept: "text/html" }, cache: "no-store", signal: AbortSignal.timeout(20000) });
+    return res.ok ? await res.text() : null;
+  } catch {
+    return null;
+  }
 }
 
 export async function fetchFundamentals(symbol: string): Promise<CompanyFundamentals | null> {

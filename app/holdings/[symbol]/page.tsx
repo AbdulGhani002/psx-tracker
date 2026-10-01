@@ -1,4 +1,7 @@
 import Link from "next/link";
+import { Suspense } from "react";
+import { Skeleton } from "@/components/ui/Skeleton";
+import { CompanyQualityPanel } from "@/components/quality/CompanyQualityPanel";
 import { notFound } from "next/navigation";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { Section } from "@/components/layout/Section";
@@ -260,6 +263,21 @@ export default async function HoldingDetail(props: Props) {
           <ValuationDerivation intrinsic={intrinsic} />
         </Section>
       )}
+
+      <Section
+        number="02b"
+        title="Quality & value"
+        description="What the company earns on its equity against what that equity costs, what the market charges for its earnings over a cycle, and the quadrant and grade that puts it in. The same figures, for every holding at once, are on the portfolio's Quality tab."
+        action={
+          <Link href="/portfolio?tab=quality" className="font-mono text-[11px] uppercase tracking-stat text-muted hover:text-[var(--accent-deep)]">
+            Portfolio quality →
+          </Link>
+        }
+      >
+        <Suspense fallback={<Skeleton className="w-full" style={{ height: 260, borderRadius: 10 }} />}>
+          <CompanyQualityPanel symbol={symbol} />
+        </Suspense>
+      </Section>
 
       <Section
         number="03"

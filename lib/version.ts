@@ -1,7 +1,7 @@
 // Single source of truth for the app version + changelog.
 // Bump APP_VERSION and prepend a CHANGELOG entry on every release.
 
-export const APP_VERSION = "11.9.2";
+export const APP_VERSION = "11.10.0";
 
 export const BUILD_DATE =
   process.env.NEXT_PUBLIC_BUILD_DATE ?? "";
@@ -17,6 +17,19 @@ export type ChangelogEntry = {
 
 // Reverse-chronological. Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: "11.10.0",
+    date: "2026-10-02",
+    title: "Quality and price for every holding",
+    changes: [
+      "The portfolio has a Quality tab. For each holding: the P/E; a cycle-adjusted P/E (the price over the average of the past years' earnings, each restated in today's rupees with the PBS price index, as Shiller's CAPE does); price to book beside the P/B its return on equity justifies; return on equity against the cost of equity (the SBP rate plus your equity premium) and its DuPont split into margin, turnover and leverage; earnings and sales growth; dividend yield and payout; and the implied return, dividend yield plus the growth its retained earnings buy.",
+      "Each company is placed in a quadrant, its ROE against its cost and its cycle-adjusted P/E against the KSE-100's median (undervalued compounder, quality at a premium, possible value trap, poor and dear), and graded A to D. A chart puts every holding among the KSE-100 on those two lines.",
+      "The portfolio's own figures sit beside the KSE-100's, weighted by value, multiples combined as total value over total earnings the way an index's are, with the share of your money in each quadrant and grade. The KSE-100's compounders you don't hold are listed underneath.",
+      "Return on equity comes from each company's own balance sheet, read from the statement of financial position in its latest filed report. Where the filing is a scan that cannot be read, the book value per share entered on the holding is used, and the page says which.",
+      "Each holding's page and each stock's page has a Quality & value section with the same figures, the earnings year by year in today's rupees, and a link to the filing the book value came from.",
+      "A nightly job reads 30 company pages (financials, payouts, and a newly filed report's balance sheet), so the KSE-100 and your holdings are refreshed every four days.",
+    ],
+  },
   {
     version: "11.9.2",
     date: "2026-09-29",
