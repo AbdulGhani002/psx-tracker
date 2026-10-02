@@ -6,7 +6,7 @@
 //        [--no-context] [--macro] [--universe kse100|held] [--symbols A,B] [--held A,B]
 //        [--no-validate] [--windows N] [--cache DIR] [--out FILE] [--fixedRounds] [--no-median]
 //        [--archive DIR] [--top 120] [--finalSeeds 3] [--no-outlook] [--no-extras] [--no-xs] [--points FILE]
-//        [--outlook-from FILE] [--events]
+//        [--outlook-from FILE] [--events] [--xs-day]
 //
 // --archive trains on the exchange's 24-year archive (scripts/psx-history.ts)
 // exactly as scripts/quant-long.ts tests it: a universe that changes each
@@ -75,6 +75,8 @@ async function main() {
   // and DEFAULT_PANEL for what they were worth on the 24-year walk-forward.
   const useExtras = !has("no-extras");
   const useXs = !!opts.xs;
+  // The index's state as the day's value in the cross-sectional view.
+  const useXsDay = useXs && has("xs-day");
   // The corporate-action block (lib/quant/events.ts), archive runs only.
   const useEvents = has("events");
 
@@ -93,7 +95,7 @@ async function main() {
       console.error("--macro is not wired for --archive here; run scripts/quant-long.ts --macro to test it.");
       process.exit(1);
     }
-    const arch = buildArchivePanel(archiveDir, opts.horizon, num("top", 120), useRanks, null, { extras: useExtras, xs: useXs, events: useEvents });
+    const arch = buildArchivePanel(archiveDir, opts.horizon, num("top", 120), useRanks, null, { extras: useExtras, xs: useXs, xsDay: useXsDay, events: useEvents });
     bars = arch.bars;
     index = arch.index;
     ctx = { context: arch.context, names: arch.contextNames };
@@ -148,7 +150,7 @@ async function main() {
       breadth200 = new Map();
       for (const [d, v] of market) breadth200.set(d, v[brIdx] + 0.5);
     }
-    panel = buildPanel(bars, index, opts.horizon, { context: ctx?.context ?? null, ranks: useRanks, extras: useExtras, xs: useXs });
+    panel = buildPanel(bars, index, opts.horizon, { context: ctx?.context ?? null, ranks: useRanks, extras: useExtras, xs: useXs, xsDay: useXsDay });
     featureNames = [...FEATURE_NAMES, ...(useExtras ? EXTRA_FEATURE_NAMES : []), ...(ctx?.names ?? []), ...(useRanks ? RANK_FEATURE_NAMES : [])];
     universeNames = panel.symbols;
   }
@@ -265,7 +267,7 @@ Swing trades at the zones' levels (entry at the top of the buy zone, stop at the
     featureNames,
     contextNames: ctx?.names ?? [],
     rankNames: useRanks ? [...RANK_FEATURE_NAMES] : [],
-    featureSet: { extras: useExtras, xs: useXs, events: useEvents && !!archiveDir },
+    featureSet: { extras: useExtras, xs: useXs, events: useEvents && !!archiveDir, ...(useXsDay ? { xsDay: true } : {}) },
     targetNames: [...TARGET_NAMES],
     universe: universeNames,
     universeSource,

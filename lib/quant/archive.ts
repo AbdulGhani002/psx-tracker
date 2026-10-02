@@ -171,7 +171,7 @@ export type ArchivePanel = {
   years: [number, number];
 };
 
-export function buildArchivePanel(dir: string, horizon: number, top = 120, ranks = false, macro: Map<string, number[]> | null = null, fo: { extras?: boolean; xs?: boolean; events?: boolean } = {}): ArchivePanel {
+export function buildArchivePanel(dir: string, horizon: number, top = 120, ranks = false, macro: Map<string, number[]> | null = null, fo: { extras?: boolean; xs?: boolean; xsDay?: boolean; events?: boolean } = {}): ArchivePanel {
   const bars = loadArchive(dir);
   const members = membership(bars, top);
   const memberSymbols = new Set<string>();
@@ -184,7 +184,7 @@ export function buildArchivePanel(dir: string, horizon: number, top = 120, ranks
   const memberBars = new Map([...bars].filter(([s]) => memberSymbols.has(s)));
   const include = (symbol: string, date: string) => members.get(Number(date.slice(0, 4)))?.has(symbol) ?? false;
   const events = fo.events ? loadActions(dir, memberSymbols) : undefined;
-  const panel = buildPanel(memberBars, index, horizon, { context: merged.context, include, minRows: 60, ranks, extras: fo.extras, xs: fo.xs, events });
+  const panel = buildPanel(memberBars, index, horizon, { context: merged.context, include, minRows: 60, ranks, extras: fo.extras, xs: fo.xs, xsDay: fo.xsDay, events });
   return {
     panel,
     index,

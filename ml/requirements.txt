@@ -1,0 +1,9 @@
+# PSX-Net training (ml/psxnet.py) runs on the training machine's GPU only; the
+# server runs the network through lib/quant/net-infer.ts and needs none of this.
+#
+#   python -m pip install numpy
+#   python -m pip install torch --index-url https://download.pytorch.org/whl/cu128
+#
+# (or download the cu128 wheel for your Python from that index and pip install the file)
+numpy>=2.0
+torch>=2.9

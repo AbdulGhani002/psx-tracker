@@ -14,7 +14,7 @@ import { buildFeatures, readTrend, FEATURE_NAMES, TARGET_NAMES, DIP_PCT } from "
 import { trainMlp, predictMlp, predictMlpAll, mulberry32 } from "../lib/quant/mlp";
 import { trainGbm, predictGbm, trainGbmMulti, gbmFeatureUse } from "../lib/quant/gbm";
 import { walkForward, describeForecast, DEFAULT_WALK } from "../lib/quant/walkforward";
-import { buildPanel, walkForwardPanel, auc, spearman, describeAuc, predictEnsemble, trainEnsemble, DEFAULT_PANEL, type PanelOptions } from "../lib/quant/panel";
+import { buildPanel, walkForwardPanel, auc, spearman, describeAuc, predictEnsemble, trainEnsemble, DEFAULT_PANEL, DAY_STATE_FEATURES, type PanelOptions } from "../lib/quant/panel";
 import { marketContext, MARKET_CONTEXT_NAMES } from "../lib/quant/context";
 import { despike } from "../lib/timeseries/macro";
 import { probit, projectLevels, modelBands, pathCurve, depthAt, pathLevels, WALK_CURVE } from "../lib/quant/projection";
@@ -929,6 +929,37 @@ function randomWalk(n: number, drift = 0.0003, vol = 0.015, start = 100): EodBar
   const three = [...days, { date: "2026-09-28", rows: new Map<string, DayRow>([["A", ["A", 0, 0, 0, 104, 7, 103]]]) }];
   const s3 = bridgeIndex({ date: "2026-09-23", close: 1000 }, three, units, level, new Map([["2026-09-24", 1004], ["2026-09-28", 1010]]));
   check("with official closes on both sides of a day, each is kept and the day between fitted", s3[0].close === 1004 && s3[2].close === 1010 && s3[1].rebuilt && s3[1].close > 1004 && s3[1].close < 1010);
+}
+
+{
+  // The index's own state in the cross-sectional view: a rank across names
+  // by default (as the models trained so far read it), the day's value with
+  // xsDay. Built last: it draws on the shared random stream.
+  const index = randomWalk(700, 0.0003, 0.01, 40000);
+  const names = new Map<string, EodBar[]>();
+  for (let s = 0; s < 10; s++) names.set("D" + s, randomWalk(700, 0.0002 * s, 0.015 + 0.002 * s, 50 + 10 * s));
+  // One name stops trading for a while, so its index features lag the day's.
+  names.set("D3", names.get("D3")!.filter((_, i) => i < 400 || i > 430));
+  const plain = buildPanel(names, index, 20, { extras: true, xs: true });
+  const day = buildPanel(names, index, 20, { extras: true, xs: true, xsDay: true });
+  const cols = DAY_STATE_FEATURES.map((n) => (FEATURE_NAMES as readonly string[]).indexOf(n));
+  const median = (v: number[]) => {
+    const s = [...v].sort((a, b) => a - b);
+    return s.length % 2 ? s[(s.length - 1) / 2] : (s[s.length / 2 - 1] + s[s.length / 2]) / 2;
+  };
+  let same = true, isMedian = true;
+  for (let di = 300; di < day.dates.length; di += 37) {
+    const rows = day.rows.filter((r) => r.di === di);
+    for (const c of cols) {
+      if (new Set(rows.map((r) => r.xs![c])).size !== 1) same = false;
+      if (Math.abs(rows[0].xs![c] - median(rows.map((r) => r.x[c]))) > 1e-12) isMedian = false;
+    }
+  }
+  check("with xsDay, the index's state is one value per day in the xs view", same && cols.every((c) => c >= 0));
+  check("and that value is the median of the names' own readings", isMedian);
+  const other = (FEATURE_NAMES as readonly string[]).indexOf("ret20");
+  check("every other column keeps its rank", day.rows.every((r, i) => r.xs![other] === plain.rows[i].xs![other]));
+  check("without xsDay the view is unchanged: ranks, -0.5 to +0.5", plain.rows.every((r) => cols.every((c) => r.xs![c] >= -0.5 && r.xs![c] <= 0.5)));
 }
 
 console.log("\n" + pass + " passed, " + fail + " failed");

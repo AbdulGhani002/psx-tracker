@@ -475,7 +475,7 @@ export type BookStats = {
 
 // `shuffleSeed` replaces the model's rank with a random one: the same book
 // without the model, to measure what the model adds.
-export function swingBookBacktest(points: PanelPoint[], bars: Map<string, EodBar[]>, gate: Map<string, boolean>, rule: BookRule = SWING_BOOK_RULE, o: { shuffleSeed?: number } = {}): BookStats {
+export function swingBookBacktest(points: PanelPoint[], bars: Map<string, EodBar[]>, gate: Map<string, boolean>, rule: BookRule = SWING_BOOK_RULE, o: { shuffleSeed?: number; onDay?: (date: string, equity: number, open: string[]) => void } = {}): BookStats {
   const byDi = new Map<number, PanelPoint[]>();
   for (const q of points) {
     const g = byDi.get(q.di);
@@ -535,6 +535,7 @@ export function swingBookBacktest(points: PanelPoint[], bars: Map<string, EodBar
     active = active.filter((t) => t.status === "pending" || t.status === "open");
     for (const [u, a] of alloc) marked += a * (u.lastClose! / u.entryPrice!);
     const equity = cash + marked;
+    o.onDay?.(date, equity, [...alloc.keys()].map((u) => u.symbol));
     peak = Math.max(peak, equity);
     maxDD = Math.min(maxDD, equity / peak - 1);
     expSum += equity > 0 ? marked / equity : 0;

@@ -226,6 +226,11 @@ export function AnalysisView({ report }: { report: StoredReport | null }) {
                   </div>
                 )}
               </div>
+              {report.model?.net && (
+                <div className="mt-3 text-[12px] text-muted">
+                  Ranking: boosted trees {Math.round((1 - report.model.net.blend) * 100)}% + PSX-Net neural network {Math.round(report.model.net.blend * 100)}%
+                </div>
+              )}
             </Card>
           )}
         </div>

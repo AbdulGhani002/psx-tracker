@@ -47,6 +47,10 @@ export type PanelBuildOptions = {
   ranks?: boolean; // append each name's cross-sectional ranks for the date
   extras?: boolean; // the EXTRA_FEATURE_NAMES block, see features.ts
   xs?: boolean; // attach the cross-sectional view (PanelRow.xs)
+  // In that view, the index's own state (DAY_STATE_FEATURES) as the day's
+  // value rather than a rank across names, which for one shared number is
+  // noise. Models trained with it say so in featureSet.xsDay.
+  xsDay?: boolean;
   events?: Map<string, EventLike[]>; // corporate actions per name: adds the event block
 };
 
@@ -67,7 +71,7 @@ export function buildPanel(bars: Map<string, EodBar[]>, index: EodBar[], horizon
   for (const [symbol, rs] of per) for (const r of rs) rows.push({ ...r, symbol, di: di.get(r.date)! });
   rows.sort((a, b) => a.di - b.di || (a.symbol < b.symbol ? -1 : a.symbol > b.symbol ? 1 : 0));
   const nOwn = FEATURE_NAMES.length + (o.extras ? EXTRA_FEATURE_NAMES.length : 0) + (o.events ? EVENT_FEATURE_NAMES.length : 0);
-  if (o.xs) attachCrossSection(rows, nOwn, o.context && o.context.size > 0 ? o.context.values().next().value!.length : 0);
+  if (o.xs) attachCrossSection(rows, nOwn, o.context && o.context.size > 0 ? o.context.values().next().value!.length : 0, o.xsDay ? DAY_STATE_COLS : []);
   if (o.extras) {
     const cols = EXTRA_RANK_ONLY.map((name) => FEATURE_NAMES.length + (EXTRA_FEATURE_NAMES as readonly string[]).indexOf(name));
     rankColumnsInPlace(rows, cols);
@@ -108,10 +112,24 @@ function rankColumnsInPlace(rows: PanelRow[], cols: number[]) {
   });
 }
 
-function attachCrossSection(rows: PanelRow[], nOwn: number, ctxWidth: number) {
+// The index's own state: one number for the day, the same for every name
+// (bar a name whose last trade is older), so its rank across names says
+// nothing. With xsDay the view carries the day's value, the names' median.
+export const DAY_STATE_FEATURES = ["idxRet1", "idxRet5", "idxRet20", "idxMa50_200", "idxVol20", "idxDd250"] as const;
+const DAY_STATE_COLS = DAY_STATE_FEATURES.map((n) => (FEATURE_NAMES as readonly string[]).indexOf(n));
+
+function dayMedian(rows: PanelRow[], from: number, to: number, c: number): number[] {
+  const v = [];
+  for (let k = from; k < to; k++) if (Number.isFinite(rows[k].x[c])) v.push(rows[k].x[c]);
+  v.sort((a, b) => a - b);
+  const med = v.length === 0 ? 0 : v.length % 2 ? v[(v.length - 1) / 2] : (v[v.length / 2 - 1] + v[v.length / 2]) / 2;
+  return new Array<number>(to - from).fill(med);
+}
+
+function attachCrossSection(rows: PanelRow[], nOwn: number, ctxWidth: number, dayCols: number[] = []) {
   eachDate(rows, (from, to) => {
     const cols: number[][] = [];
-    for (let c = 0; c < nOwn; c++) cols.push(ranksOf(rows, from, to, (row) => row.x[c]));
+    for (let c = 0; c < nOwn; c++) cols.push(dayCols.includes(c) ? dayMedian(rows, from, to, c) : ranksOf(rows, from, to, (row) => row.x[c]));
     for (let k = from; k < to; k++) {
       const xs = new Array<number>(nOwn + ctxWidth);
       for (let c = 0; c < nOwn; c++) xs[c] = cols[c][k - from];

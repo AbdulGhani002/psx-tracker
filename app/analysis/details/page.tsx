@@ -70,7 +70,7 @@ export default async function AnalysisPage() {
             <div className="flex items-baseline justify-between gap-4 flex-wrap">
               <div className="label-cap">
                 {report.date} · built {new Date(report.builtAt).toUTCString().slice(5, 22)} UTC
-                {report.model ? ` · model trained ${report.model.trainedOn.slice(0, 10)} on ${report.model.names} names (${report.model.trainedFrom === "archive" ? "24-year archive" : "5-year feed"}), ${report.model.horizon} sessions ahead` : ""}
+                {report.model ? ` · model trained ${report.model.trainedOn.slice(0, 10)} on ${report.model.names} names (${report.model.trainedFrom === "archive" ? "24-year archive" : "5-year feed"}), ${report.model.horizon} sessions ahead${report.model.net ? `, with the PSX-Net neural network as ${Math.round(report.model.net.blend * 100)}% of the ranking (${report.model.net.seeds} seeds, trained to ${report.model.net.trainedTo})` : ""}` : ""}
               </div>
               <RefreshAnalysis />
             </div>

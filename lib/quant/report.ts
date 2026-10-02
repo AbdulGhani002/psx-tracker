@@ -27,6 +27,8 @@ import { marketContext, macroContext, mergeContext, breadthNow, MARKET_CONTEXT_N
 import { loadMacro, macroRead, type MacroKey } from "@/lib/timeseries/macro";
 import { kse100Symbols, loadBars, TRAIN_INDICES } from "@/lib/quant/universe";
 import { loadQuantModel, loadQuantSnapshot, saveQuantSnapshot, mongoBarsCache, type StoredQuantModel } from "@/lib/quant/store";
+import { rankDay, dayTab, type NetWeights } from "@/lib/quant/net-infer";
+import { dailySeries, sequenceAt } from "@/lib/quant/net-seq";
 import { projectLevels, levelsLine, pathLevels, WALK_CURVE, type Projection, type PathLevels } from "@/lib/quant/projection";
 import { equalWeightIndex } from "@/lib/quant/archive";
 import { indexStates, cellOutlook, strengthTests, type CellOutlook, type StrengthTest } from "@/lib/quant/outlook";
@@ -138,7 +140,7 @@ export type QuantReport = {
   record: ModelRecord | null;
   strategy: StrategyResult | null;
   swing: SwingStats[] | null; // swing trades at the zones' levels, out of sample
-  model: { trainedOn: string; trainedFrom: string; horizon: number; names: number; learners: string; heads: number } | null;
+  model: { trainedOn: string; trainedFrom: string; horizon: number; names: number; learners: string; heads: number; net?: { variant: string; trainedTo: string; seeds: number; blend: number } | null } | null;
   screen: ScreenRow[];
 };
 
@@ -232,7 +234,7 @@ async function contextFor(model: StoredQuantModel, stockBars: Map<string, EodBar
 
 export async function buildQuantReport(): Promise<QuantReport> {
   const today = new Date().toISOString().slice(0, 10);
-  const [board, portfolio, model, plan, inflation, sbp, long, userId, uni, holdingDocs, settings] = await Promise.all([
+  const [board, portfolio, model, plan, inflation, sbp, long, userId, uni, holdingDocs, settings, netW] = await Promise.all([
     getZoneBoard().catch(() => null),
     getPortfolioSummary().catch(() => null),
     loadQuantModel().catch(() => null),
@@ -244,6 +246,7 @@ export async function buildQuantReport(): Promise<QuantReport> {
     kse100Symbols().catch(() => ({ symbols: [] as string[], source: "none" })),
     getAllHoldings().catch(() => []),
     getAppSettings().catch(() => null as any),
+    loadQuantSnapshot<NetWeights & { blend?: number }>("quant:net").catch(() => null),
   ]);
   const zoneBySymbol = new Map((board?.rows ?? []).map((r) => [r.symbol, r]));
   // Every name in the written portfolio: held, or targeted and not yet held.
@@ -291,7 +294,7 @@ export async function buildQuantReport(): Promise<QuantReport> {
         const snap = await loadQuantSnapshot<EventsSnapshot>("quant:events").catch(() => null);
         events = new Map(Object.entries(snap?.symbols ?? {}).map(([sym, rows]) => [sym, rows.map(([date, kind, , yieldPct]) => ({ date, kind, yieldPct }))]));
       }
-      const panel = buildPanel(stockBars, featureIndex, model.horizon, { context: c.context, ranks: (model.rankNames ?? []).length > 0, extras: !!model.featureSet?.extras, xs: !!model.featureSet?.xs, events, minRows: 1 });
+      const panel = buildPanel(stockBars, featureIndex, model.horizon, { context: c.context, ranks: (model.rankNames ?? []).length > 0, extras: !!model.featureSet?.extras, xs: !!model.featureSet?.xs, xsDay: !!model.featureSet?.xsDay, events, minRows: 1 });
       const firstRecent = panel.dates[Math.max(0, panel.dates.length - 5)];
       for (const r of panel.rows) {
         lastRows.set(r.symbol, r);
@@ -349,6 +352,48 @@ export async function buildQuantReport(): Promise<QuantReport> {
       }
     }
   }
+  // PSX-Net (ml/psxnet.py, lib/quant/net-infer.ts): one day's names scored
+  // together, its within-day rank blended with the trees' at the weight the
+  // walk-forward chose. It reads the cross-sectional view of the same 59
+  // features and each name's last 40 sessions, so it needs a model built
+  // with that view.
+  const net = netW && Array.isArray(netW.models) && netW.models.length > 0 && model?.featureSet?.xs ? netW : null;
+  const netCalendar = ew.map((b) => b.date);
+  const netCalIdx = new Map(netCalendar.map((d, i) => [d, i]));
+  const netSeries = new Map<string, Map<string, [number, number, number]>>();
+  const blendDay = (rows: PanelRow[], gbmRel: number[]): number[] | null => {
+    if (!net || rows.length < 8) return null;
+    if (!rows.every((r) => r.xs && r.xs.length === net.cfg.dTab && netCalIdx.has(r.date))) return null;
+    const seq = rows.map((r) => {
+      let ser = netSeries.get(r.symbol);
+      if (!ser) netSeries.set(r.symbol, (ser = dailySeries(stockBars.get(r.symbol) ?? [], ew)));
+      return sequenceAt(ser, netCalendar, netCalIdx.get(r.date)!);
+    });
+    const netRank = rankDay(net, { tab: dayTab(rows.map((r) => r.xs!), rows.map((r) => r.x), net.dayRaw), seq });
+    const n = rows.length;
+    const gbmRank = new Array<number>(n);
+    gbmRel.map((_, i) => i).sort((a, b) => gbmRel[a] - gbmRel[b]).forEach((i, pos) => (gbmRank[i] = pos / (n - 1)));
+    const w = net.blend ?? 0.5;
+    return gbmRank.map((g, i) => w * netRank[i] + (1 - w) * g);
+  };
+  if (net && forecasts.size >= 8) {
+    // Today's names: the network scores the day's cross-section; a name whose
+    // last row is from an older day keeps the trees' rank alone.
+    const syms = [...forecasts.keys()];
+    const gRel = syms.map((x) => forecasts.get(x)!.rel);
+    const gRank = new Map<string, number>();
+    gRel.map((_, i) => i).sort((a, b) => gRel[a] - gRel[b]).forEach((i, pos) => gRank.set(syms[i], pos / (syms.length - 1)));
+    const lastDate = syms.map((x) => lastRows.get(x)!.date).sort().pop()!;
+    const today = syms.filter((x) => lastRows.get(x)!.date === lastDate);
+    let blended: number[] | null = null;
+    try {
+      blended = blendDay(today.map((x) => lastRows.get(x)!), today.map((x) => forecasts.get(x)!.rel));
+    } catch {
+      blended = null;
+    }
+    const byToday = new Map(blended ? today.map((x, i) => [x, blended![i]]) : []);
+    for (const x of syms) forecasts.get(x)!.rel = byToday.get(x) ?? gRank.get(x)!;
+  }
   const relValues = [...forecasts.values()].map((f) => f.rel);
   const pctileOf = (symbol: string): number | null => {
     const f = forecasts.get(symbol);
@@ -375,6 +420,15 @@ export async function buildQuantReport(): Promise<QuantReport> {
         }
       }
       if (scored.length < 8) continue;
+      if (net) {
+        try {
+          const dayRows = scored.map((x) => rows.find((r) => r.symbol === x.symbol)!);
+          const b = blendDay(dayRows, scored.map((x) => x.rel));
+          if (b) b.forEach((v, i) => (scored[i].rel = v));
+        } catch {
+          /* the trees' reading stands for the day */
+        }
+      }
       for (const s of scored) {
         const below = scored.filter((o) => o.rel < s.rel).length;
         const above = scored.filter((o) => o.rel > s.rel).length;
@@ -821,7 +875,15 @@ export async function buildQuantReport(): Promise<QuantReport> {
     strategy,
     swing: model?.swing ?? null,
     model: model
-      ? { trainedOn: model.trainedOn, trainedFrom: model.trainedFrom ?? "eod", horizon: model.horizon, names: model.universe.length, learners: model.learners.map((l) => (l.view === "xs" ? `${l.kind} on ranks` : l.kind)).join("+"), heads: model.targetNames.length }
+      ? {
+          trainedOn: model.trainedOn,
+          trainedFrom: model.trainedFrom ?? "eod",
+          horizon: model.horizon,
+          names: model.universe.length,
+          learners: model.learners.map((l) => (l.view === "xs" ? `${l.kind} on ranks` : l.kind)).join("+") + (net ? `+PSX-Net (${net.cfg.variant} transformer, ${net.models.length} seeds)` : ""),
+          heads: model.targetNames.length,
+          net: net ? { variant: net.cfg.variant, trainedTo: net.trainedTo, seeds: net.models.length, blend: net.blend ?? 0.5 } : null,
+        }
       : null,
     screen,
   };
