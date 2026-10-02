@@ -109,6 +109,41 @@ export function parseCompanyAnnouncements(html: string, symbol: string): BoardRo
   return out;
 }
 
+// How often the exchange is asked, while the board refuses. The pages are
+// read every 15 to 30 minutes in the hours filings are made (08:00 to 23:00
+// in Karachi, Monday to Friday) and every one to two hours otherwise, at a
+// random point in that span; two hours after a read that failed, rather
+// than asking again at once. The refused board itself is asked again in five
+// to seven hours, to notice when it answers, not every five minutes. Every
+// request still names the app in its user agent: this keeps the load light
+// and irregular, it does not pretend to be a person.
+export function filingHours(now: Date): boolean {
+  const p = new Date(now.getTime() + 5 * 3600_000);
+  const day = p.getUTCDay();
+  const h = p.getUTCHours();
+  return day >= 1 && day <= 5 && h >= 8 && h < 23;
+}
+
+export function nextPagesAt(now: Date, readOk: boolean, rnd: () => number = Math.random): Date {
+  const [lo, hi] = !readOk ? [120, 120] : filingHours(now) ? [15, 30] : [60, 120];
+  return new Date(now.getTime() + (lo + (hi - lo) * rnd()) * 60_000);
+}
+
+export function nextBoardAt(now: Date, rnd: () => number = Math.random): Date {
+  return new Date(now.getTime() + (300 + 120 * rnd()) * 60_000);
+}
+
+// The held names in a random order, so a read does not walk the same list
+// the same way each time.
+export function shuffled<T>(items: T[], rnd: () => number = Math.random): T[] {
+  const a = [...items];
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(rnd() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}
+
 export function parseBoardTotal(html: string): number {
   const m = html.match(/of\s+([\d,]+)\s+entries/i);
   return m ? Number(m[1].replace(/,/g, "")) : 0;

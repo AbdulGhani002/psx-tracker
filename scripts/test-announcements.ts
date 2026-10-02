@@ -3,6 +3,7 @@
 // The fixtures are one page of POST dps.psx.com.pk/announcements saved on 18 Sep 2026,
 // and PTL's company page (GET dps.psx.com.pk/company/PTL) saved on 2 Oct 2026.
 import { readFileSync } from "node:fs";
+import { filingHours, nextPagesAt, nextBoardAt, shuffled } from "../lib/calculations/announcements";
 import { parseBoard, parseBoardTotal, parseBoardDate, parseCompanyAnnouncements, fileNameFor, telegramText, emailSubject, emailHtml, fmtPkt, classifyAnnouncement, announcementPasses } from "../lib/calculations/announcements";
 
 let passed = 0, failed = 0;
@@ -90,6 +91,23 @@ check("each filing once", new Set(own.map((r) => r.annId)).size === own.length);
 check("every row is the company's and dated", own.every((r) => r.symbol === "PTL" && !Number.isNaN(r.announcedAt.getTime()) && r.dateOnly));
 check("a page without the block gives nothing", parseCompanyAnnouncements("<html><body>Not found</body></html>", "PTL").length === 0);
 check("a dated-only row shows the day, no time", fmtPkt(ar.announcedAt, true) === "29 Sep 2026" && telegramText(ar).includes("29 Sep 2026") && !telegramText(ar).includes("AM PKT"));
+
+// While the board refuses: when the pages and the board are asked again.
+const at = (iso: string) => new Date(iso);
+const mins = (a: Date, b: Date) => (b.getTime() - a.getTime()) / 60_000;
+const thu11 = at("2026-10-01T06:00:00Z"); // Thursday, 11:00 in Karachi
+const thu23 = at("2026-10-01T18:30:00Z"); // Thursday, 23:30 in Karachi
+const sat11 = at("2026-10-03T06:00:00Z"); // Saturday, 11:00 in Karachi
+check("filing hours: weekdays 08:00 to 23:00 in Karachi", filingHours(thu11) && !filingHours(thu23) && !filingHours(sat11) && filingHours(at("2026-10-01T03:00:00Z")) && !filingHours(at("2026-10-01T02:59:00Z")));
+check("in filing hours the pages are read 15 to 30 minutes apart", mins(thu11, nextPagesAt(thu11, true, () => 0)) === 15 && mins(thu11, nextPagesAt(thu11, true, () => 0.999)) < 30);
+check("at night and at weekends one to two hours apart", mins(thu23, nextPagesAt(thu23, true, () => 0)) === 60 && mins(sat11, nextPagesAt(sat11, true, () => 0.5)) === 90);
+check("after a failed read, two hours", mins(thu11, nextPagesAt(thu11, false, () => 0)) === 120 && mins(thu11, nextPagesAt(thu11, false, () => 0.9)) === 120);
+check("the refused board is asked again in five to seven hours", mins(thu11, nextBoardAt(thu11, () => 0)) === 300 && mins(thu11, nextBoardAt(thu11, () => 0.999)) < 420);
+let seed = 7;
+const rnd = () => ((seed = (seed * 1664525 + 1013904223) % 4294967296) / 4294967296);
+const names = ["AHCL", "HINOON", "HUBC", "LUCK", "MARI", "MEBL", "MUREB", "PTL"];
+const mixed = shuffled(names, rnd);
+check("the names are read in a random order, each once", mixed.join() !== names.join() && [...mixed].sort().join() === names.join() && names.join() === "AHCL,HINOON,HUBC,LUCK,MARI,MEBL,MUREB,PTL");
 
 console.log(`${passed} passed, ${failed} failed`);
 if (failed) process.exit(1);

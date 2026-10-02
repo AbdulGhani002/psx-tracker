@@ -1,7 +1,7 @@
 // Single source of truth for the app version + changelog.
 // Bump APP_VERSION and prepend a CHANGELOG entry on every release.
 
-export const APP_VERSION = "11.10.1";
+export const APP_VERSION = "11.10.2";
 
 export const BUILD_DATE =
   process.env.NEXT_PUBLIC_BUILD_DATE ?? "";
@@ -17,6 +17,15 @@ export type ChangelogEntry = {
 
 // Reverse-chronological. Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: "11.10.2",
+    date: "2026-10-02",
+    title: "Announcements read gently",
+    changes: [
+      "While the exchange refuses its announcements board, the companies' pages are read at random intervals: every 15 to 30 minutes on weekdays from 08:00 to 23:00 Karachi time, every one to two hours at night and at weekends, the names in a random order and a few seconds apart. A read that fails waits two hours rather than trying again at once.",
+      "The refused board is asked again every five to seven hours, to notice when it answers, instead of every five minutes. Every request still names the app; it is kept light, not disguised.",
+    ],
+  },
   {
     version: "11.10.1",
     date: "2026-10-02",

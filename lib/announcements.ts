@@ -78,9 +78,10 @@ export type PagesScan = { symbols: number; read: number; fetched: number; insert
 // exchange still serves each company's own page, whose Announcements block
 // lists the same filings with the same document ids. So when the board
 // refuses, the held names are read from their pages instead: one page a name,
-// a second and a half apart, and stored as the board's rows would be (a
-// later board read of one is the same row). A run that cannot read three
-// pages in a row stops.
+// two to six seconds apart, and stored as the board's rows would be (a later
+// board read of one is the same row). A run that cannot read three pages in
+// a row stops. The route decides when (lib/calculations/announcements:
+// nextPagesAt) and in what order.
 export async function scanCompanyPages(symbols: string[]): Promise<PagesScan> {
   await connectDb();
   const out: PagesScan = { symbols: symbols.length, read: 0, fetched: 0, inserted: 0, failed: [] };
@@ -97,7 +98,7 @@ export async function scanCompanyPages(symbols: string[]): Promise<PagesScan> {
       out.fetched += rows.length;
       out.inserted += await storeRows(rows);
     }
-    await new Promise((r) => setTimeout(r, 1500));
+    await new Promise((r) => setTimeout(r, 2000 + 4000 * Math.random()));
   }
   return out;
 }
