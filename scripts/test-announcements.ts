@@ -1,8 +1,9 @@
 // Checks for the announcements board parser and the message text (lib/calculations/announcements).
 //   npx tsx scripts/test-announcements.ts
-// The fixture is one page of POST dps.psx.com.pk/announcements saved on 18 Sep 2026.
+// The fixtures are one page of POST dps.psx.com.pk/announcements saved on 18 Sep 2026,
+// and PTL's company page (GET dps.psx.com.pk/company/PTL) saved on 2 Oct 2026.
 import { readFileSync } from "node:fs";
-import { parseBoard, parseBoardTotal, parseBoardDate, fileNameFor, telegramText, emailSubject, emailHtml, fmtPkt, classifyAnnouncement, announcementPasses } from "../lib/calculations/announcements";
+import { parseBoard, parseBoardTotal, parseBoardDate, parseCompanyAnnouncements, fileNameFor, telegramText, emailSubject, emailHtml, fmtPkt, classifyAnnouncement, announcementPasses } from "../lib/calculations/announcements";
 
 let passed = 0, failed = 0;
 function check(name: string, ok: boolean, detail = "") {
@@ -77,6 +78,18 @@ eq("off carries nothing", ["board", "results", "other"].map((k) => announcementP
 eq("board carries board meetings only", ["board", "results", "payout", "other"].map((k) => announcementPasses(k as any, "board")), [true, false, false, false]);
 eq("key carries everything but the noise", ["board", "results", "payout", "agm", "material", "other"].map((k) => announcementPasses(k as any, "key")), [true, true, true, true, true, false]);
 eq("all carries everything", ["board", "other"].map((k) => announcementPasses(k as any, "all")), [true, true]);
+
+// A company's own page: the same filings, read while the board refuses.
+const page = readFileSync(new URL("./fixtures/company-PTL.html", import.meta.url), "utf8");
+const own = parseCompanyAnnouncements(page, "ptl");
+check("the company page lists its latest filings, five to a tab", own.length === 15, String(own.length));
+const ar = own.find((r) => r.annId === "283789")!;
+eq("a row carries the board's document id, files, title and the company", ar && { symbol: ar.symbol, company: ar.company, title: ar.title, pdfPath: ar.pdfPath, images: ar.images }, { symbol: "PTL", company: "Panther Tyres Ltd.", title: "Transmission of Annual Report for the Year Ended 30-06-2026", pdfPath: "/download/document/283789.pdf", images: ["/download/image/283789-1.gif"] });
+check("the page prints the date only: that day, midnight in Karachi", ar.dateOnly === true && ar.announcedAt.toISOString() === "2026-09-28T19:00:00.000Z", ar.announcedAt.toISOString());
+check("each filing once", new Set(own.map((r) => r.annId)).size === own.length);
+check("every row is the company's and dated", own.every((r) => r.symbol === "PTL" && !Number.isNaN(r.announcedAt.getTime()) && r.dateOnly));
+check("a page without the block gives nothing", parseCompanyAnnouncements("<html><body>Not found</body></html>", "PTL").length === 0);
+check("a dated-only row shows the day, no time", fmtPkt(ar.announcedAt, true) === "29 Sep 2026" && telegramText(ar).includes("29 Sep 2026") && !telegramText(ar).includes("AM PKT"));
 
 console.log(`${passed} passed, ${failed} failed`);
 if (failed) process.exit(1);

@@ -25,6 +25,7 @@ export type BoardRow = {
   announcedAt: Date;
   pdfPath: string; // "" when the row has only an image
   images: string[];
+  dateOnly?: boolean; // read from a company page, which prints the date and no time
 };
 
 const MONTHS: Record<string, number> = { jan: 0, feb: 1, mar: 2, apr: 3, may: 4, jun: 5, jul: 6, aug: 7, sep: 8, oct: 9, nov: 10, dec: 11 };
@@ -77,6 +78,37 @@ export function parseBoard(html: string): BoardRow[] {
   return out;
 }
 
+// The same filings from a company's own page (dps.psx.com.pk/company/SYM),
+// which the exchange still serves when the board refuses: its Announcements
+// block holds three tabbed tables (Financial Results, Board Meetings, Others)
+// of DATE | TITLE | files, the files cell exactly as on the board, so a row
+// read here carries the board's own document id and a later board read of it
+// is the same row. The page prints the date only: the row is that day,
+// midnight in Karachi, marked dateOnly.
+export function parseCompanyAnnouncements(html: string, symbol: string): BoardRow[] {
+  const start = html.indexOf('id="announcements"');
+  if (start === -1) return [];
+  const after = html.indexOf('class="section section--padded company"', start + 10);
+  const block = html.slice(start, after === -1 ? html.length : after);
+  const company = text(html.match(/class="quote__name"[^>]*>([\s\S]*?)<\//)?.[1] ?? "");
+  const out: BoardRow[] = [];
+  const seen = new Set<string>();
+  for (const tr of block.match(/<tr[^>]*>[\s\S]*?<\/tr>/gi) ?? []) {
+    const cells = tr.match(/<td[^>]*>[\s\S]*?<\/td>/gi) ?? [];
+    if (cells.length < 3) continue;
+    const files = cells[2];
+    const pdf = files.match(/href="(\/download\/(?:document|attachment)\/(\d+)[^"]*\.pdf)"/i);
+    const images = [...files.matchAll(/data-images="([^"]+)"/g)].map((m) => `/download/image/${m[1]}`);
+    const idFromImage = images[0]?.match(/\/(\d+)-\d+\.\w+$/)?.[1];
+    const annId = pdf?.[2] ?? idFromImage;
+    const announcedAt = parseBoardDate(text(cells[0] ?? ""), "");
+    if (!annId || !announcedAt || seen.has(annId)) continue;
+    seen.add(annId);
+    out.push({ annId, symbol: symbol.toUpperCase(), company, title: text(cells[1] ?? ""), announcedAt, pdfPath: pdf?.[1] ?? "", images, dateOnly: true });
+  }
+  return out;
+}
+
 export function parseBoardTotal(html: string): number {
   const m = html.match(/of\s+([\d,]+)\s+entries/i);
   return m ? Number(m[1].replace(/,/g, "")) : 0;
@@ -125,10 +157,12 @@ export async function fetchBoardFile(path: string, timeoutMs = 90_000): Promise<
 export const fileUrl = (path: string) => (path ? PORTAL + path : "");
 export const companyUrl = (symbol: string) => `${PORTAL}/company/${encodeURIComponent(symbol)}`;
 
-export function fmtPkt(d: Date): string {
+// "18 Sep 2026, 10:51 AM PKT"; "18 Sep 2026" for a row with no time.
+export function fmtPkt(d: Date, dateOnly = false): string {
   const p = new Date(d.getTime() + 5 * 3600_000);
   const day = p.getUTCDate();
   const mon = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"][p.getUTCMonth()];
+  if (dateOnly) return `${day} ${mon} ${p.getUTCFullYear()}`;
   let h = p.getUTCHours();
   const ap = h >= 12 ? "PM" : "AM";
   h = h % 12 || 12;
@@ -152,7 +186,7 @@ export function telegramText(row: BoardRow, withFileNote = false): string {
   const lines = [
     `📢 <b>${esc(row.symbol)}</b> · ${esc(row.company)}`,
     `<b>${esc(row.title)}</b>`,
-    fmtPkt(row.announcedAt),
+    fmtPkt(row.announcedAt, row.dateOnly),
     [doc ? `<a href="${fileUrl(doc)}">${row.pdfPath ? "Open the PDF" : "Open the notice"}</a>` : "", `<a href="${companyUrl(row.symbol)}">Company page</a>`, `<a href="${BOARD_PAGE}">All announcements</a>`].filter(Boolean).join(" · "),
   ];
   if (withFileNote) lines.push("", "The file could not be attached; the link above opens it on the exchange.");
@@ -212,7 +246,7 @@ export function emailHtml(row: BoardRow, opts: { attached: boolean; appOrigin: s
   <div style="font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:#6b7280;margin-bottom:8px">Company announcement</div>
   <h2 style="margin:0 0 4px;font-size:20px"><span style="color:#16a34a">${esc(row.symbol)}</span> · ${esc(row.company)}</h2>
   <div style="font-size:16px;font-weight:600;margin:10px 0 6px">${esc(row.title)}</div>
-  <div style="font-size:13px;color:#6b7280">${esc(fmtPkt(row.announcedAt))}</div>
+  <div style="font-size:13px;color:#6b7280">${esc(fmtPkt(row.announcedAt, row.dateOnly))}</div>
   <div style="margin:18px 0">
     ${doc ? `<a href="${fileUrl(doc)}" style="background:#0f172a;color:#fff;padding:10px 16px;text-decoration:none;border-radius:6px;font-size:14px">${row.pdfPath ? "Open the PDF" : "Open the notice"}</a>` : ""}
     <a href="${companyUrl(row.symbol)}" style="margin-left:14px;color:#0f172a;font-size:14px">Company page</a>

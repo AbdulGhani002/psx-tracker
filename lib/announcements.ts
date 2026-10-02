@@ -4,7 +4,8 @@ import { AnnouncementModel, HoldingModel, UserModel } from "@/lib/models";
 import { getAppSettings } from "@/lib/data";
 import { sendTelegram, sendTelegramDocument } from "@/lib/notify/telegram";
 import { sendEmail, appOrigin } from "@/lib/auth/mailer";
-import { fetchBoard, fetchBoardFile, fileNameFor, fileUrl, telegramText, emailSubject, emailHtml, classifyAnnouncement, announcementPasses, type BoardRow, type BoardFile, type AnnounceLevel, type AnnouncementKind } from "@/lib/calculations/announcements";
+import { fetchCompanyPage } from "@/lib/prices/fundamentals";
+import { fetchBoard, fetchBoardFile, parseCompanyAnnouncements, fileNameFor, fileUrl, telegramText, emailSubject, emailHtml, classifyAnnouncement, announcementPasses, type BoardRow, type BoardFile, type AnnounceLevel, type AnnouncementKind } from "@/lib/calculations/announcements";
 
 export * from "@/lib/calculations/announcements";
 
@@ -31,7 +32,7 @@ async function storeRows(rows: BoardRow[]): Promise<number> {
   for (const r of rows) {
     const res = await AnnouncementModel.updateOne(
       { annId: r.annId },
-      { $setOnInsert: { annId: r.annId, symbol: r.symbol, company: r.company, title: r.title, kind: classifyAnnouncement(r.title), announcedAt: r.announcedAt, pdfPath: r.pdfPath, images: r.images, seenAt: new Date(), deliveries: [] } },
+      { $setOnInsert: { annId: r.annId, symbol: r.symbol, company: r.company, title: r.title, kind: classifyAnnouncement(r.title), announcedAt: r.announcedAt, dateOnly: !!r.dateOnly, pdfPath: r.pdfPath, images: r.images, seenAt: new Date(), deliveries: [] } },
       { upsert: true }
     );
     if (res.upsertedCount > 0) inserted++;
@@ -61,6 +62,44 @@ export async function scanBoard(opts: { sinceHours?: number; maxPages?: number }
     if (board.rows.length < 100 || added < board.rows.length || (oldest && oldest < since)) break;
   }
   return { pages, fetched, inserted, newest: newest?.toISOString() ?? null, refused: false };
+}
+
+// Every name any user holds: the board is only read for these when it has to
+// be read company by company.
+export async function heldSymbolsAll(): Promise<string[]> {
+  await connectDb();
+  const held = await HoldingModel.find({ currentShares: { $gt: 0 } }, { symbol: 1 }).lean();
+  return [...new Set((held as any[]).map((h) => String(h.symbol).toUpperCase()))].sort();
+}
+
+export type PagesScan = { symbols: number; read: number; fetched: number; inserted: number; failed: string[] };
+
+// Since 24 Sep 2026 the board answers the server's POST with a refusal; the
+// exchange still serves each company's own page, whose Announcements block
+// lists the same filings with the same document ids. So when the board
+// refuses, the held names are read from their pages instead: one page a name,
+// a second and a half apart, and stored as the board's rows would be (a
+// later board read of one is the same row). A run that cannot read three
+// pages in a row stops.
+export async function scanCompanyPages(symbols: string[]): Promise<PagesScan> {
+  await connectDb();
+  const out: PagesScan = { symbols: symbols.length, read: 0, fetched: 0, inserted: 0, failed: [] };
+  let misses = 0;
+  for (const s of symbols) {
+    const html = await fetchCompanyPage(s);
+    const rows = html ? parseCompanyAnnouncements(html, s) : [];
+    if (rows.length === 0) {
+      out.failed.push(s);
+      if (++misses >= 3) break;
+    } else {
+      misses = 0;
+      out.read++;
+      out.fetched += rows.length;
+      out.inserted += await storeRows(rows);
+    }
+    await new Promise((r) => setTimeout(r, 1500));
+  }
+  return out;
 }
 
 // The recent board of each held name, for the history behind the cards. Not
@@ -169,7 +208,7 @@ export async function deliverDueForCurrentUser(opts: { sinceHours?: number; dryR
   const files = opts.files ?? new Map<string, BoardFile | null>();
 
   for (const a of due) {
-    const row: BoardRow = { annId: a.annId, symbol: a.symbol, company: a.company, title: a.title, announcedAt: new Date(a.announcedAt), pdfPath: a.pdfPath ?? "", images: a.images ?? [] };
+    const row: BoardRow = { annId: a.annId, symbol: a.symbol, company: a.company, title: a.title, announcedAt: new Date(a.announcedAt), dateOnly: !!a.dateOnly, pdfPath: a.pdfPath ?? "", images: a.images ?? [] };
     const kind: AnnouncementKind = a.kind ?? classifyAnnouncement(row.title);
     if (opts.dryRun) {
       out.deliveries.push({ user: userId.slice(-6), annId: row.annId, symbol: row.symbol, title: row.title, telegram: announcementPasses(kind, ch.telegramLevel) && ch.token && ch.chatId ? "would send" : "off", email: announcementPasses(kind, ch.emailLevel) && ch.emailTo ? "would send" : "off", status: `dry ${kind}` });
@@ -225,7 +264,7 @@ export async function sendLatestToCurrentUser(): Promise<{ ok: boolean; detail: 
     await storeRows(board.rows);
     a = await AnnouncementModel.findOne({ annId: board.rows[0].annId }).lean();
   }
-  const row: BoardRow = { annId: a.annId, symbol: a.symbol, company: a.company, title: a.title, announcedAt: new Date(a.announcedAt), pdfPath: a.pdfPath ?? "", images: a.images ?? [] };
+  const row: BoardRow = { annId: a.annId, symbol: a.symbol, company: a.company, title: a.title, announcedAt: new Date(a.announcedAt), dateOnly: !!a.dateOnly, pdfPath: a.pdfPath ?? "", images: a.images ?? [] };
   const file = await fetchBoardFile(row.pdfPath || row.images[0] || "");
   // The button is a test, so it ignores the filter and sends whatever is newest.
   const r = await sendOne(row, { ...ch, telegramLevel: "all", emailLevel: "all" }, file, "other");
@@ -233,7 +272,7 @@ export async function sendLatestToCurrentUser(): Promise<{ ok: boolean; detail: 
   return { ok: status === "sent" || status === "partial", detail: status === "sent" ? `Sent ${row.symbol}: ${row.title}` : r.error || "Nothing was sent.", telegram: r.telegram, email: r.email };
 }
 
-export type RecentAnnouncement = { annId: string; symbol: string; company: string; title: string; kind: AnnouncementKind; announcedAt: string; pdfUrl: string; imageUrl: string; sent: string };
+export type RecentAnnouncement = { annId: string; symbol: string; company: string; title: string; kind: AnnouncementKind; announcedAt: string; dateOnly: boolean; pdfUrl: string; imageUrl: string; sent: string };
 
 // The latest announcements for the names the current user holds, with what
 // was sent to them, for the Overview card and the Announcements page.
@@ -252,6 +291,6 @@ export async function getRecentAnnouncements(opts: { limit?: number; days?: numb
   const rows: any[] = await AnnouncementModel.find({ symbol: { $in: symbols }, announcedAt: { $gte: since } }).sort({ announcedAt: -1 }).limit(opts.limit ?? 50).lean();
   return rows.map((a) => {
     const d = (a.deliveries ?? []).find((x: any) => x.userId === userId);
-    return { annId: a.annId, symbol: a.symbol, company: a.company ?? "", title: a.title ?? "", kind: (a.kind as AnnouncementKind) ?? classifyAnnouncement(a.title ?? ""), announcedAt: new Date(a.announcedAt).toISOString(), pdfUrl: fileUrl(a.pdfPath ?? ""), imageUrl: fileUrl(a.images?.[0] ?? ""), sent: d ? d.status : "" };
+    return { annId: a.annId, symbol: a.symbol, company: a.company ?? "", title: a.title ?? "", kind: (a.kind as AnnouncementKind) ?? classifyAnnouncement(a.title ?? ""), announcedAt: new Date(a.announcedAt).toISOString(), dateOnly: !!a.dateOnly, pdfUrl: fileUrl(a.pdfPath ?? ""), imageUrl: fileUrl(a.images?.[0] ?? ""), sent: d ? d.status : "" };
   });
 }
