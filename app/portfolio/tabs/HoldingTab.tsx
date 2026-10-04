@@ -9,6 +9,7 @@ import { ParkedHoldings } from "@/components/dashboard/ParkedHoldings";
 import { getPortfolioSummary, checkDataAvailability, getSparklines, getShariahStatus, getAllTransactions, getFbrPack, getAllHoldings } from "@/lib/data";
 import { getToday, getAllocation, getBookFigures, getDollarized, getUsdPkrSeries } from "@/lib/analytics/dashboard";
 import { holdingDollars } from "@/lib/analytics/dollarized";
+import { getFyProfits } from "@/lib/analytics/fy";
 import { getPriceFreshness } from "@/lib/prices";
 import { currentTaxYear } from "@/lib/dates";
 import { fmtRs, fmtSignedRs, fmtDollars, fmtSignedDollars } from "@/lib/format";
@@ -19,10 +20,12 @@ const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "
 const dayMonth = (iso: string) => `${Number(iso.slice(8, 10))} ${MONTHS[Number(iso.slice(5, 7)) - 1]}${iso.slice(0, 4) !== new Date().toISOString().slice(0, 4) ? " " + iso.slice(0, 4) : ""}`;
 const signedPct = (v: number, d = 2) => `${v >= 0 ? "+" : "−"}${Math.abs(v).toFixed(d)}%`;
 
-// The Holding tab: twelve figures (the last two in dollars), the market
-// value line beside the holdings donut, then the table of positions.
+// The Holding tab: twelve figures (the last two in dollars), the profit of
+// this financial year and the last, the market value line beside the
+// holdings donut, then the table of positions.
 export async function HoldingTab() {
   const [avail, summary, today, alloc, txs, book, allHoldings, dz, usdRates] = await Promise.all([checkDataAvailability(), getPortfolioSummary(), getToday(), getAllocation(), getAllTransactions(), getBookFigures(), getAllHoldings(), getDollarized().catch(() => null), getUsdPkrSeries()]);
+  const fy = await getFyProfits().catch(() => null);
   const parkedNotes = Object.fromEntries(allHoldings.filter((h) => h.parked && h.parkedNote).map((h) => [h.symbol, h.parkedNote as string]));
   const cur = currentTaxYear();
   const pack = await getFbrPack(cur.endYear).catch(() => null);
@@ -102,6 +105,23 @@ export async function HoldingTab() {
           hint={dz && dz.rateFirst && dz.firstDate && dz.rupeePct != null ? `The rupee since your first buy (${dayMonth(dz.firstDate)}): Rs ${dz.rateFirst.toFixed(2)} → Rs ${dz.rateNow.toFixed(2)} a dollar, ${signedPct(dz.rupeePct, 1)}` : undefined}
         />
       </div>
+
+      {fy && fy.years.length > 0 && (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mt-3">
+          {fy.years.slice(0, 2).map((y) => (
+            <StatCard
+              key={y.fy.label}
+              label={`Profit ${y.fy.label}${y.fy.current ? " so far" : ""}`}
+              value={fmtSignedRs(y.profit)}
+              tone={y.profit >= 0 ? "positive" : "negative"}
+              delta={y.returnPct != null ? signedPct(y.returnPct, 1) : undefined}
+              deltaTone={y.profit >= 0 ? "positive" : "negative"}
+              hint={`Price gain ${fmtSignedRs(y.capitalGain)} · dividends ${fmtRs(y.dividends)}, a reinvested dividend counted once`}
+              action={<Link href="/portfolio?tab=analytics&view=profitability#by-year" className="text-[11px] link-underline whitespace-nowrap">By year</Link>}
+            />
+          ))}
+        </div>
+      )}
 
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-3 mt-3">
         <div className="xl:col-span-2 min-h-[340px]">

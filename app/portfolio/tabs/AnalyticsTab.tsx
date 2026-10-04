@@ -10,6 +10,8 @@ import { CompanyMark } from "@/components/ui/CompanyMark";
 import { getPerformance, getToday, getYields, getBookFigures } from "@/lib/analytics/dashboard";
 import { getRisk } from "@/lib/analytics/risk";
 import { getPortfolioSummary, getAttribution } from "@/lib/data";
+import { getFyProfits } from "@/lib/analytics/fy";
+import { FyProfitTable } from "@/components/dashboard/FyProfitTable";
 import { fmtRs, fmtSignedRs, fmtSignedPct, fmtDate, fmtPct } from "@/lib/format";
 import type { PortfolioSearch } from "../page";
 
@@ -94,7 +96,7 @@ async function Returns({ range }: { range: string }) {
 }
 
 async function Profitability({ range }: { range: string }) {
-  const [perf, summary, today, attr, yields, book] = await Promise.all([getPerformance(range).catch(() => null), getPortfolioSummary(), getToday(), getAttribution(30).catch(() => null), getYields().catch(() => null), getBookFigures()]);
+  const [perf, summary, today, attr, yields, book, fy] = await Promise.all([getPerformance(range).catch(() => null), getPortfolioSummary(), getToday(), getAttribution(30).catch(() => null), getYields().catch(() => null), getBookFigures(), getFyProfits().catch(() => null)]);
   const held = summary.positions.filter((p) => p.shares > 0).sort((a, b) => b.marketValue - a.marketValue);
   const byName = new Map(today.names.map((n) => [n.symbol, n]));
   const maxAbs = Math.max(1, ...held.map((p) => Math.abs(p.totalReturn)));
@@ -107,6 +109,7 @@ async function Profitability({ range }: { range: string }) {
         <StatCard label="Realized" value={fmtSignedRs(summary.realizedPL)} tone={summary.realizedPL >= 0 ? "positive" : "negative"} />
         <StatCard label="Dividends" value={fmtRs(summary.dividendsTotal)} delta={yields ? `${yields.portfolioYieldPct.toFixed(2)}% yield` : undefined} deltaTone="muted" />
       </div>
+      {fy && <div id="by-year"><FyProfitTable board={fy} /></div>}
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-3 mt-3">
         <div className="xl:col-span-2">
           <Card title="Daily profit" action={<span className="text-[12px] text-muted">Last 40 sessions</span>}>

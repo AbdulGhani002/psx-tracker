@@ -1,7 +1,7 @@
 // Single source of truth for the app version + changelog.
 // Bump APP_VERSION and prepend a CHANGELOG entry on every release.
 
-export const APP_VERSION = "11.10.2";
+export const APP_VERSION = "11.11.0";
 
 export const BUILD_DATE =
   process.env.NEXT_PUBLIC_BUILD_DATE ?? "";
@@ -17,6 +17,16 @@ export type ChangelogEntry = {
 
 // Reverse-chronological. Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: "11.11.0",
+    date: "2026-10-04",
+    title: "Profit by financial year",
+    changes: [
+      "The Holding tab shows the profit of this financial year so far and of the last one, July to June, with the year's return: price gain plus dividends. Analytics → Profitability has every year since your first trade (worth at the start, bought, sold, worth at the end, price gain, dividends, profit, return) and where this year's profit came from, name by name.",
+      "Dividends are counted once, without double counting the ones you reinvest. The shares are treated as their own account: profit is the worth at the end, less the worth at the start, less what you bought net of sales, plus the dividends paid. A dividend is profit the day it is paid; the shares it buys are a purchase like any other, at what they cost, and what they gain afterwards is price gain.",
+      "Each year ends at the exchange's actual closing prices on the last trading day of June, not prices adjusted for later bonus issues, so a bonus or a split in the year adds or takes nothing. The return weighs each purchase, sale and dividend by the part of the year it was in.",
+    ],
+  },
   {
     version: "11.10.2",
     date: "2026-10-02",
