@@ -135,6 +135,9 @@ export type DividendForecast = {
   windowEnd: Date;
   profiles: SymbolDividendProfile[];
   events: ForecastEvent[];
+  // Still to come this financial year: each payout of the last full year, a
+  // year on, until its date passes or the real one is announced or recorded.
+  due: ForecastEvent[];
   months: ForecastMonth[];
   bonusEvents: BonusEvent[]; // projected bonus-share issues in the window
   total12m: number;
@@ -180,7 +183,7 @@ export type ForecastOptions = {
   prices?: Record<string, number>;
 };
 
-type HistItem = { date: Date; dps: number; isFinal: boolean };
+type HistItem = { date: Date; dps: number; isFinal: boolean; cycle: string };
 
 // Cumulative share-multiplier from recorded SPLIT transactions. A "1:2" split
 // (old:new) doubles the shares and halves the face value, so factor = new/old.
@@ -263,14 +266,14 @@ function historyFor(
   const cashPayouts = (fund?.payouts ?? []).filter((p) => p.type === "cash" && p.date && p.pctOfFace > 0);
   if (cashPayouts.length > 0) {
     const items = cashPayouts
-      .map((p) => ({ date: new Date(p.date as string), dps: (p.pctOfFace / 100) * face, isFinal: p.cycle.toUpperCase() === "F" }))
+      .map((p) => ({ date: new Date(p.date as string), dps: (p.pctOfFace / 100) * face, isFinal: p.cycle.toUpperCase() === "F", cycle: (p.cycle ?? "").trim().toUpperCase() }))
       .filter((x) => !isNaN(x.date.getTime()))
       .sort((a, b) => a.date.getTime() - b.date.getTime());
     if (items.length) return { items, source: "psx" };
   }
   const items = recorded
     .filter((r) => r.ratePerShare > 0 && !isNaN(r.date.getTime()))
-    .map((r) => ({ date: r.date, dps: r.ratePerShare, isFinal: false }))
+    .map((r) => ({ date: r.date, dps: r.ratePerShare, isFinal: false, cycle: "" }))
     .sort((a, b) => a.date.getTime() - b.date.getTime());
   return { items, source: "recorded" };
 }
@@ -495,6 +498,7 @@ export function forecastDividends(
   const gridStart = new Date(Date.UTC(asOf.getUTCFullYear(), asOf.getUTCMonth(), 1));
   const windowEnd = addMonths(gridStart, 12);
   const events: ForecastEvent[] = [];
+  const due: ForecastEvent[] = [];
   const bonusEvents: BonusEvent[] = [];
 
   // Recorded payments, for the fallback timing template.
@@ -523,6 +527,45 @@ export function forecastDividends(
     if (p.forwardDpsAnnual <= 0) continue;
     const { items } = historyFor(recordedBySymbol.get(p.symbol) ?? [], fundamentals[p.symbol], p.faceValue);
     if (items.length === 0) continue;
+
+    // Still to come this financial year. Each payout of the last full year
+    // is expected once, a year on (two if the company skipped a year). It
+    // drops out when its date passes, by when the real one is announced or
+    // recorded (or it was not paid), or as soon as the real one is. A real
+    // payout, announced or paid since that year, stands for the one expected
+    // payout nearest its date (of the same cycle where both carry one) within
+    // two months (two and a half for a payment, which comes after the
+    // announcement). Nothing is rolled into the next year, so a payout just
+    // announced does not come back as expected.
+    {
+      const curFy = taxYearOf(asOf).endYear;
+      const baseFy = Math.max(...items.map((x) => taxYearOf(x.date).endYear).filter((y) => y < curFy), -Infinity);
+      const base = Number.isFinite(baseFy) ? items.filter((x) => taxYearOf(x.date).endYear === baseFy) : [];
+      const baseTotal = base.reduce((acc, x) => acc + x.dps, 0) || 1;
+      const slots = base.map((b) => ({ b, when: addMonths(b.date, 12 * (curFy - baseFy)), real: false }));
+      const since = (d: Date) => taxYearOf(d).endYear > baseFy;
+      const reals = [
+        ...items.filter((x) => since(x.date)).map((x) => ({ date: x.date, cycle: x.cycle, days: 60 })),
+        ...(recordedBySymbol.get(p.symbol) ?? []).filter((r) => since(r.date)).map((r) => ({ date: r.date, cycle: "", days: 75 })),
+      ];
+      for (const r of reals) {
+        let best: (typeof slots)[number] | null = null;
+        for (const sl of slots) {
+          if (sl.real || (r.cycle && sl.b.cycle && r.cycle !== sl.b.cycle)) continue;
+          const gap = Math.abs(r.date.getTime() - sl.when.getTime());
+          if (gap <= r.days * DAY && (!best || gap < Math.abs(r.date.getTime() - best.when.getTime()))) best = sl;
+        }
+        if (best) best.real = true;
+      }
+      for (const { b, when, real } of slots) {
+        if (real || when.getTime() <= asOf.getTime()) continue;
+        const grownByBonus = p.nextBonusDate && when >= p.nextBonusDate ? 1 + p.recentBonusPct / 100 : 1;
+        const shares = p.shares * grownByBonus;
+        const ratePerShare = p.forwardDpsAnnual * (b.dps / baseTotal);
+        if (ratePerShare * shares <= 0) continue;
+        due.push({ symbol: p.symbol, name: p.name, date: when, year: when.getUTCFullYear(), month: when.getUTCMonth(), expectedRatePerShare: ratePerShare, shares, expectedGross: ratePerShare * shares, basedOn: b.date, confidence: p.confidence });
+      }
+    }
 
     // Template = the payouts of the most recent fiscal year present (their
     // months + relative weights), so cadence and timing follow the company.
@@ -563,6 +606,7 @@ export function forecastDividends(
   }
 
   events.sort((a, b) => a.date.getTime() - b.date.getTime());
+  due.sort((a, b) => a.date.getTime() - b.date.getTime());
   bonusEvents.sort((a, b) => a.date.getTime() - b.date.getTime());
 
   const months: ForecastMonth[] = [];
@@ -580,5 +624,5 @@ export function forecastDividends(
     .filter((t) => t.type === "DIVIDEND" && asDate(t.date).getTime() >= since)
     .reduce((s, t) => s + (t.netAmount || 0), 0);
 
-  return { asOf, windowEnd, profiles, events, months, bonusEvents, total12m, paidLast12m };
+  return { asOf, windowEnd, profiles, events, due, months, bonusEvents, total12m, paidLast12m };
 }

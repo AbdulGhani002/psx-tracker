@@ -1,7 +1,7 @@
 // Single source of truth for the app version + changelog.
 // Bump APP_VERSION and prepend a CHANGELOG entry on every release.
 
-export const APP_VERSION = "11.11.0";
+export const APP_VERSION = "11.11.1";
 
 export const BUILD_DATE =
   process.env.NEXT_PUBLIC_BUILD_DATE ?? "";
@@ -17,6 +17,14 @@ export type ChangelogEntry = {
 
 // Reverse-chronological. Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: "11.11.1",
+    date: "2026-10-07",
+    title: "Expected payouts go once their date passes",
+    changes: [
+      "Expected later on the Payouts tab now lists what is still to come this financial year: each of last year's payouts, a year on. An expected payout goes as soon as its date passes, by when the real one is announced or recorded, or as soon as the real one is announced or paid, whichever is first. It is no longer moved a year ahead, so a dividend just announced (MUREB's, PTL's) no longer shows again as expected next September, and one a company skipped this year (AHCL's) simply goes.",
+    ],
+  },
   {
     version: "11.11.0",
     date: "2026-10-04",

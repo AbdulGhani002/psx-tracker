@@ -61,7 +61,10 @@ export async function PayoutsTab() {
   }
   const yearRows = [...years.entries()].sort((a, b) => a[0] - b[0]);
 
-  const upcoming = (forecast?.events ?? []).filter((e) => new Date(e.date) >= new Date()).sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime()).slice(0, 12);
+  // Still to come this financial year: gone once its date passes or the
+  // real payout is announced or recorded (lib/calculations/dividend-forecast).
+  const upcoming = (forecast?.due ?? []).filter((e) => new Date(e.date) > new Date()).slice(0, 12);
+  const fyLabel = (() => { const d = new Date(); const y = d.getMonth() >= 6 ? d.getFullYear() + 1 : d.getFullYear(); return `FY${String(y - 1).slice(2)}-${String(y).slice(2)}`; })();
   const existingWarrants = new Set(dividends.map((t) => t.warrantNo).filter((w): w is string => !!w));
   const existingSymbols = holdings.map((h) => ({ symbol: h.symbol, name: h.name }));
 
@@ -196,7 +199,7 @@ export async function PayoutsTab() {
       )}
 
       {upcoming.length > 0 && (
-        <Card className="mt-3" title="Expected later" eyebrow="From each name's own payout record; a forecast, not an announcement">
+        <Card className="mt-3" title={`Expected later in ${fyLabel}`} eyebrow="Last year's payouts, a year on; each goes once its date passes or the real one is announced or recorded">
           <div className="overflow-x-auto -mx-2">
             <table className="table-zar">
               <thead><tr><th>Expected</th><th>Name</th><th className="text-right">Per share</th><th className="text-right">Shares</th><th className="text-right">Gross</th><th>Confidence</th></tr></thead>

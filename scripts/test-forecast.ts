@@ -183,5 +183,35 @@ const grFund: Record<string, FundamentalsInput> = { GRW: { faceValue: 10, latest
 const grp = buildDividendProfiles([], [hld("GRW", 100)], { asOf, fundamentals: grFund }).find((p) => p.symbol === "GRW")!;
 ok("dividend growth clamped to 30%", grp.dividendGrowthPct === 30, `${grp.dividendGrowthPct}`);
 
+// --- Expected later this financial year (due): each of last year's payouts a
+// year on, gone once its date passes or the real one is announced or paid.
+// The patterns are the user's own, as on 7 Oct 2026.
+const oct7 = new Date("2026-10-07T00:00:00Z");
+const pf = (payouts: Array<[string, number, string]>): FundamentalsInput => ({ faceValue: 10, latestEps: 30, epsByYear: { 2025: 28, 2026: 30 }, epsGrowthPct: 5, payouts: payouts.map(([date, pctOfFace, cycle]) => ({ date, pctOfFace, cycle, type: "cash" as const })) });
+const dueFund: Record<string, FundamentalsInput> = {
+  // Announced its final on 18 Sep 2026: that payout is real, not expected again in Sep 2027.
+  MUREB: pf([["2025-10-27", 50, "i"], ["2026-02-23", 120, "F"], ["2026-09-18", 145, "F"]]),
+  // Last year's final (29 Sep) has passed and this year's was announced on 8 Sep; the interim is to come.
+  PTL: pf([["2025-09-29", 20, "F"], ["2026-03-05", 20, "i"], ["2026-09-08", 20, "F"]]),
+  // Paid in Sep 2025, nothing yet this year: the date has passed, so it is gone, not moved to 2027.
+  AHCL: pf([["2025-09-23", 100, "F"]]),
+  // Four a year; the August one was paid on 29 Aug (recorded).
+  MEBL: pf([["2025-08-13", 50, "ii"], ["2025-10-27", 70, "iii"], ["2026-02-09", 70, "F"], ["2026-04-23", 75, "i"]]),
+};
+const dueTx = [tx({ symbol: "MEBL", date: "2026-08-29", pricePerShare: 5, netAmount: 306 })];
+const dueF = forecastDividends(dueTx, ["MUREB", "PTL", "AHCL", "MEBL"].map((s) => hld(s, 100)), { asOf: oct7, fundamentals: dueFund });
+const dueOf = (s: string) => dueF.due.filter((e) => e.symbol === s).map((e) => e.date.toISOString().slice(0, 10));
+ok("nothing expected is in the past", dueF.due.every((e) => e.date > oct7));
+ok("nothing is pushed into the next financial year", dueF.due.every((e) => e.date < new Date("2027-07-01T00:00:00Z")), dueF.due.map((e) => e.symbol + " " + e.date.toISOString().slice(0, 10)).join(", "));
+ok("MUREB: last year's interim and final a year on, not the final just announced", dueOf("MUREB").join() === "2026-10-27,2027-02-23", dueOf("MUREB").join());
+ok("PTL: the passed final is gone, the interim is to come", dueOf("PTL").join() === "2027-03-05", dueOf("PTL").join());
+ok("AHCL: a date that passed without a payout is dropped, not moved a year", dueOf("AHCL").length === 0, dueOf("AHCL").join());
+ok("MEBL: three still to come, the August one passed and paid", dueOf("MEBL").join() === "2026-10-27,2027-02-09,2027-04-23", dueOf("MEBL").join());
+const early = forecastDividends(dueTx, [hld("PTL", 100)], { asOf: new Date("2027-02-25T00:00:00Z"), fundamentals: { PTL: pf([["2025-09-29", 20, "F"], ["2026-03-05", 20, "i"], ["2026-09-08", 20, "F"], ["2027-02-20", 20, "i"]]) } });
+ok("an interim announced early takes the expected one off at once", early.due.filter((e) => e.symbol === "PTL").length === 0, early.due.map((e) => e.date.toISOString().slice(0, 10)).join());
+const paidEarly = forecastDividends([tx({ symbol: "PTL", date: "2027-02-28", pricePerShare: 2 })], [hld("PTL", 100)], { asOf: new Date("2027-03-01T00:00:00Z"), fundamentals: { PTL: pf([["2025-09-29", 20, "F"], ["2026-03-05", 20, "i"], ["2026-09-08", 20, "F"]]) } });
+ok("so does a payout already recorded, before its expected date", paidEarly.due.filter((e) => e.symbol === "PTL").length === 0);
+ok("the 12-month forecast itself is unchanged", dueF.events.length > 0 && Math.abs(dueF.total12m - dueF.events.reduce((s, e) => s + e.expectedGross, 0)) < 1e-6);
+
 console.log(`\n${pass} passed, ${fail} failed`);
 if (fail > 0) process.exit(1);
