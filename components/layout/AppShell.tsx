@@ -19,11 +19,10 @@ type NavItem = { href: string; label: string; icon: IconName; title: string; sub
 const MENU: NavItem[] = [
   { href: "/", label: "Overview", icon: "grid", title: "Overview", subtitle: "Consolidated view across all portfolios" },
   { href: "/portfolio", label: "Portfolios", icon: "briefcase", title: "Portfolio", subtitle: "Holdings, trades, payouts, cash and tax" },
-  { href: "/watchlist", label: "Watchlists", icon: "eye", title: "Watchlists", subtitle: "Names you follow and the levels you set" },
+  { href: "/watchlist", label: "Watchlist", icon: "eye", title: "Watchlist", subtitle: "Shares and sectors you would buy" },
   { href: "/strategy", label: "Strategy", icon: "compass", title: "Strategy", subtitle: "Buying a downturn in steps, dry powder and this month's rates" },
   { href: "/rebalance", label: "Rebalance", icon: "target", title: "Rebalance", subtitle: "Target allocation and the trades that reach it" },
   { href: "/analysis", label: "Model", icon: "brain", title: "Model", subtitle: "Buy and sell zones from the learned model" },
-  { href: "/swing", label: "Swing trades", icon: "trend", title: "Swing trades", subtitle: "Buy level, stop-loss and profit targets for one to four weeks" },
   { href: "/announcements", label: "Announcements", icon: "bell", title: "Announcements", subtitle: "What your companies have posted on the exchange" },
 ];
 const SETTINGS: NavItem = { href: "/settings", label: "Settings", icon: "gear", title: "Settings", subtitle: "Portfolios, tax status, alerts and backup" };

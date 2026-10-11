@@ -11,7 +11,7 @@ import {
   TargetAllocationModel,
   DecisionLogModel,
   CashEntryModel,
-  WatchlistEntryModel,
+  WatchlistModel,
   MutualFundModel,
   SavingsAccountModel,
   AppSettingsModel,
@@ -28,7 +28,7 @@ export const dynamic = "force-dynamic";
 const COLLECTIONS: Array<{ name: string; model: any }> = [
   { name: "AppSettings", model: AppSettingsModel },
   { name: "TargetAllocation", model: TargetAllocationModel },
-  { name: "WatchlistEntry", model: WatchlistEntryModel },
+  { name: "Watchlist", model: WatchlistModel },
   { name: "Holding", model: HoldingModel },
   { name: "Transaction", model: TransactionModel },
   { name: "CashEntry", model: CashEntryModel },
@@ -87,7 +87,6 @@ const restoreSchema = z.object({
 const UNIQUE_FIELDS: Record<string, string[]> = {
   Holding: ["symbol"],
   TargetAllocation: ["symbol"],
-  WatchlistEntry: ["symbol"],
   SbpRate: ["effectiveDate"],
   AlertLog: ["dedupeKey"],
   Transaction: ["warrantNo"], // partial: only string values are unique

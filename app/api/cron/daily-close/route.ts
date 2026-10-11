@@ -2,18 +2,17 @@ import { NextResponse } from "next/server";
 import { connectDb } from "@/lib/db";
 import { getAllUserIds } from "@/lib/data";
 import { cronAuthorised } from "@/lib/auth/cron";
-import { refreshCloses, rebuildUser } from "@/lib/quant/daily";
-import { loadSwingBook } from "@/lib/quant/swing-book";
+import { refreshCloses, rebuildUser, rebuiltThrough } from "@/lib/quant/daily";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 export const maxDuration = 900;
 
 // Machine-only, on weekdays after the close (psx-daily-close.timer): the
-// exchange's end-of-day file into the price series, then each user's reading
-// and swing book. A user whose book has already seen the latest close is
-// skipped, so the second run of the evening costs one request unless the
-// first missed the file. Body {force:true} rebuilds anyway; {from:"YYYY-MM-DD"}
+// exchange's end-of-day file into the price series, then each user's reading.
+// A user whose reading was already rebuilt on the latest close is skipped,
+// so the second run of the evening costs one request unless the first missed
+// the file. Body {force:true} rebuilds anyway; {from:"YYYY-MM-DD"}
 // fetches every weekday's file from that date that is not yet kept.
 export async function POST(req: Request) {
   if (!(await cronAuthorised())) return NextResponse.json({ error: "forbidden" }, { status: 403 });
@@ -26,13 +25,13 @@ export async function POST(req: Request) {
   const users = await getAllUserIds();
   const results: Array<Record<string, unknown>> = [];
   for (const id of users) {
-    const book = await loadSwingBook(id).catch(() => null);
-    if (body?.force !== true && book?.asOf && latest && book.asOf >= latest) {
-      results.push({ user: id.slice(-6), skipped: `book already at ${book.asOf}` });
+    const done = await rebuiltThrough(id);
+    if (body?.force !== true && done && latest && done >= latest) {
+      results.push({ user: id.slice(-6), skipped: `already rebuilt on ${done}` });
       continue;
     }
     try {
-      results.push({ user: id.slice(-6), ...(await rebuildUser(id)) });
+      results.push({ user: id.slice(-6), ...(await rebuildUser(id, latest)) });
     } catch (e) {
       results.push({ user: id.slice(-6), error: String(e instanceof Error ? e.message : e).slice(0, 200) });
     }

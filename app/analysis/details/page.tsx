@@ -49,7 +49,7 @@ export default async function AnalysisPage() {
       <PageHeader
         eyebrow="Model"
         title="Full report"
-        subtitle="The model's own reading: how strong the market is and what the KSE-100 did after past days like this, where each name you hold ranks among every name on the exchange and what names ranked there went on to do, and the zones read off the model's own curve of where a path stalls. Your bands are shown beside its verdicts, not underneath them."
+        subtitle="The model's own reading: how strong the market is and what the KSE-100 did after past days like this, where each name you hold ranks among every name on the exchange and what names ranked there went on to do, and the zones read off the model's own curve of where a path stalls."
       >
         <Link href="/analysis" className="text-[13px] link-underline">← Back to the simple view</Link>
       </PageHeader>
@@ -127,7 +127,6 @@ export default async function AnalysisPage() {
                     <th className="py-2 pr-3">Sell zone</th>
                     <th className="py-2 pr-3">Fails</th>
                     <th className="py-2 pr-3">Turns above</th>
-                    <th className="py-2 pr-3">Your band</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -146,7 +145,6 @@ export default async function AnalysisPage() {
                       <td className="py-2 pr-3 font-mono">{h.zone ? `${money(h.zone.sellLow)} to ${money(h.zone.sellHigh)}` : "–"}</td>
                       <td className="py-2 pr-3 font-mono">{h.zone ? money(h.zone.fails) : "–"}</td>
                       <td className="py-2 pr-3 font-mono">{h.zone?.trigger ? money(h.zone.trigger) : "–"}</td>
-                      <td className="py-2 pr-3 text-muted">{h.yourZone || "none"}</td>
                     </tr>
                   ))}
                 </tbody>

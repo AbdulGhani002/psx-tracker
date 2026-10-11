@@ -38,7 +38,6 @@ import { loadLongIndex } from "../lib/quant/index-history";
 import { indexStates, fitCells, evaluateCells, cellOutlook } from "../lib/quant/outlook";
 import { buildArchivePanel } from "../lib/quant/archive";
 import { strategyBacktest, strategyTable, strategyYearTable, type StrategyResult } from "../lib/quant/strategy";
-import { swingBacktest, swingTable, type SwingStats } from "../lib/quant/swing";
 import { MARKET_CONTEXT_NAMES } from "../lib/quant/context";
 import type { EodBar } from "../lib/timeseries/psx-eod";
 import { has, argOf, num, printResult, optionsFromArgs } from "./quant-cli";
@@ -168,7 +167,6 @@ async function main() {
   }
   if (validation) printResult(validation, held);
   let strategy: StrategyResult | null = null;
-  let swing: SwingStats[] | null = null;
   const zoneSource = zoneSourceOf(validation?.zones);
   if (validation?.zones?.pinball) {
     const pb = validation.zones.pinball;
@@ -183,12 +181,6 @@ async function main() {
     const line = (rows: typeof byState.strong) => rows.map((c) => `${c.decile}: ${c.meanRelPct >= 0 ? "+" : ""}${c.meanRelPct.toFixed(2)}%`).join("  ");
     console.log(`\nDeciles when the index sat above its 200-day (${byState.strongDates} dates): ${line(byState.strong)}`);
     console.log(`Deciles when it sat below (${byState.weakDates} dates):                    ${line(byState.weak)}`);
-
-    // Swing trades at the model's own levels, on the same out-of-sample predictions.
-    swing = swingBacktest(validation.points, bars, indexGate(index), opts.horizon, undefined, { walkLevels: zoneSource === "walk" });
-    if (swing.length) console.log(`
-Swing trades at the zones' levels (entry at the top of the buy zone, stop at the fail level, out at the target, the stop or ${opts.horizon} sessions; 0.4% round trip):
-` + swingTable(swing));
 
     // The predictions themselves, for re-testing rules without retraining.
     const pointsFile = argOf("points");
@@ -274,7 +266,6 @@ Swing trades at the zones' levels (entry at the top of the buy zone, stop at the
     trainedFrom,
     indexKind: archiveDir ? "equal-weight" : "kse100",
     strategy,
-    swing,
     zoneSource,
     rows: final.rows,
     config: finalOpts,

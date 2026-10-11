@@ -1,5 +1,5 @@
 [Unit]
-Description=PSX tracker: the day's closing file, the model's reading and the swing book
+Description=PSX tracker: the day's closing file and the model's reading
 After=network-online.target psx-tracker-v2.service
 
 [Service]

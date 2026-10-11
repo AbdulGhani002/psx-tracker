@@ -22,10 +22,9 @@ type Props = {
     targetPercent: number;
     rebalanceBand: number;
   }>;
-  strictZones: boolean;
 };
 
-export function TargetsEditor({ initial, strictZones }: Props) {
+export function TargetsEditor({ initial }: Props) {
   const router = useRouter();
   const [rows, setRows] = useState<Row[]>(
     initial.map((p) => ({
@@ -38,7 +37,6 @@ export function TargetsEditor({ initial, strictZones }: Props) {
   );
   const [saving, setSaving] = useState(false);
   const [savedAt, setSavedAt] = useState<number | null>(null);
-  const [strict, setStrict] = useState(strictZones);
   const [error, setError] = useState<string | null>(null);
 
   function updateRow(symbol: string, patch: Partial<Row>) {
@@ -56,20 +54,6 @@ export function TargetsEditor({ initial, strictZones }: Props) {
         (r, i) =>
           r.target !== initial[i].targetPercent || r.band !== initial[i].rebalanceBand
       );
-
-      // The buy-zone switch is a setting rather than a per-holding field.
-      if (strict !== strictZones) {
-        const res = await fetch("/api/settings", {
-          method: "PATCH",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ strictBuyZones: strict }),
-        });
-        if (!res.ok) {
-          const body = await res.json().catch(() => ({}));
-          setError(body?.detail ?? body?.error ?? "Could not save the buy-zone setting.");
-          return;
-        }
-      }
 
       const results = await Promise.all(
         dirty
@@ -267,23 +251,6 @@ export function TargetsEditor({ initial, strictZones }: Props) {
           )}
         </p>
       )}
-
-      <label className="flex items-start gap-3 mt-4 cursor-pointer max-w-[80ch]">
-        <input
-          type="checkbox"
-          checked={strict}
-          onChange={(e) => setStrict(e.target.checked)}
-          className="mt-1"
-        />
-        <span className="text-[12px]">
-          <span className="font-medium">Only buy inside the buy zone.</span>{" "}
-          <span className="text-muted">
-            Off, a price above your ceiling still gets bought, just less of it. On, a name outside its band is not
-            bought at all and the money stays in cash until the price comes to you. A name with no band set counts as
-            outside it, because an unproven price is not a cheap one.
-          </span>
-        </span>
-      </label>
 
       <div className="flex flex-wrap items-center gap-3 mt-5">
         <Button variant="solid" onClick={saveAll} disabled={saving}>

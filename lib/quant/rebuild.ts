@@ -4,7 +4,7 @@
 // asks after it: one job per user at a time, kept in this process, with the
 // last error held for a while so a failed rebuild can say why. It is the
 // evening job run by hand (daily.ts): the day's end-of-day file first, if the
-// timer has not fetched it yet, then the reading, then the swing book.
+// timer has not fetched it yet, then the reading.
 
 import "server-only";
 import { refreshCloses, rebuildUser } from "./daily";
@@ -21,7 +21,7 @@ export function startRebuild(userId: string): { started: boolean; job: Job } {
   jobs.set(userId, job);
   refreshCloses()
     .catch(() => null)
-    .then(() => rebuildUser(userId))
+    .then((c) => rebuildUser(userId, c ? c.bars.latest ?? c.sheets.latest : null))
     .then((r) => {
       job.charts = r.charts;
     })

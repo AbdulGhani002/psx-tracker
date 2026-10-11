@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # The evening after the close: the exchange's end-of-day file into the stored
-# price series, then each user's model reading and swing book. Installed at
+# price series, then each user's model reading. Installed at
 # /root/psx-daily-close.sh and run by psx-daily-close.timer (Mon..Fri 14:15 and
 # 16:30 server time, i.e. 17:15 and 19:30 in Karachi in summer). The second run
 # only does work if the first missed the file. Credentials come from the app

@@ -2,9 +2,8 @@ import { NextResponse } from "next/server";
 import { connectDb } from "@/lib/db";
 import { AlertLogModel, RateSnapshotModel } from "@/lib/models";
 import { appOrigin } from "@/lib/auth/mailer";
-import { getAppSettings, getZoneBoard, getDeploymentPlan, getStandInGroups, getPortfolioSummary, getAllHoldings, getUpcomingExDates, getAllUserIds, getIntrinsicValuations, getShariahStatus, getFeedSnapshot, saveFeedSnapshot, getNetWorth, getEffectiveInflationPct, getFixedIncomeValued } from "@/lib/data";
+import { getAppSettings, getPortfolioSummary, getAllHoldings, getUpcomingExDates, getAllUserIds, getIntrinsicValuations, getShariahStatus, getFeedSnapshot, saveFeedSnapshot, getNetWorth, getEffectiveInflationPct, getFixedIncomeValued } from "@/lib/data";
 import { getUsdPkr } from "@/lib/fx";
-import { describeZone } from "@/lib/calculations/zones";
 import { getPriceFreshness } from "@/lib/prices";
 import { getFlows, getEarningsCalendar } from "@/lib/analytics";
 import { realPct } from "@/lib/calculations/pk-tax";
@@ -12,6 +11,7 @@ import { getDecisionInbox, getSellDiscipline } from "@/lib/data-decisions";
 import { runAsUser } from "@/lib/auth/current-user";
 import { uid } from "@/lib/auth/uid";
 import { sendTelegram } from "@/lib/notify/telegram";
+import { getWatchlist, watchedSymbols } from "@/lib/watchlist";
 import { getStrategy, getRatesPrefill } from "@/lib/strategy/data";
 import { kseStepMessage, maturityMessage } from "@/lib/strategy/alerts";
 import { cronAuthorised } from "@/lib/auth/cron";
@@ -25,7 +25,7 @@ type Candidate = { key: string; message: string };
 // Which alerts this user wants. Every candidate carries a key whose prefix
 // says what it is, so one filter at the end decides what goes out instead of
 // nine scattered conditions.
-const PRICE_KEYS = ["zone-buy", "zone-sell", "zone-conflict", "zone", "standin-swap", "drift", "near-ceiling", "near-buy", "fipi", "kmi-drop", "sellsig"];
+const PRICE_KEYS = ["zone", "drift", "near-ceiling", "near-buy", "fipi", "kmi-drop", "sellsig"];
 
 function wanted(key: string, s: any): boolean {
   const prefix = key.split(":")[0];
@@ -69,103 +69,6 @@ async function runAlertsForCurrentUser(forceDigest = false) {
 
   const today = new Date().toISOString().slice(0, 10);
   const candidates: Candidate[] = [];
-
-  // 1. Watchlist ZONES — the bands decided in advance, on the calm day.
-  //    A buy ping carries the sized order when the deployment plan could size
-  //    it (target weight set, money above the fund reserve). A sell ping fires
-  //    ONLY when the position is bigger than the floor set for that symbol:
-  //    being told to sell 8 shares is noise the brokerage eats.
-  //    Stale quotes never fire — a week-old price is not a band hit.
-  //    Guarded like every other section: the watchlist now pulls prices, fund
-  //    NAVs and the deployment plan, and none of that may take down the
-  //    ex-dividend, board-meeting or digest alerts if a feed misbehaves.
-  let board: Awaited<ReturnType<typeof getZoneBoard>> = {
-    rows: [], buys: [], sells: [], heldAtCore: [], conflicts: [], unpriced: [],
-  };
-  try {
-    board = await getZoneBoard();
-  } catch {
-    /* watchlist or price feed unavailable — the other alerts still run */
-  }
-  const monthKey = today.slice(0, 7);
-  const plan = board.buys.length > 0 ? await getDeploymentPlan().catch(() => null) : null;
-  for (const r of board.rows) {
-    if (!r.alertsOn || r.priceStale || r.price == null) continue;
-    if (r.status === "buy") {
-      const sized = plan?.rows.find((x) => x.symbol === r.symbol);
-      // Only say something when there is something to do. "No cash above your
-      // reserve" was appended to every zone hit, four names a day, which turned
-      // a useful price signal into a nightly reminder of one unchanged fact.
-      // When the plan can size the buy, the order is spelled out; when it
-      // cannot, the zone hit stands on its own.
-      const how = sized
-        ? `\n   → Plan: buy <b>${sized.shares.toLocaleString("en-PK")}</b> shares for Rs ${Math.round(sized.rupees).toLocaleString("en-PK")}` +
-          (plan && plan.pullFromFunds > 0 ? ` (redeem Rs ${Math.round(plan.pullFromFunds).toLocaleString("en-PK")} from the fund)` : "")
-        : r.targetPct > 0
-        ? ""
-        : `\n   → No target weight set, so it cannot be sized. Set one on Rebalance.`;
-      candidates.push({
-        key: `zone-buy:${r.symbol}:${today}`,
-        message: `🟢 <b>${r.symbol}</b> is in your BUY zone — Rs ${r.price.toFixed(2)} (${describeZone(r.buyZoneLow, r.buyZoneHigh, "buy")})${how}`,
-      });
-    }
-    if (r.sellableShares > 0) {
-      const n = (v: number) => Math.round(v).toLocaleString("en-PK");
-      // The instruction is a QUANTITY, not a nudge: everything above the core
-      // you keep, with the money it actually returns after fees and CGT.
-      const money = r.sell
-        ? `\n   → Sell <b>${r.sellableShares.toLocaleString("en-PK")}</b> shares for Rs ${n(r.sell.proceeds)}. ` +
-          `Gain Rs ${n(r.sell.gain)}, CGT Rs ${n(r.sell.cgt)} at ${r.sell.cgtRatePct}%, fees Rs ${n(r.sell.fees)} → ` +
-          `<b>Rs ${n(r.sell.net)}</b> in hand. Keeps ${r.sell.remainingShares.toLocaleString("en-PK")}.`
-        : `\n   → Sell <b>${r.sellableShares.toLocaleString("en-PK")}</b> shares, keeping ${(r.sharesHeld - r.sellableShares).toLocaleString("en-PK")}. ` +
-          `The exact gain could not be matched to your lots — check the holding page.`;
-      candidates.push({
-        key: `zone-sell:${r.symbol}:${today}`,
-        message:
-          `🔴 <b>${r.symbol}</b> is in your SELL zone — Rs ${r.price.toFixed(2)} (${describeZone(r.sellZoneLow, r.sellZoneHigh, "sell")}). ` +
-          `You hold ${r.sharesHeld.toLocaleString("en-PK")}` +
-          (r.minHoldingShares > 0 ? `, keeping a core of ${r.minHoldingShares.toLocaleString("en-PK")}` : "") +
-          `.${money}\n   The sale still needs a logged rationale.`,
-      });
-    }
-    // Contradictory bands cannot produce an instruction, so say so — monthly,
-    // not daily, because it is a config fix rather than a market event.
-    if (r.status === "conflict" && r.warnings.length > 0) {
-      candidates.push({
-        key: `zone-conflict:${r.symbol}:${monthKey}`,
-        message: `⚠️ <b>${r.symbol}</b>: ${r.warnings[0]} No buy or sell signal is given until that is fixed.`,
-      });
-    }
-  }
-
-  // 1.5 Stand-in swaps: a peer was bought to hold a sector while the name you
-  //     actually wanted sat above its band. The moment that name comes into
-  //     range the position reverses, and that is a decision worth interrupting
-  //     for — sell this, buy that, here is what it leaves. Re-armed weekly so
-  //     it nags until acted on, not once and forgotten.
-  try {
-    const { groups } = await getStandInGroups();
-    const week = isoWeekKey(new Date());
-    for (const g of groups) {
-      if (!g.swapReady || !g.swap) continue;
-      const n = (v: number) => Math.round(v).toLocaleString("en-PK");
-      const tax =
-        g.swap.cgt != null
-          ? `less fees Rs ${n(g.swap.sellFees)} and CGT Rs ${n(g.swap.cgt)}`
-          : `less fees Rs ${n(g.swap.sellFees)} (gain unmatched, no tax shown)`;
-      candidates.push({
-        key: `standin-swap:${g.standIn}->${g.primary}:${week}`,
-        message:
-          `🔄 <b>${g.primary}</b> is in its buy band — time to swap back out of <b>${g.standIn}</b>.\n` +
-          `   → Sell ${g.swap.sellShares.toLocaleString("en-PK")} ${g.standIn} for Rs ${n(g.swap.proceeds)}, ${tax} → Rs ${n(g.swap.netFromSale)} in hand.\n` +
-          `   → That buys <b>${g.swap.buyShares.toLocaleString("en-PK")}</b> ${g.primary} at Rs ${g.swap.buyPrice.toFixed(2)} (Rs ${n(g.swap.totalOutlay)} with fees).` +
-          (g.swap.shortfall > 0 ? `\n   Still Rs ${n(g.swap.shortfall)} short of the full ${g.targetPct}% target.` : "") +
-          `\n   The sale needs a logged rationale like any other.`,
-      });
-    }
-  } catch {
-    /* stand-in data unavailable — the other alerts still run */
-  }
 
   // 2. Rebalance drift (position beyond its band)
   //    One message a week listing everything out of band, not one message per
@@ -212,7 +115,7 @@ async function runAlertsForCurrentUser(forceDigest = false) {
   //    stays cheap doesn't ping every single day.
   try {
     const month = today.slice(0, 7);
-    const mine = new Set([...board.rows.map((r) => r.symbol), ...summary.positions.filter((p) => p.shares > 0).map((p) => p.symbol)]);
+    const mine = new Set([...watchedSymbols(await getWatchlist()), ...summary.positions.filter((p) => p.shares > 0).map((p) => p.symbol)]);
     const iv = await getIntrinsicValuations();
     // A "buy zone" verdict is price ÷ intrinsic — if the price is a week-old
     // fallback snapshot, the verdict is stale arithmetic, not a signal. Skip.

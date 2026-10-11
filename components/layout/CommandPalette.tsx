@@ -29,11 +29,10 @@ const PAGES: Item[] = [
   { id: "p-payouts", label: "Payouts", hint: "dividends, tax, zakat, yields", group: "Pages", href: "/portfolio?tab=payouts" },
   { id: "p-cash", label: "Cash", hint: "deposits, withdrawals, funds, savings, T-bills, sukuks", group: "Pages", href: "/portfolio?tab=cash" },
   { id: "p-cgt", label: "CGT", hint: "capital gains tax by tax year", group: "Pages", href: "/portfolio?tab=cgt" },
-  { id: "p-watchlist", label: "Watchlists", hint: "names you follow, buy and sell bands", group: "Pages", href: "/watchlist" },
+  { id: "p-watchlist", label: "Watchlist", hint: "tick the shares and sectors you would buy", group: "Pages", href: "/watchlist" },
   { id: "p-strategy", label: "Strategy", hint: "market phase, buying in steps, dry powder, monthly rates", group: "Pages", href: "/strategy" },
   { id: "p-rebalance", label: "Rebalance", hint: "target allocation, deployment", group: "Pages", href: "/rebalance" },
   { id: "p-analysis", label: "Model", hint: "the model's market read, verdicts and zones", group: "Pages", href: "/analysis" },
-  { id: "p-swing", label: "Swing trades", hint: "buy level, stop-loss and targets, with the tested record", group: "Pages", href: "/swing" },
   { id: "p-changelog", label: "Changelog", hint: "what changed, and why", group: "Pages", href: "/changelog" },
   { id: "p-settings", label: "Settings", hint: "portfolios, tax, alerts, backup", group: "Pages", href: "/settings" },
 ];

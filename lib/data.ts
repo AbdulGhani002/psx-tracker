@@ -4,7 +4,7 @@ import { connectDb } from "./db";
 import { getCurrentUserId } from "./auth/current-user";
 import { portfolioFilter } from "@/lib/portfolios";
 import { knownHoldingCompany } from "./holding-companies";
-import { PmexAccountModel, HoldingModel, TransactionModel, CashEntryModel, WatchlistEntryModel, SbpRateModel, MutualFundModel, SavingsAccountModel, AppSettingsModel, CommodityTradeModel, FundamentalModel, FeedSnapshotModel, UserModel, FixedIncomeModel, RateSnapshotModel, DEFAULT_SETTINGS, type Holding, type Transaction } from "./models";
+import { PmexAccountModel, HoldingModel, TransactionModel, CashEntryModel, SbpRateModel, MutualFundModel, SavingsAccountModel, AppSettingsModel, CommodityTradeModel, FundamentalModel, FeedSnapshotModel, UserModel, FixedIncomeModel, RateSnapshotModel, DEFAULT_SETTINGS, type Holding, type Transaction } from "./models";
 import { valueFixedIncome, fixedIncomeEvents, type FixedIncomeValue } from "./fixed-income/value";
 import { fetchFundamentals } from "./prices/fundamentals";
 import { fetchPayouts } from "./prices/payouts";
@@ -28,9 +28,7 @@ import { buildBenchmarkSeries } from "./timeseries/portfolio-history";
 import { fetchEodSeries } from "./timeseries/psx-eod";
 import { getPrices } from "./prices";
 import { getPriceFreshness } from "./prices";
-import { evaluateZone, sellableShares, zoneBuyFactor, distanceToZonePct, NO_ZONE_FACTOR, type ZoneEntry, type ZoneStatus } from "./calculations/zones";
 import { planDeployment, type DeployCandidate, type DeployPlan } from "./calculations/deploy-plan";
-import { resolveStandIn, validateLinks, type StandInGroup } from "./calculations/standin";
 import { summarisePortfolio, computeCashBalance, summarisePmexAccount, type PortfolioSummary, type CashSummary, type PmexAccountSummary, type PmexMovement } from "./calculations";
 import { forecastDividends, type DividendForecast } from "./calculations/dividend-forecast";
 import { computeSotp, deriveSharesOutstanding, type SotpResult } from "./calculations/sotp";
@@ -1335,7 +1333,6 @@ async function _getAppSettings(): Promise<AppSettings> {
     pmexCgtPercent: doc?.pmexCgtPercent ?? DEFAULT_SETTINGS.pmexCgtPercent,
     mfCashReservePct: (doc as any)?.mfCashReservePct ?? DEFAULT_SETTINGS.mfCashReservePct,
     brokeragePct: (doc as any)?.brokeragePct ?? DEFAULT_SETTINGS.brokeragePct,
-    strictBuyZones: (doc as any)?.strictBuyZones ?? (DEFAULT_SETTINGS as any).strictBuyZones ?? false,
     equityRiskPremiumPct: (doc as any)?.equityRiskPremiumPct ?? DEFAULT_SETTINGS.equityRiskPremiumPct,
     defaultFairPE: (doc as any)?.defaultFairPE ?? DEFAULT_SETTINGS.defaultFairPE,
     targetMonthlyIncome: (doc as any)?.targetMonthlyIncome ?? DEFAULT_SETTINGS.targetMonthlyIncome,
@@ -1758,12 +1755,6 @@ async function computeTodaysMovers(): Promise<{ gainers: Mover[]; losers: Mover[
   };
 }
 
-export async function getWatchlist() {
-  if (!(await tryConnect())) return [];
-  const docs = await WatchlistEntryModel.find({ userId: await meId() }).sort({ createdAt: -1 }).lean();
-  return plain<Array<{ _id: string; symbol: string; name: string; sector: string; notes: string; targetBuyPrice: number | null; targetSellPrice: number | null; buyZoneLow: number | null; buyZoneHigh: number | null; sellZoneLow: number | null; sellZoneHigh: number | null; minHoldingShares: number; minSellShares: number; alertsOn: boolean; createdAt: string }>>(docs);
-}
-
 export const checkDataAvailability = cache(_checkDataAvailability);
 
 export const getAllTransactions = cache(_getAllTransactions);
@@ -1827,271 +1818,57 @@ export const getCashSummary = cache(_getCashSummary);
 export const getMutualFundsValued = cache(_getMutualFundsValued);
 export const getSavingsValued = cache(_getSavingsValued);
 
-// --- Zones: the watchlist joined to prices, positions and targets -----------
-// One place computes zone status, so the Telegram alert, the watchlist table
-// and the rebalance deployment plan can never disagree about whether a stock
-// is in its band or how many shares that frees.
-
-export type SellEconomics = {
-  shares: number; // whole shares above the minimum holding
-  price: number;
-  proceeds: number;
-  fees: number;
-  gain: number; // realised gain on those exact FIFO lots
-  cgt: number;
-  net: number; // what actually reaches the account
-  cgtRatePct: number;
-  remainingShares: number; // the core you keep
-};
-
-export type ZoneBoardRow = {
-  _id: string;
-  symbol: string;
-  name: string;
-  sector: string;
-  notes: string;
-  price: number | null; // null = no usable price; NEVER shown as 0
-  priceAgeDays: number | null;
-  priceStale: boolean; // 7 days or older — alerts skip these
-  buyZoneLow: number | null;
-  buyZoneHigh: number | null;
-  sellZoneLow: number | null;
-  sellZoneHigh: number | null;
-  minHoldingShares: number; // the core you always keep
-  alertsOn: boolean;
-  status: ZoneStatus;
-  sharesHeld: number;
-  positionValue: number;
-  targetPct: number;
-  sellableShares: number; // shares above the floor, 0 when not in a sell band
-  sell: SellEconomics | null; // what selling them actually returns
-  buyFactor: number; // 0..1 — how hard to buy at today's price
-  buyReason: string;
-  toBuyPct: number | null; // % above the buy ceiling (negative = inside)
-  toSellPct: number | null; // % below the sell floor
-  warnings: string[];
-};
-
-export type ZoneBoard = {
-  rows: ZoneBoardRow[];
-  buys: ZoneBoardRow[]; // inside the buy band
-  sells: ZoneBoardRow[]; // in the sell band with shares above the floor
-  heldAtCore: ZoneBoardRow[]; // in the sell band but already at/under the floor
-  conflicts: ZoneBoardRow[]; // contradictory bands — no instruction given
-  unpriced: string[];
-};
-
-async function _getZoneBoard(): Promise<ZoneBoard> {
-  const watch = await getWatchlist();
-  if (watch.length === 0) {
-    return { rows: [], buys: [], sells: [], heldAtCore: [], conflicts: [], unpriced: [] };
-  }
-  const symbols = watch.map((w) => w.symbol);
-  const [prices, freshness, summary, settings] = await Promise.all([
-    getCurrentPrices(symbols),
-    getPriceFreshness(symbols).catch(() => new Map()),
-    getPortfolioSummary(),
-    getAppSettings(),
-  ]);
-  const posBySymbol = new Map(summary.positions.map((p) => [p.symbol, p]));
-  const cgtRatePct =
-    (settings as any).filerStatus === "filer" ? (settings as any).cgtRateFiler : (settings as any).cgtRateNonFiler;
-
-
-  // Bands are advisory by default: a price above your ceiling still gets bought,
-  // just less. Turn this on and they become binding — outside the band nothing
-  // is bought and the money waits in the fund for the level to arrive.
-  const strictZones = !!(await getAppSettings().catch(() => ({} as any)) as any).strictBuyZones;
-
-  const rows: ZoneBoardRow[] = watch.map((w) => {
-    // A zone bound falls back to the older single-point target, so rows created
-    // before zones existed keep working instead of silently going quiet. The
-    // holding floor likewise reads its pre-8.3 name until the migration runs.
-    const buyZoneHigh = w.buyZoneHigh ?? w.targetBuyPrice ?? null;
-    const sellZoneLow = w.sellZoneLow ?? w.targetSellPrice ?? null;
-    const entry: ZoneEntry = {
-      symbol: w.symbol,
-      buyZoneLow: w.buyZoneLow ?? null,
-      buyZoneHigh,
-      sellZoneLow,
-      sellZoneHigh: w.sellZoneHigh ?? null,
-      minHoldingShares: (w as any).minHoldingShares ?? (w as any).minSellShares ?? 0,
-    };
-    const raw = prices.get(w.symbol) ?? 0;
-    const verdict = evaluateZone(raw > 0 ? raw : null, entry);
-    const f = freshness.get(w.symbol) as { ageDays: number } | undefined;
-    const pos = posBySymbol.get(w.symbol);
-    const sharesHeld = pos?.shares ?? 0;
-    const dist = verdict.price != null ? distanceToZonePct(verdict.price, entry) : { toBuyPct: null, toSellPct: null };
-    const weight = zoneBuyFactor(verdict.price, entry, strictZones);
-    return {
-      _id: String(w._id),
-      symbol: w.symbol,
-      name: w.name,
-      sector: w.sector,
-      notes: w.notes ?? "",
-      price: verdict.price,
-      priceAgeDays: f?.ageDays ?? null,
-      priceStale: (f?.ageDays ?? 0) >= 7,
-      buyZoneLow: entry.buyZoneLow,
-      buyZoneHigh: entry.buyZoneHigh,
-      sellZoneLow: entry.sellZoneLow,
-      sellZoneHigh: entry.sellZoneHigh,
-      minHoldingShares: entry.minHoldingShares,
-      alertsOn: (w as any).alertsOn !== false,
-      status: verdict.status,
-      sharesHeld,
-      positionValue: pos?.marketValue ?? 0,
-      targetPct: pos?.targetPercent ?? 0,
-      sellableShares: sellableShares(verdict.status, sharesHeld, entry.minHoldingShares),
-      sell: null, // filled below, only where something is actually sellable
-      buyFactor: weight.factor,
-      buyReason: weight.reason,
-      toBuyPct: dist.toBuyPct,
-      toSellPct: dist.toSellPct,
-      warnings: verdict.warnings,
-    };
-  });
-
-  // What the excess would actually return: FIFO lots, real PSX brokerage, CGT
-  // at your filer rate. Computed only for rows that free shares — usually none
-  // or one — so the common path costs nothing.
-  const needEconomics = rows.filter((r) => r.sellableShares > 0 && r.price != null);
-  if (needEconomics.length > 0) {
-    const txs = await getAllTransactions().catch(() => []);
-    for (const r of needEconomics) {
-      const mine = (txs as any[]).filter((t) => t.symbol === r.symbol);
-      if (mine.length === 0) continue;
-      const { openLots } = buildLots(r.symbol, mine as any);
-      const price = r.price as number;
-      const pv = previewSell(openLots, r.sellableShares, price, cgtRatePct);
-      if (pv.insufficient) continue; // lots disagree with the position — say nothing
-      const proceeds = r.sellableShares * price;
-      const fees = computePSXFees({ shares: r.sellableShares, price, type: "SELL" }).fee;
-      r.sell = {
-        shares: r.sellableShares,
-        price,
-        proceeds,
-        fees,
-        gain: pv.totalGain,
-        cgt: pv.estCgt,
-        net: proceeds - fees - pv.estCgt,
-        cgtRatePct,
-        remainingShares: r.sharesHeld - r.sellableShares,
-      };
-    }
-  }
-
-  return {
-    rows,
-    buys: rows.filter((r) => r.status === "buy"),
-    sells: rows.filter((r) => r.sellableShares > 0),
-    heldAtCore: rows.filter((r) => r.status === "sell" && r.sellableShares === 0 && r.sharesHeld > 0),
-    conflicts: rows.filter((r) => r.status === "conflict"),
-    unpriced: rows.filter((r) => r.price == null).map((r) => r.symbol),
-  };
-}
-
 export type DeploymentPlan = DeployPlan & {
-  board: ZoneBoard;
-  standIns: StandInView[];
   candidates: DeployCandidate[]; // what the browser calculator re-runs on
   fundsLabel: string;
   // Warnings the browser cannot regenerate: it re-runs planDeployment on the
   // candidates, so it reproduces that model's own warnings but knows nothing
-  // about stale quotes, stand-in problems or where the cash came from.
+  // about where the cash came from.
   serverWarnings: string[];
 };
 
-// What to buy right now, and what stays put. Every name with a target weight is
-// a candidate — zone status weights it rather than gating it, so a stock just
-// above its band still gets bought, only less. Sell candidates are reported by
-// the board but their proceeds are deliberately NOT added to the budget: a sale
-// is not a fact until it goes through the decision gate, and budgeting unsold
-// shares would be spending money you do not have yet.
-// Everything the allocator needs, gathered once. Split out because the Plan
-// page asks the same question with a different budget: the ladder decides HOW
-// MUCH goes out today, this decides WHICH names it buys, and the two must be
-// looking at one set of candidates or they will contradict each other.
+// What to buy right now, and what stays put: every name held or with a target
+// weight is a candidate, sized by its gap to the target. Sale proceeds are
+// deliberately NOT added to the budget: a sale is not a fact until it goes
+// through the decision gate, and budgeting unsold shares would be spending
+// money you do not have yet. The Plan page asks the same question with a
+// different budget (the ladder decides HOW MUCH goes out today, this decides
+// WHICH names), so the candidates are gathered once.
 export type DeployContext = {
   candidates: DeployCandidate[];
-  board: ZoneBoard;
+  unpriced: string[];
   summary: Awaited<ReturnType<typeof getPortfolioSummary>>;
   funds: Awaited<ReturnType<typeof getMutualFundsValued>>;
   fundsValue: number;
   settings: any;
-  standIns: { groups: StandInView[]; problems: string[] };
   cashSummary: Awaited<ReturnType<typeof getCashSummary>> | null;
 };
 
 async function _buildDeployContext(): Promise<DeployContext> {
-  const [board, summary, funds, settings, standIns, cashSummary] = await Promise.all([
-    getZoneBoard(),
+  const [summary, funds, settings, cashSummary] = await Promise.all([
     getPortfolioSummary(),
     getMutualFundsValued().catch(() => []),
     getAppSettings(),
-    getStandInGroups().catch(() => ({ groups: [] as StandInView[], problems: [] as string[] })),
     getCashSummary().catch(() => null),
   ]);
-  // A stand-in and the name it holds a place for are ONE allocation. Judged
-  // apart, the stand-in looks unsized and the primary looks permanently
-  // underweight, and the plan would keep buying a share already ruled too dear.
-  const pairOf = new Map<string, StandInView>();
-  for (const g of standIns.groups) {
-    pairOf.set(g.standIn, g);
-    pairOf.set(g.primary, g);
-  }
   const fundsValue = funds.reduce((s, f) => s + (f.value ?? 0), 0);
-  const zoneBySymbol = new Map(board.rows.map((r) => [r.symbol, r]));
-
-  // Positions you already hold, plus anything watchlisted, all judged by price.
-  const seen = new Set<string>();
   const candidates: DeployCandidate[] = [];
-  const consider = (symbol: string, price: number | null, targetPct: number, currentValue: number, stale: boolean) => {
-    if (seen.has(symbol)) return;
-    seen.add(symbol);
-    if (price == null || !(price > 0) || stale) return;
-    const z = zoneBySymbol.get(symbol);
-    // Not on the watchlist at all: no band to judge it by, so it is bought at
-    // the reduced no-zone weight rather than skipped or trusted.
-    let factor = z ? z.buyFactor : NO_ZONE_FACTOR;
-    let reason = z ? z.buyReason : "not on your watchlist — no band to judge it by";
-    let effTargetPct = targetPct;
-    let effCurrentValue = currentValue;
-    const pair = pairOf.get(symbol);
-    if (pair) {
-      // Both legs are measured against the pair's single target and what is
-      // already sitting in it, whichever leg is being sized.
-      effTargetPct = pair.targetPct;
-      effCurrentValue = pair.combinedValue;
-      if (pair.standIn === symbol && pair.swapReady) {
-        // The primary is in range: this position is about to be sold to fund
-        // it, so adding to it now would be buying what you are selling.
-        factor = 0;
-        reason = `standing in for ${pair.primary}, which is now in its buy band — sell, do not add`;
-      } else if (pair.standIn === symbol) {
-        reason = `standing in for ${pair.primary} while it is above its band — ${reason}`;
-      }
-    }
-    candidates.push({ symbol, price, targetPct: effTargetPct, currentValue: effCurrentValue, zoneFactor: factor, zoneReason: reason });
-  };
-  for (const r of board.rows) {
-    consider(r.symbol, r.price, r.targetPct, r.positionValue, r.priceStale);
-  }
+  const unpriced: string[] = [];
   for (const p of summary.positions) {
-    if (p.targetPercent > 0 || p.shares > 0) {
-      consider(p.symbol, p.priceKnown ? p.currentPrice : null, p.targetPercent, p.marketValue, false);
+    if (!(p.targetPercent > 0 || p.shares > 0)) continue;
+    if (!p.priceKnown || !(p.currentPrice > 0)) {
+      if (p.targetPercent > 0) unpriced.push(p.symbol);
+      continue;
     }
+    candidates.push({ symbol: p.symbol, price: p.currentPrice, targetPct: p.targetPercent, currentValue: p.marketValue, zoneFactor: 1, zoneReason: "" });
   }
-
-  return { candidates, board, summary, funds, fundsValue, settings, standIns, cashSummary };
+  return { candidates, unpriced, summary, funds, fundsValue, settings, cashSummary };
 }
 
 const buildDeployContext = cache(_buildDeployContext);
 
 async function _getDeploymentPlan(): Promise<DeploymentPlan> {
-  const { candidates, board, summary, funds, fundsValue, settings, standIns, cashSummary } =
-    await buildDeployContext();
+  const { candidates, unpriced, summary, funds, fundsValue, settings, cashSummary } = await buildDeployContext();
 
   const plan = planDeployment({
     candidates,
@@ -2103,7 +1880,7 @@ async function _getDeploymentPlan(): Promise<DeploymentPlan> {
     // so below rather than presenting it as counted money.
     brokerCash: cashSummary?.balance ?? 0,
     reservePct: (settings as any).mfCashReservePct ?? 5,
-    unpriced: board.unpriced,
+    unpriced,
   });
   const serverWarnings: string[] = [];
   if (cashSummary && cashSummary.impliedDeposits > 0) {
@@ -2116,129 +1893,15 @@ async function _getDeploymentPlan(): Promise<DeploymentPlan> {
       `Rs ${Math.round(cashSummary.cgtWithheld).toLocaleString()} of capital gains tax is held back out of sale proceeds, so it is not offered here as money to deploy.`
     );
   }
-  const staleBuys = board.rows.filter((r) => r.priceStale).map((r) => r.symbol);
-  if (staleBuys.length > 0) {
-    serverWarnings.push(
-      `Skipped on stale prices: ${staleBuys.join(", ")}. The last quote is a week or more old, so the band cannot be trusted — refresh prices first.`
-    );
-  }
-  for (const problem of standIns.problems) serverWarnings.push(problem);
-  for (const g of standIns.groups) for (const w of g.warnings) serverWarnings.push(w);
   for (const w of serverWarnings) plan.warnings.push(w);
   return {
     ...plan,
-    board,
-    standIns: standIns.groups,
     candidates,
     fundsLabel: funds.length === 1 ? funds[0].name : funds.length > 1 ? `${funds.length} funds` : "your fund",
     serverWarnings,
   };
 }
 
-
-// --- Stand-ins: a peer holding a place until the name you want is in range --
-// The pair shares one target weight, so the allocator stops treating the
-// stand-in as an unsized stray and the primary as permanently underweight.
-
-export type StandInView = StandInGroup & {
-  primaryName: string;
-  standInName: string;
-  primaryPrice: number | null;
-  standInPrice: number | null;
-  primaryShares: number;
-  standInShares: number;
-  primaryZone: ZoneStatus;
-  primaryBuyZoneLow: number | null;
-  primaryBuyZoneHigh: number | null;
-};
-
-async function _getStandInGroups(): Promise<{ groups: StandInView[]; problems: string[] }> {
-  if (!(await tryConnect())) return { groups: [], problems: [] };
-  const holdings = await getAllHoldings();
-  const links = holdings
-    .map((h) => ({ standIn: h.symbol, primary: String((h as any).standsInFor ?? "").toUpperCase() }))
-    .filter((l) => l.primary.length > 0);
-  if (links.length === 0) return { groups: [], problems: [] };
-
-  const problems = validateLinks(links);
-  const [summary, board, settings] = await Promise.all([
-    getPortfolioSummary(),
-    getZoneBoard().catch(() => null),
-    getAppSettings(),
-  ]);
-  const posBy = new Map(summary.positions.map((p) => [p.symbol, p]));
-  const zoneBy = new Map((board?.rows ?? []).map((r) => [r.symbol, r]));
-  const cgtRatePct =
-    (settings as any).filerStatus === "filer" ? (settings as any).cgtRateFiler : (settings as any).cgtRateNonFiler;
-
-  const groups: StandInView[] = [];
-  for (const link of links) {
-    const p = posBy.get(link.primary);
-    const s = posBy.get(link.standIn);
-    if (!p) {
-      problems.push(`${link.standIn} stands in for ${link.primary}, which is not in your portfolio. Add it to the plan first.`);
-      continue;
-    }
-    if (!s) continue;
-    const z = zoneBy.get(link.primary);
-
-    // What the stand-in would realise, matched FIFO against its own lots, so
-    // the swap is sized on money that would actually arrive. Best-effort: no
-    // lots, no guessed tax.
-    let gain: number | null = null;
-    if (s.shares > 0 && s.priceKnown) {
-      try {
-        const txs = await getTransactionsBySymbol(link.standIn);
-        const { openLots } = buildLots(link.standIn, txs as any);
-        const pv = previewSell(openLots, Math.floor(s.shares), s.currentPrice, cgtRatePct);
-        if (!pv.insufficient) gain = pv.totalGain;
-      } catch {
-        /* lots unavailable — the swap reports an unknown gain rather than zero */
-      }
-    }
-
-    const group = resolveStandIn({
-      primary: {
-        symbol: p.symbol,
-        sector: p.sector,
-        price: p.priceKnown ? p.currentPrice : null,
-        shares: p.shares,
-        marketValue: p.marketValue,
-        targetPct: p.targetPercent,
-      },
-      standIn: {
-        symbol: s.symbol,
-        sector: s.sector,
-        price: s.priceKnown ? s.currentPrice : null,
-        shares: s.shares,
-        marketValue: s.marketValue,
-        targetPct: s.targetPercent,
-      },
-      primaryInBuyZone: z?.status === "buy" && !z.priceStale,
-      bookValue: summary.totalValue,
-      gain,
-      cgtRatePct,
-    });
-
-    groups.push({
-      ...group,
-      primaryName: p.name,
-      standInName: s.name,
-      primaryPrice: p.priceKnown ? p.currentPrice : null,
-      standInPrice: s.priceKnown ? s.currentPrice : null,
-      primaryShares: p.shares,
-      standInShares: s.shares,
-      primaryZone: z?.status ?? "no_zone",
-      primaryBuyZoneLow: z?.buyZoneLow ?? null,
-      primaryBuyZoneHigh: z?.buyZoneHigh ?? null,
-    });
-  }
-  return { groups, problems: [...new Set(problems)] };
-}
-
-export const getStandInGroups = cache(_getStandInGroups);
-
-export const getZoneBoard = cache(_getZoneBoard);
 export const getDeploymentPlan = cache(_getDeploymentPlan);
 
 // The ladder says HOW MUCH goes out today. This says which names it buys.
@@ -2254,7 +1917,7 @@ export const getDeploymentPlan = cache(_getDeploymentPlan);
 // target weights bind against the actual book.
 export async function getLadderBuys(budget: number): Promise<DeployPlan | null> {
   if (!(budget > 0)) return null;
-  const { candidates, summary, board } = await buildDeployContext();
+  const { candidates, summary, unpriced } = await buildDeployContext();
   if (candidates.length === 0) return null;
   return planDeployment({
     candidates,
@@ -2263,6 +1926,6 @@ export async function getLadderBuys(budget: number): Promise<DeployPlan | null> 
     brokerCash: 0,
     reservePct: 0,
     freshCash: budget,
-    unpriced: board.unpriced,
+    unpriced,
   });
 }

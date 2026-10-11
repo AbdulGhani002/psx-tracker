@@ -49,6 +49,18 @@ export async function fetchHistoricalDay(date: string, attempts = 4): Promise<Da
   throw new Error("gave up on " + date);
 }
 
+// The date `n` weekdays after `date` (holidays count as sessions here).
+export function addSessions(date: string, n: number): string {
+  const d = new Date(date + "T00:00:00Z");
+  let k = 0;
+  while (k < n) {
+    d.setUTCDate(d.getUTCDate() + 1);
+    const w = d.getUTCDay();
+    if (w !== 0 && w !== 6) k++;
+  }
+  return d.toISOString().slice(0, 10);
+}
+
 export function weekdaysBetween(from: string, to: string): string[] {
   const out: string[] = [];
   const d = new Date(from + "T00:00:00Z");

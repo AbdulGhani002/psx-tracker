@@ -15,7 +15,6 @@ import { FeedSnapshotModel } from "@/lib/models/FeedSnapshot";
 import type { EodBar } from "@/lib/timeseries/psx-eod";
 import type { Learner, PanelOptions, PanelWalkResult } from "./panel";
 import type { StrategyResult } from "./strategy";
-import type { SwingStats } from "./swing";
 import type { IndexOutlookModel, OutlookRecord } from "./outlook";
 import type { BarsCache } from "./universe";
 
@@ -50,7 +49,6 @@ export type StoredQuantModel = {
   trainedFrom: "eod" | "archive"; // the five-year feed, or the 24-year archive
   indexKind: "kse100" | "equal-weight"; // what the idx* features were built on
   strategy: StrategyResult | null; // the rule test on the walk-forward points
-  swing?: SwingStats[] | null; // swing trades at the zones' levels, same points
   // Where the zones are read from: the model's path curve, or the plain walk
   // over each name's volatility when the model's did not place them better
   // out of sample (panel.ts zoneSourceOf). Absent: the model's curve.

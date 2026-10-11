@@ -138,7 +138,6 @@ export function AnalysisView({ report }: { report: StoredReport | null }) {
         <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-[12.5px]">
           {report && <span className="text-muted">As of {report.date}</span>}
           <RefreshAnalysis />
-          {report && <Link href="/swing" className="link-underline">Swing trades →</Link>}
           {report && <Link href="/analysis/details" className="link-underline">Full report →</Link>}
         </div>
       </PageHeader>

@@ -180,7 +180,7 @@ export function SellPlanPanel(p: Props) {
 
         {p.sharesHeld <= 0 && (
           <div className="mt-5 pt-4 border-t border-rule">
-            <div className="label-cap mb-2">Re-buy rule (position exited — this is the watchlist)</div>
+            <div className="label-cap mb-2">Re-buy rule (position exited)</div>
             <label className="flex items-center gap-2 text-[13px] mb-3 cursor-pointer select-none">
               <input type="checkbox" checked={rebuy.active} onChange={(e) => setRebuy({ ...rebuy, active: e.target.checked })} className="w-4 h-4 accent-[var(--accent-deep)]" />
               Track for re-entry — with a ceiling and conditions, not on impulse

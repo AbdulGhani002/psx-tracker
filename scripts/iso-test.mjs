@@ -37,7 +37,7 @@ check("A and B got distinct sessions", a && b && a !== b);
 console.log("== A creates data ==");
 const mkA = await api(a, "/api/holdings", "POST", { symbol: "HUBC", name: "Hub Power", targetAllocationPercent: 10 });
 check("A holding created (201)", mkA.status === 201);
-await api(a, "/api/watchlist", "POST", { symbol: "OGDC" });
+await api(a, "/api/watchlist", "POST", { kind: "symbol", value: "OGDC", on: true });
 await api(a, "/api/cash", "POST", { type: "DEPOSIT", amount: 50000 });
 await api(a, "/api/settings", "PATCH", { filerStatus: "filer", inflationPct: 11 });
 
@@ -45,8 +45,7 @@ console.log("== B must see NOTHING of A ==");
 const bHold = await api(b, "/api/holdings");
 check("B sees 0 holdings", Array.isArray(bHold.json.holdings) && bHold.json.holdings.length === 0);
 const bWatch = await api(b, "/api/watchlist");
-const bw = bWatch.json.watchlist ?? bWatch.json.entries ?? bWatch.json;
-check("B sees 0 watchlist", Array.isArray(bw) ? bw.length === 0 : true);
+check("B sees 0 watchlist", Array.isArray(bWatch.json.symbols) && bWatch.json.symbols.length === 0);
 const bCash = await api(b, "/api/cash");
 const bEntries = bCash.json.entries ?? bCash.json.cash ?? [];
 check("B sees 0 cash entries", Array.isArray(bEntries) && bEntries.length === 0);

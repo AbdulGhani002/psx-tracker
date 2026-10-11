@@ -42,7 +42,7 @@ export async function RebalanceBody() {
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-3 mt-3">
         <div className="xl:col-span-2">
           <Card title="Define your target allocation" eyebrow="Adjust each target; the total must equal 100% to proceed" action={<AddCompany />}>
-            {targetRows.length > 0 ? <TargetsEditor initial={targetRows} strictZones={!!(settings as any).strictBuyZones} /> : <div className="text-[12px] text-muted">Add a company above to start a plan.</div>}
+            {targetRows.length > 0 ? <TargetsEditor initial={targetRows} /> : <div className="text-[12px] text-muted">Add a company above to start a plan.</div>}
             {dormant.length > 0 && (
               <p className="text-[12px] text-muted mt-3">
                 Dormant ({dormant.length}): <span className="mono-num">{dormant.join(", ")}</span>. On your books with no shares and no target, so left out of every weight here. Add one above to bring it back.

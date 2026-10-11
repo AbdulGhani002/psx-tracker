@@ -1,5 +1,5 @@
 [Unit]
-Description=PSX tracker: after every close, the day's file and the swing book
+Description=PSX tracker: after every close, the day's file and the model's reading
 
 [Timer]
 OnCalendar=Mon..Fri *-*-* 14:15:00

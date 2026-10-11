@@ -23,13 +23,11 @@ import { readMarket, readName, standingOf, triggerFor } from "../lib/quant/analy
 import { indexStates, fitCells, cellOutlook, cellKey, evaluateCells, strengthTests } from "../lib/quant/outlook";
 import { membership, equalWeightIndex, adjustedSeries, appendLive, type RawRow } from "../lib/quant/archive";
 import { strategyBacktest, indexGate } from "../lib/quant/strategy";
-import { swingPlan, swingBacktest } from "../lib/quant/swing";
 import { classifyAction, extractActions, eventFeaturesAt, EVENT_FEATURE_NAMES } from "../lib/quant/events";
 import { deflateRawSync } from "node:zlib";
 import { unzipEntry, parseClosingSheet, sheetDate } from "../lib/timeseries/dps-sheet";
 import { appendSheetDay, followsGap, unknownDaysBetween } from "../lib/quant/sheet-bars";
-import { addSessions, sessionsBetween, stepTrade, pickTrades, newTrade, bookLevels, swingBookBacktest, SWING_BOOK_RULE, type BookTrade } from "../lib/quant/swing";
-import { advanceBook, type SwingBook } from "../lib/quant/swing-book";
+import { addSessions } from "../lib/timeseries/psx-history";
 import type { DayRow } from "../lib/timeseries/psx-history";
 import { parseIndexBoard, parseIndexConstituents, parseAsOf } from "../lib/timeseries/dps-indices";
 import { boardCloses, indexDayRatio, bridgeIndex } from "../lib/quant/index-bars";
@@ -656,46 +654,6 @@ function randomWalk(n: number, drift = 0.0003, vol = 0.015, start = 100): EodBar
   check("without the view no xs booster is trained", noXs.every((l) => l.view !== "xs"));
 }
 
-// ------------------------------------------------------------ swing trades
-{
-  const z = { buyLow: 90, buyHigh: 95, fails: 85, sellLow: 108, sellHigh: 115 };
-  const above = swingPlan(100, z, "zone")!;
-  check("above the zone, the entry is a limit at its top", !above.entryNow && above.entry === 95 && above.stop === 85 && above.t1 === 108 && above.t2 === 115);
-  check("risk and reward are measured from the entry", Math.abs(above.riskPct - (10 / 95) * 100) < 1e-9 && Math.abs(above.rewardPct - (13 / 95) * 100) < 1e-9 && above.rr > 1);
-  const inside = swingPlan(92, z, "zone")!;
-  check("inside the zone, the entry is the price", inside.entryNow && inside.entry === 92);
-  check("under the stop there is no trade", swingPlan(84, z) === null && swingPlan(85, z) === null);
-  const mkt = swingPlan(100, z)!;
-  check("by default the entry is the next close, with the same stop and targets", mkt.entryNow && mkt.entry === 100 && mkt.stop === 85 && mkt.t1 === 108 && mkt.t2 === 115);
-
-  // Two hand-made paths with flat history, then: A dips into its zone and
-  // rallies through the first profit level; B falls through its stop.
-  const flatHistory = (n: number, start = 100) => {
-    const out: EodBar[] = [];
-    const days = weekdays(n + 40);
-    for (let i = 0; i < n; i++) out.push({ date: days[i], close: start * (1 + 0.05 * Math.sin(i / 2)), volume: 1e6, vwap: start });
-    return { out, days };
-  };
-  const A = flatHistory(120), B = flatHistory(120);
-  const sig = A.out.length - 1;
-  const pathA = [0.97, 0.93, 0.92, 0.97, 1.02, 1.06, 1.1, 1.15];
-  const pathB = [0.97, 0.93, 0.85, 0.8, 0.78, 0.76, 0.75, 0.74];
-  pathA.forEach((f, k) => A.out.push({ date: A.days[sig + 1 + k], close: A.out[sig].close * f, volume: 1e6, vwap: 1 }));
-  pathB.forEach((f, k) => B.out.push({ date: B.days[sig + 1 + k], close: B.out[sig].close * f, volume: 1e6, vwap: 1 }));
-  const walkP = [0.5, 0.5, 0.5, 0.9, ...WALK_CURVE, ...WALK_CURVE];
-  const pts: PanelPoint[] = [
-    { symbol: "A", date: A.out[sig].date, di: 0, p: walkP, t: [], fwdRet: 0, fwdRel: 0 },
-    { symbol: "B", date: B.out[sig].date, di: 0, p: walkP, t: [], fwdRet: 0, fwdRel: 0 },
-  ];
-  const gate = new Map([[A.out[sig].date, true]]);
-  const [st] = swingBacktest(pts, new Map([["A", A.out], ["B", B.out]]), gate, 20, [{ name: "all", minPctile: 0, strongOnly: false, entry: "zone", target: "t1" }], { stepDays: 1, fillWindow: 5, costPct: 0 });
-  check("both orders fill and both trades close", st.signals === 2 && st.trades === 2, `${st.signals}/${st.trades}`);
-  check("one reaches its target, one its stop", st.hitTarget === 0.5 && st.hitStop === 0.5, `${st.hitTarget}/${st.hitStop}`);
-  check("the winner's gain and the loser's loss are counted", st.winRate === 0.5 && st.avgWinPct > 0 && st.avgLossPct < 0);
-  const [strongOnly] = swingBacktest(pts, new Map([["A", A.out], ["B", B.out]]), new Map([[A.out[sig].date, false]]), 20, [{ name: "strong", minPctile: 0, strongOnly: true, entry: "zone", target: "t1" }], { stepDays: 1 });
-  check("a strong-market rule takes nothing in a weak market", strongOnly.signals === 0 && strongOnly.trades === 0);
-}
-
 // ------------------------------------------------------ corporate actions
 {
   check("a round rupee off the price is a cash dividend", classifyAction(100, 95).kind === "cash" && Math.abs(classifyAction(100, 95).cash - 5) < 1e-9);
@@ -735,7 +693,7 @@ function randomWalk(n: number, drift = 0.0003, vol = 0.015, start = 100): EodBar
   check("and a later one is not visible the day before its ex-date", at(d[799].date).x.slice(e0, e0 + EVENT_FEATURE_NAMES.length).every((v, j) => Math.abs(v - firstOnly[j]) < 1e-12) && at(d[800].date).x[e0] > at(d[799].date).x[e0]);
 }
 
-// ------------------------------------ the end-of-day file, the bars, the book
+// ------------------------------------------- the end-of-day file, the bars
 {
   // A zip made by hand, the way the exchange's file is laid out: one entry.
   const zipOf = (content: Buffer, method: 0 | 8, name = "closing11.lis") => {
@@ -809,85 +767,8 @@ function randomWalk(n: number, drift = 0.0003, vol = 0.015, start = 100): EodBar
   check("one last updated a week before the first kept file has a hole", unknownDaysBetween("2026-09-15", "2026-09-23", known) === 5);
   check("a known holiday is not a hole", unknownDaysBetween("2026-09-22", "2026-09-24", new Set(["2026-09-23"])) === 0 && unknownDaysBetween("2026-09-22", "2026-09-24", new Set()) === 1);
 
-  // The calendar the sell-by is printed in.
-  check("the sell-by counts weekdays", addSessions("2026-09-25", 1) === "2026-09-28" && addSessions("2026-09-28", 15) === "2026-10-19");
-  check("sessions between two dates, either way", sessionsBetween("2026-09-25", "2026-09-28") === 1 && sessionsBetween("2026-09-28", "2026-09-25") === -1 && sessionsBetween("2026-09-28", "2026-09-28") === 0 && sessionsBetween("2026-09-28", "2026-10-19") === 15);
-
-  // One trade, close by close.
-  const rule = { ...SWING_BOOK_RULE };
-  const t: BookTrade = newTrade({ symbol: "X", pctile: 0.95, close: 100, sigmaH: 0.1 }, "2026-09-25");
-  stepTrade(t, { date: "2026-09-25", close: 100 }, rule);
-  check("the signal's own close does not fill it", t.status === "pending");
-  stepTrade(t, { date: "2026-09-28", close: 102 }, rule);
-  const lv = bookLevels(102, 0.1, rule);
-  check("the next close fills it; the levels come from the fill", t.status === "open" && t.entryPrice === 102 && Math.abs(t.stop! - lv.stop) < 1e-9 && Math.abs(t.target! - lv.target) < 1e-9 && t.sellBy === "2026-10-19");
-  check("and the target is twice as far as the stop, in log terms", Math.abs(Math.log(lv.target / 102) / Math.log(102 / lv.stop) - 2) < 1e-9);
-  stepTrade(t, { date: "2026-09-29", close: 110 }, rule);
-  stepTrade(t, { date: "2026-09-29", close: 50 }, rule);
-  check("a close in between moves nothing; the same day twice is read once", t.status === "open" && t.lastClose === 110 && t.sessions === 1);
-  stepTrade(t, { date: "2026-09-30", close: 92 }, rule);
-  check("a close under the stop ends it there, after costs", t.status === "closed" && t.exitReason === "stop" && Math.abs(t.returnPct! - ((92 / 102) * Math.exp(-0.004) - 1) * 100) < 1e-9);
-  const u: BookTrade = newTrade({ symbol: "Y", pctile: 0.95, close: 100, sigmaH: 0.1 }, "2026-09-25");
-  stepTrade(u, { date: "2026-09-28", close: 100 }, rule);
-  stepTrade(u, { date: "2026-09-29", close: 125 }, rule);
-  check("a close over the target takes the profit", u.status === "closed" && u.exitReason === "target" && u.exitDate === "2026-09-29");
-  const w: BookTrade = newTrade({ symbol: "Z", pctile: 0.95, close: 100, sigmaH: 0.1 }, "2026-09-25");
-  stepTrade(w, { date: "2026-09-28", close: 100 }, rule);
-  for (const d of weekdays(20, "2026-09-29")) stepTrade(w, { date: d, close: 101 }, rule);
-  check("otherwise it is sold on the sell-by date, at that day's close", w.status === "closed" && w.exitReason === "time" && w.exitDate === "2026-10-19" && w.sessions === 15 && w.exitPrice === 101);
-
-  // Picking: free slots only, best rank first, not what is held or just sold.
-  const cands = [
-    { symbol: "A", pctile: 0.99, close: 10, sigmaH: 0.1 },
-    { symbol: "B", pctile: 0.97, close: 10, sigmaH: 0.1 },
-    { symbol: "C", pctile: 0.92, close: 10, sigmaH: 0.1 },
-    { symbol: "D", pctile: 0.85, close: 10, sigmaH: 0.1 },
-    { symbol: "E", pctile: 0.98, close: 10, sigmaH: null },
-    { symbol: "F", pctile: 0.91, close: 10, sigmaH: 0.1 },
-  ];
-  const held: BookTrade = { ...newTrade(cands[0], "2026-09-20"), status: "open" };
-  const sold: BookTrade = { ...newTrade(cands[1], "2026-09-01"), status: "closed", exitDate: "2026-09-24" };
-  const picks = pickTrades(cands, [held, sold], "2026-09-25", { ...rule, slots: 2 });
-  check("one free slot of two goes to the best name neither held nor cooling", picks.map((p) => p.symbol).join() === "C", picks.map((p) => p.symbol).join());
-  check("a name sold two weeks ago is back in", pickTrades(cands, [sold], "2026-10-09", { ...rule, slots: 2 }).map((p) => p.symbol).join() === "A,B");
-
-  // The evening step on a small market.
-  const names = ["A", "B", "C", "D", "E", "F", "G"];
-  const days = weekdays(90, "2026-05-25").filter((d) => d <= "2026-09-25");
-  const bars = new Map<string, EodBar[]>(names.map((s, i) => [s, days.map((date, k) => ({ date, close: 50 + i + Math.sin(k / 3 + i) * 2, volume: 1e5, vwap: 50 }))]));
-  const screenOf = () => names.map((s, i) => ({ symbol: s, pctile: 1 - i * 0.015, price: bars.get(s)![bars.get(s)!.length - 1].close }));
-  const blank = (): SwingBook => ({ version: 1, rule: { ...SWING_BOOK_RULE }, startedAt: "", asOf: null, strong: null, lastPickDate: null, trades: [], updatedAt: "" });
-  const book = blank();
-  let r = advanceBook(book, screenOf(), { indexAbove200: true }, bars);
-  check("an empty book on a strong day signals the five best names, best first", r.asOf === days[days.length - 1] && r.opened.join() === "A,B,C,D,E" && book.trades.every((x) => x.status === "pending"), r.opened.join());
-  r = advanceBook(book, screenOf(), { indexAbove200: true }, bars);
-  check("the same evening twice changes nothing", r.opened.length === 0 && r.filled.length === 0 && book.trades.length === 5);
-  for (const s of names) {
-    const b2 = bars.get(s)!;
-    b2.push({ date: "2026-09-28", close: b2[b2.length - 1].close * 1.01, volume: 1e5, vwap: 50 });
-  }
-  r = advanceBook(book, screenOf(), { indexAbove200: true }, bars);
-  check("the next close fills all five with their own levels, and nothing new comes in", r.filled.length === 5 && r.opened.length === 0 && book.trades.every((x) => x.status === "open" && x.entryDate === "2026-09-28" && x.stop! < x.entryPrice! && x.target! > x.entryPrice! && x.sellBy === "2026-10-19"));
-  const weak = blank();
-  r = advanceBook(weak, screenOf(), { indexAbove200: false }, bars);
-  check("a weak market opens nothing", r.opened.length === 0 && weak.trades.length === 0);
-  const stale = blank();
-  r = advanceBook(stale, screenOf().map((x) => ({ ...x, price: x.price * 0.97 })), { indexAbove200: true }, bars);
-  check("a reading priced off another day's close opens nothing", r.opened.length === 0 && !!r.note);
-
-  // The backtest of the book: a planted edge shows, random ranks do not.
-  const n = 700;
-  const syms = Array.from({ length: 20 }, (_, i) => "P" + i);
-  const drift = syms.map((_, i) => (i - 9.5) * 0.00025);
-  const pb = new Map(syms.map((s, i) => [s, randomWalk(n, drift[i], 0.015, 50)]));
-  const pts: PanelPoint[] = [];
-  for (let di = 70; di < n - 25; di++) syms.forEach((s, i) => pts.push({ symbol: s, date: pb.get(s)![di].date, di, p: [0, drift[i] + 0.0002 * gauss()], t: [], fwdRet: 0, fwdRel: 0 }));
-  const allOn = new Map(pb.get("P0")!.map((x) => [x.date, true]));
-  const withModel = swingBookBacktest(pts, pb, allOn, { ...SWING_BOOK_RULE, minPctile: 0.7 });
-  const noModel = swingBookBacktest(pts, pb, allOn, { ...SWING_BOOK_RULE, minPctile: 0 }, { shuffleSeed: 7 });
-  check("the book trades, and keeps to its slots", withModel.trades > 20 && withModel.exposurePct <= 100.0001, withModel.trades);
-  check("on a planted edge the model's book beats the same book on random names", withModel.avgRetPct > noModel.avgRetPct && withModel.cagrPct > noModel.cagrPct, `${withModel.avgRetPct.toFixed(2)} vs ${noModel.avgRetPct.toFixed(2)}`);
-  check("every closed trade has its reason and its sell-by", withModel.hitTarget + withModel.hitStop + withModel.hitTime > 0.999);
+  // The session calendar.
+  check("sessions after a date count weekdays", addSessions("2026-09-25", 1) === "2026-09-28" && addSessions("2026-09-28", 15) === "2026-10-19");
 }
 
 // ------------------------------------------------ the index board and bridge

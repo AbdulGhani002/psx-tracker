@@ -2,8 +2,8 @@
 // training run (quant-train --points), with the ranking head replaced by the
 // blend of their within-day rank and PSX-Net's (ml/psxnet.py walk), scored the
 // way quant-train scores its walk-forward and written into the model file
-// (validation, calibration by market state, strategy, swing), and out as a
-// points file for the swing rules (scripts/swing-rules.ts --book).
+// (validation, calibration by market state, strategy), and out as a points
+// file.
 //
 //   NODE_OPTIONS=--max-old-space-size=8000 npx tsx scripts/net-blend.ts --data C:/CC/Data/psx-net --net oos-full.f32 --gbm points.json
 //        --weight 0.5 --model psx-quant-model.json --out-model blended-model.json --out-points blended-points.json
@@ -12,7 +12,6 @@ import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { scorePanel, calibrationByState, DEFAULT_PANEL, type PanelPoint } from "../lib/quant/panel";
 import { strategyBacktest, indexGate } from "../lib/quant/strategy";
-import { swingBacktest } from "../lib/quant/swing";
 import { loadArchive, membership, equalWeightIndex } from "../lib/quant/archive";
 import { marketContext, MARKET_CONTEXT_NAMES } from "../lib/quant/context";
 import { argOf, num } from "./quant-cli";
@@ -73,11 +72,10 @@ validation.calibrationByState = calibrationByState(pts, gate);
 if (old?.zones) validation.zones = old.zones;
 if (old?.medianRounds) validation.medianRounds = old.medianRounds;
 const strategy = strategyBacktest(pts, index, breadth200, { horizon: model.horizon ?? 20, cashYieldPct: 10, costPct: 0.3 });
-const swing = swingBacktest(pts, bars, gate, model.horizon ?? 20, undefined, { walkLevels: model.zoneSource === "walk" });
 console.log(`Blended record: rank IC ${validation.icRel.mean.toFixed(4)} (t ${validation.icRel.tStat.toFixed(2)}), spread ${validation.spread.mean.toFixed(2)}% (t ${validation.spread.tStat.toFixed(2)}); was IC ${old?.icRel?.mean?.toFixed(4)}, spread ${old?.spread?.mean?.toFixed(2)}%.`);
 model.validation = validation;
 model.strategy = strategy;
-model.swing = swing;
+delete model.swing;
 model.blend = { kind: "psx-net", weight: W, net: netFile.replace(/^.*[\\/]/, ""), at: new Date().toISOString() };
 writeFileSync(argOf("out-model")!, JSON.stringify(model));
 const r4 = (v: number) => (Number.isFinite(v) ? Math.round(v * 1e4) / 1e4 : null);

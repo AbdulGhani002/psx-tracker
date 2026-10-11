@@ -17,7 +17,7 @@
 
 import "server-only";
 import type { EodBar } from "@/lib/timeseries/psx-eod";
-import { getZoneBoard, getPortfolioSummary, getInflationLive, getSbpRateSteps, getTbill12mPct, getAllHoldings, getAppSettings } from "@/lib/data";
+import { getPortfolioSummary, getInflationLive, getSbpRateSteps, getTbill12mPct, getAllHoldings, getAppSettings } from "@/lib/data";
 import { assemblePlan } from "@/lib/plan";
 import { uid } from "@/lib/auth/uid";
 import { renderPriceChart, sma } from "@/lib/charts/price-chart";
@@ -34,7 +34,6 @@ import { equalWeightIndex } from "@/lib/quant/archive";
 import { indexStates, cellOutlook, strengthTests, type CellOutlook, type StrengthTest } from "@/lib/quant/outlook";
 import { readMarket, readName, triggerFor, edgeLine, VERDICT_RANK, type MarketRead, type ModelVerdict, type ModelZone, type NameStanding, type DecileEdge, type PlanInput, type PlanRole } from "@/lib/quant/analysis";
 import type { StrategyResult } from "@/lib/quant/strategy";
-import type { SwingStats } from "@/lib/quant/swing";
 import type { EventsSnapshot } from "@/lib/quant/event-record";
 import type { EventLike } from "@/lib/quant/features";
 
@@ -115,7 +114,6 @@ export type ReportItem = {
   edgeLine: string;
   zone: ModelZone | null;
   levels: PathLevels | null;
-  yourZone: string;
   forecast: Forecast | null;
   projection: Projection | null;
   outlook: CellOutlook | null; // indices only
@@ -139,7 +137,6 @@ export type QuantReport = {
   modelNote: string;
   record: ModelRecord | null;
   strategy: StrategyResult | null;
-  swing: SwingStats[] | null; // swing trades at the zones' levels, out of sample
   model: { trainedOn: string; trainedFrom: string; horizon: number; names: number; learners: string; heads: number; net?: { variant: string; trainedTo: string; seeds: number; blend: number } | null } | null;
   screen: ScreenRow[];
 };
@@ -158,13 +155,6 @@ const money = (v: number) => (v >= 10000 ? Math.round(v).toLocaleString("en-US")
 const RECORD_FLOOR = 0.58;
 
 const recordWords = (m: TargetMetrics) => `AUC ${m.auc.toFixed(2)}, ${describeAuc(m.auc)}`;
-
-function yourBands(zone: { buyZoneLow: number | null; buyZoneHigh: number | null; sellZoneLow: number | null; sellZoneHigh: number | null } | undefined): string {
-  if (!zone) return "";
-  const b = zone.buyZoneHigh != null ? `buy ${zone.buyZoneLow != null ? money(zone.buyZoneLow) + " to " : "up to "}${money(zone.buyZoneHigh)}` : "";
-  const s = zone.sellZoneLow != null ? `sell ${money(zone.sellZoneLow)}${zone.sellZoneHigh != null ? " to " + money(zone.sellZoneHigh) : "+"}` : "";
-  return [b, s].filter(Boolean).join(", ");
-}
 
 export function zoneLine(z: ModelZone): string {
   return `Model zone: buy ${money(z.buyHigh)} down to ${money(z.buyLow)} · sell ${money(z.sellLow)} to ${money(z.sellHigh)} · case fails below ${money(z.fails)}${z.trigger ? ` · turns on a close above ${money(z.trigger)}` : ""}.`;
@@ -204,7 +194,6 @@ function captionFor(item: Omit<ReportItem, "png" | "caption">, rec: ModelRecord 
     }
     if (item.zone) lines.push(zoneLine(item.zone));
     lines.push(`<b>${item.verdict}</b>${item.plan ? ` (target ${item.plan.targetPct.toFixed(0)}%, now ${item.plan.currentPct.toFixed(1)}% of the book)` : ""}: ${item.verdictLine}`);
-    if (item.yourZone) lines.push(`<i>Your band: ${item.yourZone}.</i>`);
   }
   return lines.filter(Boolean).join("\n").slice(0, 1024);
 }
@@ -234,8 +223,7 @@ async function contextFor(model: StoredQuantModel, stockBars: Map<string, EodBar
 
 export async function buildQuantReport(): Promise<QuantReport> {
   const today = new Date().toISOString().slice(0, 10);
-  const [board, portfolio, model, plan, inflation, sbp, tb, long, userId, uni, holdingDocs, settings, netW] = await Promise.all([
-    getZoneBoard().catch(() => null),
+  const [portfolio, model, plan, inflation, sbp, tb, long, userId, uni, holdingDocs, settings, netW] = await Promise.all([
     getPortfolioSummary().catch(() => null),
     loadQuantModel().catch(() => null),
     assemblePlan().catch(() => null),
@@ -249,7 +237,6 @@ export async function buildQuantReport(): Promise<QuantReport> {
     getAppSettings().catch(() => null as any),
     loadQuantSnapshot<NetWeights & { blend?: number }>("quant:net").catch(() => null),
   ]);
-  const zoneBySymbol = new Map((board?.rows ?? []).map((r) => [r.symbol, r]));
   // Every name in the written portfolio: held, or targeted and not yet held.
   const posBySymbol = new Map((portfolio?.positions ?? []).filter((p) => p.shares > 0 || (p.targetPercent ?? 0) > 0).map((p) => [p.symbol, p]));
   const bandBySymbol = new Map(holdingDocs.map((h: any) => [h.symbol, Number(h.rebalanceBand ?? 3)]));
@@ -501,7 +488,6 @@ export async function buildQuantReport(): Promise<QuantReport> {
     const prev = window[window.length - 2];
     const dayChangePct = prev ? (last.close / prev.close - 1) * 100 : 0;
     const trend = readTrend(b);
-    const zone = zoneBySymbol.get(symbol);
     const pos = posBySymbol.get(symbol);
     const isHeld = !!pos && pos.shares > 0;
     const forecast = heldName ? forecasts.get(symbol) ?? null : null;
@@ -638,7 +624,6 @@ export async function buildQuantReport(): Promise<QuantReport> {
       edgeLine: edge ? edgeLine(edge, horizon) : "",
       zone: modelZone,
       levels,
-      yourZone: yourBands(zone),
       forecast,
       projection,
       outlook,
@@ -834,7 +819,6 @@ export async function buildQuantReport(): Promise<QuantReport> {
     if (h.forecast) bits.push(`odds of a ${DIP_PCT}% dip first ${odds(h.forecast.dip)}`);
     if (h.zone) bits.push(zoneLine(h.zone).replace(/\.$/, ""));
     bits.push(`${h.verdict}: ${h.verdictLine}`);
-    if (h.yourZone) bits.push(`your band: ${h.yourZone}`);
     return bits.join(". ");
   });
   const detail = [
@@ -873,7 +857,6 @@ export async function buildQuantReport(): Promise<QuantReport> {
     modelNote,
     record: rec,
     strategy,
-    swing: model?.swing ?? null,
     model: model
       ? {
           trainedOn: model.trainedOn,

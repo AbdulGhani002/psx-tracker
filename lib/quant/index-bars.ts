@@ -16,10 +16,9 @@
 import { connectDb } from "@/lib/db";
 import { FeedSnapshotModel } from "@/lib/models/FeedSnapshot";
 import type { EodBar } from "@/lib/timeseries/psx-eod";
-import type { DayRow } from "@/lib/timeseries/psx-history";
+import { addSessions, type DayRow } from "@/lib/timeseries/psx-history";
 import { fetchIndexBoard, fetchIndexConstituents, type IndexBoard, type IndexConstituent } from "@/lib/timeseries/dps-indices";
 import { SHEET_PREFIX, SHEET_SOURCE } from "./sheet-bars";
-import { addSessions } from "./swing";
 
 export const INDEX_SERIES = ["KSE100", "KMI30", "KSE30"];
 

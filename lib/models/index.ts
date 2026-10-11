@@ -10,7 +10,7 @@ export { ScenarioProjectionModel, type ScenarioProjection } from "./ScenarioProj
 export { TargetAllocationModel, type TargetAllocation } from "./TargetAllocation";
 export { DecisionLogModel, type DecisionLog } from "./DecisionLog";
 export { CashEntryModel, type CashEntry, type CashEntryType, CASH_ENTRY_TYPES } from "./CashEntry";
-export { WatchlistEntryModel, type WatchlistEntry } from "./WatchlistEntry";
+export { WatchlistModel, type Watchlist } from "./Watchlist";
 export { SbpRateModel, type SbpRate } from "./SbpRate";
 export { MutualFundModel, type MutualFund } from "./MutualFund";
 export { SavingsAccountModel, type SavingsAccount } from "./SavingsAccount";

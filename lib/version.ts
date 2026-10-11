@@ -1,7 +1,7 @@
 // Single source of truth for the app version + changelog.
 // Bump APP_VERSION and prepend a CHANGELOG entry on every release.
 
-export const APP_VERSION = "11.14.0";
+export const APP_VERSION = "11.15.0";
 
 export const BUILD_DATE =
   process.env.NEXT_PUBLIC_BUILD_DATE ?? "";
@@ -17,6 +17,16 @@ export type ChangelogEntry = {
 
 // Reverse-chronological. Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: "11.15.0",
+    date: "2026-10-11",
+    title: "New watchlist, swing trades gone",
+    changes: [
+      "Watchlist: every PSX share by sector, with a tick for each share and each sector, saved as you tick. The old entries and their buy and sell bands were cleared.",
+      "Swing trades page removed; buying and selling live on the strategy page.",
+      "Rebalance sizes every held or targeted name at full weight (no bands any more).",
+    ],
+  },
   {
     version: "11.14.0",
     date: "2026-10-11",

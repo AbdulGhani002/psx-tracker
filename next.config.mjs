@@ -15,6 +15,9 @@ const nextConfig = {
       // still reads intrinsic buy-zones, Shariah/KMI status and the earnings
       // calendar, and the sell-discipline engine still reads analytics ratings
       // for sector-median PE. Only the screens are gone.
+      // 11 Oct 2026: the swing trades page went; buying and selling are on
+      // the strategy page.
+      { source: "/swing", destination: "/strategy", permanent: true },
       { source: "/log", destination: "/transactions", permanent: true },
       { source: "/model", destination: "/wealth", permanent: true },
       { source: "/news", destination: "/", permanent: true },

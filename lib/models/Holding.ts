@@ -15,10 +15,8 @@ const HoldingSchema = new Schema(
     targetAllocationPercent: { type: Number, default: 0, min: 0, max: 100 },
     rebalanceBand: { type: Number, default: 3, min: 0, max: 50 },
     targetRationale: { type: String, default: "" },
-    // This position is holding a place for another symbol in the same sector,
-    // bought because the one you actually want is above its buy band. The pair
-    // shares ONE target weight and reverses when the primary comes into range.
-    // See lib/calculations/standin.ts.
+    // Legacy: the symbol this position once held a place for (stand-ins were
+    // removed in 11.15.0). Kept so old documents and backups still load.
     standsInFor: { type: String, default: "", uppercase: true, trim: true },
     notes: { type: String, default: "" },
     // A few shares kept only for the company's reports and notices, not an
