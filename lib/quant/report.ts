@@ -17,7 +17,7 @@
 
 import "server-only";
 import type { EodBar } from "@/lib/timeseries/psx-eod";
-import { getZoneBoard, getPortfolioSummary, getInflationLive, getSbpLive, getAllHoldings, getAppSettings } from "@/lib/data";
+import { getZoneBoard, getPortfolioSummary, getInflationLive, getSbpRateSteps, getTbill12mPct, getAllHoldings, getAppSettings } from "@/lib/data";
 import { assemblePlan } from "@/lib/plan";
 import { uid } from "@/lib/auth/uid";
 import { renderPriceChart, sma } from "@/lib/charts/price-chart";
@@ -234,13 +234,14 @@ async function contextFor(model: StoredQuantModel, stockBars: Map<string, EodBar
 
 export async function buildQuantReport(): Promise<QuantReport> {
   const today = new Date().toISOString().slice(0, 10);
-  const [board, portfolio, model, plan, inflation, sbp, long, userId, uni, holdingDocs, settings, netW] = await Promise.all([
+  const [board, portfolio, model, plan, inflation, sbp, tb, long, userId, uni, holdingDocs, settings, netW] = await Promise.all([
     getZoneBoard().catch(() => null),
     getPortfolioSummary().catch(() => null),
     loadQuantModel().catch(() => null),
     assemblePlan().catch(() => null),
     getInflationLive().catch(() => null),
-    getSbpLive().catch(() => null),
+    getSbpRateSteps().catch(() => null),
+    getTbill12mPct().catch(() => null),
     loadQuantSnapshot<LongValidation>("quant:validation:long").catch(() => null),
     uid().catch(() => ""),
     kse100Symbols().catch(() => ({ symbols: [] as string[], source: "none" })),
@@ -761,8 +762,7 @@ export async function buildQuantReport(): Promise<QuantReport> {
   const m = (k: MacroKey, days: number) => (macroBars ? macroRead(macroBars.get(k) ?? [], days) : null);
   const pkr = m("usdpkr", 28), oil = m("oil", 28);
   const cpi = inflation?.yoyPct ?? null;
-  const policy = sbp?.rates?.policyRatePct ?? null;
-  const tb = sbp?.rates?.mtbCutoffs?.find((t: any) => t.tenor === "12M")?.yieldPct;
+  const policy = sbp && sbp.source !== "stale" ? sbp.steps[0]?.rate ?? null : null;
   const macroShort = [pkr ? `PKR ${pkr.last.toFixed(1)}` : "", oil ? `WTI $${oil.last.toFixed(0)}` : "", cpi != null ? `CPI ${cpi.toFixed(1)}%` : "", policy != null ? `policy ${policy}%` : "", tb != null ? `12M T-bill ${Number(tb).toFixed(1)}%` : ""].filter(Boolean).join(" · ");
   const macroLong = [
     pkr ? `USD/PKR ${pkr.last.toFixed(1)} (${pct(pkr.changePct)} in 4 weeks)` : "",

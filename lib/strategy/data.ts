@@ -41,12 +41,16 @@ async function _getRatesPrefill(): Promise<RatesPrefill> {
   const mine = snaps.find((s) => s.month === month);
   if (mine) return { values: mine, sources: {}, entered: true };
   const last = snaps[0];
-  const r = sbp?.rates;
+  // SBP's copy counts as this month's only while it is fresh; an old one
+  // gives way to what you entered last, and is labelled old when it is all
+  // there is.
+  const sbpFresh = !!sbp?.rates.fetchedAt && Date.now() - Date.parse(sbp.rates.fetchedAt) < 20 * 86400000;
+  const r = sbpFresh || !last ? sbp?.rates : undefined;
   const cut = (t: string) => r?.mtbCutoffs.find((c) => c.tenor === t)?.yieldPct ?? null;
   const pib5 = r?.pibCutoffs.find((c) => c.tenor === "5Y")?.yieldPct ?? r?.pibCutoffs.find((c) => c.tenor === "3Y")?.yieldPct ?? null;
   const bestSavings = savings.length ? Math.max(...savings.map((a) => a.ratePercent || 0)) : null;
   const mmf = funds.filter((f) => f.moneyMarket).map((f) => f.liveAnnualYieldPct ?? f.annualYieldPct ?? 0).filter((y) => y > 0);
-  const sbpDate = r?.fetchedAt ? r.fetchedAt.slice(0, 10) : null;
+  const sbpDate = r?.fetchedAt ? `${r.fetchedAt.slice(0, 10)}${sbpFresh ? "" : ", old"}` : null;
   const sources: RatesPrefill["sources"] = {};
   const pick = <K extends keyof Rates>(k: K, live: Rates[K] | null, src: string): Rates[K] | null => {
     if (live != null) { sources[k] = src; return live; }

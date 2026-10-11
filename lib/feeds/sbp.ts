@@ -121,21 +121,27 @@ export function corridorAgrees(r: SbpRates): boolean {
   );
 }
 
-export async function fetchSbpRates(): Promise<SbpRates | null> {
+// The page, and how SBP answered: a refusal (403, its security service has
+// blocked this server since September 2026) is told apart from a page that
+// did not parse, so the caller can back off instead of asking again.
+export async function fetchSbpRatesDetailed(): Promise<{ rates: SbpRates | null; httpStatus: number | null }> {
   try {
     const res = await fetch(SBP_URL, {
       headers: { "user-agent": "Mozilla/5.0", accept: "text/html" },
       cache: "no-store",
       signal: AbortSignal.timeout(20000),
     });
-    if (!res.ok) return null;
+    if (!res.ok) return { rates: null, httpStatus: res.status };
     const parsed = parseSbpRates(await res.text());
     // The policy rate is the one field the app cannot fake. No rate → no data.
-    if (parsed.policyRatePct == null) return null;
-    return parsed;
+    return { rates: parsed.policyRatePct == null ? null : parsed, httpStatus: res.status };
   } catch {
-    return null;
+    return { rates: null, httpStatus: null };
   }
+}
+
+export async function fetchSbpRates(): Promise<SbpRates | null> {
+  return (await fetchSbpRatesDetailed()).rates;
 }
 
 // The T-bill rate a saver actually earns: the 12-month MTB cut-off, else the

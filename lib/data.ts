@@ -10,7 +10,7 @@ import { fetchFundamentals } from "./prices/fundamentals";
 import { fetchPayouts } from "./prices/payouts";
 import type { FundamentalsInput } from "./calculations/dividend-forecast";
 import { SBP_POLICY_RATE_DEFAULTS, policyRateOn, type RateStep } from "./timeseries/sbp-rate";
-import { fetchSbpRates, corridorAgrees, tbill12mPct, type SbpRates } from "./feeds/sbp";
+import { fetchSbpRatesDetailed, corridorAgrees, tbill12mPct, type SbpRates } from "./feeds/sbp";
 import { fetchInflation, type InflationData } from "./feeds/inflation";
 
 import { computeAttribution, type Attribution } from "./calculations/attribution";
@@ -857,8 +857,13 @@ async function _getSbpLive(): Promise<StoredSbp | null> {
   const age = snap.updatedAt ? Date.now() - new Date(snap.updatedAt).getTime() : Infinity;
   if (snap.data != null && age < SBP_TTL_MS) return snap.data;
 
-  const live = await fetchSbpRates();
-  if (!live || live.policyRatePct == null) return snap.data ?? null;
+  const { rates: live, httpStatus } = await fetchSbpRatesDetailed();
+  if (!live || live.policyRatePct == null) {
+    // Refused or unreadable: mark the attempt so the next is 12 hours away,
+    // not on the next page view, and keep the last good rates.
+    await saveFeedSnapshot(SBP_KEY, null, httpStatus === 403 ? "blocked" : "error", httpStatus === 403 ? "SBP refused the server (403)" : "SBP unreadable").catch(() => {});
+    return snap.data ?? null;
+  }
   // SBP sets the corridor exactly 100bp either side of the policy rate. If both
   // bounds parsed but that identity fails, we grabbed the wrong cell (the old
   // bug read the floor as the policy rate) — keep last-known-good instead.
@@ -878,8 +883,15 @@ export const getSbpLive = cache(_getSbpLive);
 
 export async function refreshSbpRates(): Promise<Record<string, unknown>> {
   if (!(await tryConnect())) return { status: "no-db" };
-  const live = await fetchSbpRates();
-  if (!live || live.policyRatePct == null) return { status: "error", note: "SBP unreachable or unparseable" };
+  // While SBP refuses the server, ask twice a day, not every hour.
+  const prev = await getFeedSnapshot<StoredSbp>(SBP_KEY);
+  const since = prev.updatedAt ? Date.now() - new Date(prev.updatedAt).getTime() : Infinity;
+  if (prev.status === "blocked" && since < SBP_TTL_MS) return { status: "skipped", note: "SBP blocked the server; next try in 12 hours" };
+  const { rates: live, httpStatus } = await fetchSbpRatesDetailed();
+  if (!live || live.policyRatePct == null) {
+    await saveFeedSnapshot(SBP_KEY, null, httpStatus === 403 ? "blocked" : "error", httpStatus === 403 ? "SBP refused the server (403)" : "SBP unreadable").catch(() => {});
+    return { status: httpStatus === 403 ? "blocked" : "error", note: httpStatus === 403 ? "SBP refused the server (403)" : "SBP unreachable or unparseable" };
+  }
   const canCrossCheck = live.repoCeilingPct != null && live.repoFloorPct != null;
   if (canCrossCheck && !corridorAgrees(live)) return { status: "error", note: "corridor cross-check failed" };
   const snap = await getFeedSnapshot<StoredSbp>(SBP_KEY);
@@ -924,7 +936,12 @@ export async function refreshInflation(): Promise<Record<string, unknown>> {
 // can actually lock in. null when SBP hasn't published one we could parse.
 async function _getTbill12mPct(): Promise<number | null> {
   if (!(await tryConnect())) return null;
-  return tbill12mPct((await getSbpLive())?.rates ?? null);
+  const live = await getSbpLive();
+  // The month's 12-month T-bill as entered, when it is as new as SBP's copy
+  // or SBP's copy is old.
+  const mine: any = await RateSnapshotModel.findOne({ userId: await meId(), tbill12mPct: { $ne: null } }, { month: 1, tbill12mPct: 1 }).sort({ month: -1 }).lean();
+  if (mine && (mine.month >= (live?.rates.fetchedAt ?? "").slice(0, 7) || sbpStale(live))) return Number(mine.tbill12mPct);
+  return tbill12mPct(live?.rates ?? null);
 }
 export const getTbill12mPct = cache(_getTbill12mPct);
 
@@ -983,10 +1000,16 @@ export const getAttribution = cache(_getAttribution);
 //   stale — live feed down: newest REAL past step, flagged so the UI can say so
 // `isCustom` tells the UI the user's curve is active; `source` tells it whether
 // today's number came from SBP or is a stale fallback.
+// SBP's copy is old when it was read more than 20 days ago (its site has
+// refused the server since September 2026); the month's rates entered on the
+// strategy page then speak for the policy rate and the T-bill.
+const SBP_STALE_MS = 20 * 86400000;
+const sbpStale = (live: StoredSbp | null) => !live?.rates.fetchedAt || Date.now() - Date.parse(live.rates.fetchedAt) > SBP_STALE_MS;
+
 async function _getSbpRateSteps(): Promise<{
   steps: RateStep[];
   isCustom: boolean;
-  source: "user" | "live" | "stale";
+  source: "user" | "monthly" | "live" | "stale";
   liveAsOf: string | null;
 }> {
   if (!(await tryConnect())) {
@@ -1002,6 +1025,14 @@ async function _getSbpRateSteps(): Promise<{
     };
   }
   const live = await getSbpLive();
+  // The policy rate as entered each month, from the 1st, when it is as new as
+  // SBP's copy or SBP's copy is old.
+  const months = (await RateSnapshotModel.find({ userId: await meId(), policyPct: { $ne: null } }, { month: 1, policyPct: 1 }).sort({ month: -1 }).lean()) as any[];
+  if (months.length > 0 && (months[0].month >= (live?.rates.fetchedAt ?? "").slice(0, 7) || sbpStale(live))) {
+    const steps = months.map((m) => ({ from: `${m.month}-01`, rate: Number(m.policyPct) }));
+    const first = steps[steps.length - 1].from;
+    return { steps: [...steps, ...SBP_POLICY_RATE_DEFAULTS.filter((d) => d.from < first)], isCustom: false, source: "monthly", liveAsOf: months[0].month };
+  }
   if (live?.rates.policyRatePct != null) {
     return {
       steps: [{ from: live.firstSeenFrom, rate: live.rates.policyRatePct }, ...SBP_POLICY_RATE_DEFAULTS],

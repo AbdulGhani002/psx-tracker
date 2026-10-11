@@ -1,7 +1,7 @@
 // Single source of truth for the app version + changelog.
 // Bump APP_VERSION and prepend a CHANGELOG entry on every release.
 
-export const APP_VERSION = "11.12.0";
+export const APP_VERSION = "11.12.1";
 
 export const BUILD_DATE =
   process.env.NEXT_PUBLIC_BUILD_DATE ?? "";
@@ -17,6 +17,15 @@ export type ChangelogEntry = {
 
 // Reverse-chronological. Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: "11.12.1",
+    date: "2026-10-11",
+    title: "Rates when SBP is down",
+    changes: [
+      "SBP's website blocks the server. The rates you enter each month on the Strategy page now set the policy rate and 12M T-bill everywhere.",
+      "SBP is tried twice a day while it blocks, not on every page view.",
+    ],
+  },
   {
     version: "11.12.0",
     date: "2026-10-11",
