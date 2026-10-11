@@ -56,10 +56,10 @@ export type WeeklyReportData = {
   positions: Array<{ symbol: string; weightPct: number; value: number; priceKnown: boolean }>;
   parked: Array<{ symbol: string; shares: number; value: number }>; // kept for the companies' reports; outside the figures
 
-  // the strategy page: its plan, its buy levels and the month's rates
+  // the strategy page: its plan, its buy zones and the month's rates
   strategy: {
     steps: string[];
-    levels: Array<{ level: number | null; pct: number; reached: boolean }>;
+    zones: Array<{ range: string; why: string; reached: boolean }>;
     rates: { label: string; values: Array<[string, number | null]> } | null;
   } | null;
 };
@@ -121,7 +121,7 @@ export function buildWeeklyTex(d: WeeklyReportData): string {
 {\\large\\bfseries Strategy}\\par
 \\vspace{3pt}
 ${st.steps.map((x) => `\\textbullet\\ ${esc(x)}\\par`).join("\n")}
-${st.levels.length ? `\\vspace{2pt}{\\footnotesize Buy levels: ${st.levels.map((l) => `${l.level != null ? Math.round(l.level).toLocaleString("en-PK") : "---"} (${l.pct}\\%${l.reached ? ", reached" : ""})`).join(", ")}}\\par` : ""}
+${st.zones.length ? `\\vspace{2pt}{\\footnotesize Buy zones: ${st.zones.map((z, k) => `${k + 1}) ${esc(z.range).replace(/–/g, "--")} ${esc(z.why).replace(/·/g, "/")}${z.reached ? ", reached" : ""}`).join("; ")}.}\\par` : ""}
 ${
   st.rates
     ? `\\vspace{6pt}{\\small\\bfseries Rates, ${esc(st.rates.label)}}\\par

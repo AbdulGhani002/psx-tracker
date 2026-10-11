@@ -12,9 +12,12 @@
 //               and 20 for a short one, 10 more when stocks are cheap and 10
 //               less when dear, 5 more in a mandi and 10 in a crash; the rest
 //               is dry powder (cash, money market, T-bills, sukuks)
-//   tranches    the room to buy (target less what is in stocks) goes in four
-//               quarters as the KSE-100 falls 5, 10, 20 and 30% below its
-//               high; a quarter whose level is reached is due
+//   tranches    the room to buy (target less what is in stocks) goes in up to
+//               four parts, more the deeper, into the buy zones of
+//               lib/strategy/zones.ts (the model's zone, past lows, a bad
+//               quarter, cheap against T-bills); a part whose zone the
+//               KSE-100 has reached is due. Without zones, quarters at 5, 10,
+//               20 and 30% below the high
 //   parking     the dry powder waits where it earns most after tax for the
 //               time it may be needed: the next tranches somewhere liquid,
 //               the rest locked longer when rates are falling, shorter when
@@ -27,6 +30,8 @@
 //
 // These are rules over the data and the settings, not advice. No server
 // imports, so scripts/test-strategy.ts can run it.
+
+import { zoneWeights, type BuyZone, type ZoneKind } from "./zones";
 
 export type RiskProfile = "defensive" | "balanced" | "aggressive";
 export type Horizon = "short" | "medium" | "long";
@@ -64,10 +69,13 @@ export type StrategyInput = {
   prevRates: Rates | null;
   book: { stocks: number; equityFunds: number; cashLike: number; fixedIncome: number };
   names: StrategyName[];
+  zones?: BuyZone[] | null; // lib/strategy/zones.ts, highest first
 };
 
 export type PhaseKey = "calm" | "pullback" | "correction" | "mandi" | "crash";
-export type Tranche = { n: number; drawdownPct: number; kseLevel: number | null; amount: number; due: boolean };
+// A part of the buying: its zone (low to high; `kseLevel` is the top), why
+// the zone is there, how far under the 52-week high its top is, the money.
+export type Tranche = { n: number; kind: ZoneKind | "level"; low: number | null; high: number | null; why: string; drawdownPct: number; kseLevel: number | null; amount: number; due: boolean };
 export type ParkOption = { key: string; label: string; words: string; yieldPct: number; afterTaxPct: number; liquidity: string; best?: boolean };
 
 export type StrategyPlan = {
@@ -96,6 +104,12 @@ const HORIZON_CUT: Record<Horizon, number> = { short: 20, medium: 10, long: 0 };
 const r1 = (v: number) => Math.round(v * 10) / 10;
 const pct = (v: number) => `${r1(v)}%`;
 const rs = (v: number) => `Rs ${Math.round(v).toLocaleString("en-US")}`;
+
+// A zone as "158,900–162,450", or a single level.
+export function zoneRange(t: Pick<Tranche, "low" | "high" | "kseLevel">): string {
+  const f = (v: number) => Math.round(v).toLocaleString("en-US");
+  return t.low != null && t.high != null && t.low < t.high ? `${f(t.low)}–${f(t.high)}` : t.kseLevel != null ? f(t.kseLevel) : "—";
+}
 
 export function phaseOf(drawdownPct: number | null): PhaseKey {
   if (drawdownPct == null) return "calm";
@@ -142,14 +156,26 @@ export function strategyPlan(i: StrategyInput): StrategyPlan {
           ? `Stocks ${pct(stocksNow)}, above the ${pct(target)} target: no buying`
           : `Stocks ${pct(stocksNow)}: on target`;
 
-  // --- tranches: the room in quarters at falling levels
-  const tranches: Tranche[] = TRANCHE_LEVELS.map((lv, k) => ({
-    n: k + 1,
-    drawdownPct: lv,
-    kseLevel: i.kse ? Math.round(i.kse.high * (1 - lv / 100)) : null,
-    amount: room / TRANCHE_LEVELS.length,
-    due: dd != null && -dd >= lv,
-  }));
+  // --- tranches: the room into the buy zones, more the deeper; without
+  // zones, quarters at falling levels
+  const zs = i.zones && i.zones.length > 0 && i.kse ? i.zones : null;
+  const w = zoneWeights(zs ? zs.length : 0);
+  const tranches: Tranche[] = zs
+    ? zs.map((z, k) => ({
+        n: k + 1,
+        kind: z.kind,
+        low: z.low,
+        high: z.high,
+        why: z.why,
+        drawdownPct: i.kse!.high > 0 ? (1 - z.high / i.kse!.high) * 100 : 0,
+        kseLevel: z.high,
+        amount: room * w[k],
+        due: i.kse!.level <= z.high,
+      }))
+    : TRANCHE_LEVELS.map((lv, k) => {
+        const at = i.kse ? Math.round(i.kse.high * (1 - lv / 100)) : null;
+        return { n: k + 1, kind: "level" as const, low: null, high: at, why: `${lv}% under the high`, drawdownPct: lv, kseLevel: at, amount: room / TRANCHE_LEVELS.length, due: dd != null && -dd >= lv };
+      });
 
   // --- the rate's direction
   const change = R?.policyPct != null && i.prevRates?.policyPct != null ? R.policyPct - i.prevRates.policyPct : null;
@@ -195,7 +221,7 @@ export function strategyPlan(i: StrategyInput): StrategyPlan {
   const next = tranches.find((t) => !t.due && t.amount > 0);
   if (room > 0) {
     if (due.length) steps.push(`Due now: ${rs(due.reduce((s, t) => s + t.amount, 0))}`);
-    if (next) steps.push(`Next: ${rs(next.amount)} at KSE-100 ${next.kseLevel?.toLocaleString("en-US")}`);
+    if (next) steps.push(`Next: ${rs(next.amount)} at KSE-100 ${zoneRange(next)}`);
   }
   if (parkLine) steps.push(parkLine);
   if (addNames.length) steps.push(`Buy: ${addNames.map((n) => n.symbol).join(", ")}`);

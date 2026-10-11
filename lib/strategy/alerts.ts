@@ -1,23 +1,24 @@
-// Telegram messages for the strategy: the KSE-100 reaching a buy step, and a
+// Telegram messages for the strategy: the KSE-100 reaching a buy zone, and a
 // T-bill or sukuk about to mature with the rates to buy again at. Pure, so
 // scripts/test-strategy.ts runs them.
 
-import { TRANCHE_LEVELS, type Rates, type StrategyPlan } from "./plan";
+import { zoneRange, type Rates, type StrategyPlan } from "./plan";
 
 const n0 = (v: number) => Math.round(v).toLocaleString("en-US");
 const pct = (v: number) => `${Math.round(v * 10) / 10}%`;
 const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 
-// `steps` are the steps reached since the last message (usually one).
-export function kseStepMessage(plan: StrategyPlan, kse: { level: number; high: number }, steps: number[]): string {
-  const top = Math.max(...steps);
-  const amount = plan.tranches.filter((t) => steps.includes(t.n)).reduce((s, t) => s + t.amount, 0);
-  const next = plan.tranches.find((t) => t.n > top && t.kseLevel != null);
-  const which = steps.length > 1 ? `steps ${Math.min(...steps)} to ${top}` : `step ${top}`;
-  const lines = [`📉 <b>KSE-100 ${n0(kse.level)}</b>, ${pct((1 - kse.level / kse.high) * 100)} below its high: buy ${which} of ${TRANCHE_LEVELS.length}.`];
+// `zones` are the zones reached since the last message (usually one).
+export function kseStepMessage(plan: StrategyPlan, kse: { level: number; high: number }, zones: number[]): string {
+  const top = Math.max(...zones);
+  const t = plan.tranches.find((x) => x.n === top);
+  const amount = plan.tranches.filter((x) => zones.includes(x.n)).reduce((s, x) => s + x.amount, 0);
+  const next = plan.tranches.find((x) => x.n > top && x.kseLevel != null);
+  const which = zones.length > 1 ? `zones ${Math.min(...zones)} to ${top}` : `zone ${top}`;
+  const lines = [`📉 <b>KSE-100 ${n0(kse.level)}</b>, ${pct((1 - kse.level / kse.high) * 100)} below its high: in buy ${which} of ${plan.tranches.length}${t ? `, ${zoneRange(t)} (${esc(t.why)})` : ""}.`];
   lines.push(amount > 0 ? `   → Plan: invest Rs ${n0(amount)}.` : `   → Plan: no buying. Stocks ${pct(plan.allocation.stocksNowPct)}, target ${pct(plan.allocation.stocksTargetPct)}.`);
   if (plan.quality.add.length) lines.push(`   Buy list: ${plan.quality.add.map((n) => n.symbol).join(", ")}`);
-  if (next?.kseLevel != null) lines.push(`   Next step: ${n0(next.kseLevel)}`);
+  if (next) lines.push(`   Next zone: ${zoneRange(next)}`);
   return lines.join("\n");
 }
 

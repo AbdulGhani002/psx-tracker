@@ -4,6 +4,7 @@
 import { assemblePlan } from "@/lib/plan";
 import { getPortfolioSummary } from "@/lib/data";
 import { getStrategy } from "@/lib/strategy/data";
+import { zoneRange } from "@/lib/strategy/plan";
 import { buildWeeklyTex, weekOf, type WeeklyReportData } from "./weekly-template";
 
 export { buildWeeklyTex, weekOf, type WeeklyReportData };
@@ -16,7 +17,7 @@ export async function assembleWeeklyReport(now = new Date()): Promise<WeeklyRepo
   const strategy: WeeklyReportData["strategy"] = s
     ? {
         steps: s.plan.steps,
-        levels: s.plan.tranches.map((t) => ({ level: t.kseLevel, pct: t.drawdownPct, reached: t.due })),
+        zones: s.plan.tranches.map((t) => ({ range: zoneRange(t), why: t.why, reached: t.due })),
         rates: r
           ? {
               label: s.ratesEntered ? month : `${month}, not entered`,

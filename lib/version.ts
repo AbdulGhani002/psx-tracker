@@ -1,7 +1,7 @@
 // Single source of truth for the app version + changelog.
 // Bump APP_VERSION and prepend a CHANGELOG entry on every release.
 
-export const APP_VERSION = "11.13.1";
+export const APP_VERSION = "11.14.0";
 
 export const BUILD_DATE =
   process.env.NEXT_PUBLIC_BUILD_DATE ?? "";
@@ -17,6 +17,16 @@ export type ChangelogEntry = {
 
 // Reverse-chronological. Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: "11.14.0",
+    date: "2026-10-11",
+    title: "Strategy buy zones from evidence",
+    changes: [
+      "Strategy: KSE-100 buy zones from the Model page's zone, past lows, a bad quarter and the level where stocks are cheap against T-bills, instead of fixed percentages.",
+      "Strategy: a chart of the KSE-100 with the zones, and the Model page's zones for each name on the buy list.",
+      "More money goes into deeper zones; Telegram says when one is reached.",
+    ],
+  },
   {
     version: "11.13.1",
     date: "2026-10-11",

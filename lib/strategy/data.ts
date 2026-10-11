@@ -8,6 +8,9 @@ import { eodSeriesCached } from "@/lib/timeseries/eod-cache";
 import { getQualityBoard } from "@/lib/fundamentals/board";
 import { whtPct } from "@/lib/calculations/pk-tax";
 import { strategyPlan, type Rates, type StrategyPlan, type RiskProfile, type Horizon, type StrategyName } from "./plan";
+import { buyZones } from "./zones";
+import { loadQuantSnapshot } from "@/lib/quant/store";
+import type { StoredReport } from "@/lib/quant/report";
 
 // The strategy page's inputs, gathered: the month's rates (as entered, else
 // prefilled from SBP and PBS), the KSE-100's level against its 52-week high
@@ -81,7 +84,14 @@ export type StrategyView = {
   kse: { level: number; high: number; highDate: string; ma200: number | null; asOf: string } | null;
   book: { stocks: number; equityFunds: number; cashLike: number; fixedIncome: number };
   history: Rates[];
+  // A year of KSE-100 closes with the 200-day average, for the chart.
+  chart: Array<{ date: string; close: number; ma200: number | null }>;
+  // The Model page's read: its date, the market's state, and each name's
+  // zones (the same numbers that page shows).
+  model: { date: string; state: string | null; names: Record<string, NameZone> } | null;
 };
+
+export type NameZone = { price: number; buyLow: number; buyHigh: number; sellLow: number; sellHigh: number; fails: number; pctile: number };
 
 async function _getStrategy(): Promise<StrategyView> {
   const [settings, prefill, history, summary, funds, savings, fixed, kseSeries, board, intr] = await Promise.all([
@@ -96,6 +106,8 @@ async function _getStrategy(): Promise<StrategyView> {
     getQualityBoard().catch(() => null),
     getIntrinsicValuations().catch(() => null),
   ]);
+  const uid = await getCurrentUserId();
+  const report = uid ? await loadQuantSnapshot<StoredReport>(`quant:report:${uid}`).catch(() => null) : null;
   const profile = { risk: (["defensive", "balanced", "aggressive"].includes((settings as any).strategyRisk) ? (settings as any).strategyRisk : "balanced") as RiskProfile, horizon: (["short", "medium", "long"].includes((settings as any).strategyHorizon) ? (settings as any).strategyHorizon : "long") as Horizon };
 
   // The KSE-100: today, its high over the last year, its 200-day average.
@@ -107,6 +119,26 @@ async function _getStrategy(): Promise<StrategyView> {
     const tail = kseSeries.slice(-200);
     kse = { level: last.close, high: top.close, highDate: top.date, ma200: tail.length === 200 ? tail.reduce((s, p) => s + p.close, 0) / 200 : null, asOf: last.date };
   }
+
+  // A year of it for the chart, with the 200-day average on each day.
+  const chart: StrategyView["chart"] = [];
+  let sum = 0;
+  for (let k = 0; k < kseSeries.length; k++) {
+    sum += kseSeries[k].close;
+    if (k >= 200) sum -= kseSeries[k - 200].close;
+    if (k >= kseSeries.length - 260) chart.push({ date: kseSeries[k].date, close: kseSeries[k].close, ma200: k >= 199 ? sum / 200 : null });
+  }
+
+  // The Model page's read, while it is under a week old.
+  const fresh = report && Date.now() - Date.parse(report.date + "T00:00:00Z") < 7 * 86400000 ? report : null;
+  const kseItem = fresh?.indices.find((x) => x.symbol === "KSE100") ?? null;
+  const model: StrategyView["model"] = fresh
+    ? {
+        date: fresh.date,
+        state: fresh.market?.state ?? null,
+        names: Object.fromEntries(fresh.screen.filter((r) => r.price > 0 && r.buyHigh > 0).map((r) => [r.symbol, { price: r.price, buyLow: r.buyLow, buyHigh: r.buyHigh, sellLow: r.sellLow, sellHigh: r.sellHigh, fails: r.fails, pctile: r.pctile }])),
+      }
+    : null;
 
   // The book: stocks and equity funds against the dry powder (money market,
   // savings, T-bills and sukuks). The brokerage balance is left out, as net
@@ -128,7 +160,15 @@ async function _getStrategy(): Promise<StrategyView> {
   const rates = prefill.values.policyPct != null || prefill.values.tbill12mPct != null ? prefill.values : null;
   const prevRates = history.find((h) => h.month < (rates?.month ?? "9999")) ?? null;
   const today = new Date(Date.now() + 5 * 3600_000).toISOString().slice(0, 10);
-  const plan = strategyPlan({ today, profile, kse, market: board?.market ? { pe: board.market.pe, cape: board.market.cape, dividendYieldPct: board.market.dividendYieldPct } : null, rates, prevRates, book, names });
-  return { plan, rates, ratesEntered: prefill.entered, profile, kse, book, history };
+  // Where to buy the index: the model's zone, past lows, a bad quarter,
+  // cheap against T-bills (lib/strategy/zones.ts).
+  const zones = buyZones({
+    closes: kseSeries,
+    model: kseItem?.zone ? { buyHigh: kseItem.zone.buyHigh, buyLow: kseItem.zone.buyLow } : null,
+    pe: board?.market?.pe ?? null,
+    tbillPct: rates ? rates.tbill12mPct ?? rates.tbill6mPct ?? rates.tbill3mPct ?? rates.policyPct : null,
+  });
+  const plan = strategyPlan({ today, profile, kse, market: board?.market ? { pe: board.market.pe, cape: board.market.cape, dividendYieldPct: board.market.dividendYieldPct } : null, rates, prevRates, book, names, zones });
+  return { plan, rates, ratesEntered: prefill.entered, profile, kse, book, history, chart, model };
 }
 export const getStrategy = cache(_getStrategy);

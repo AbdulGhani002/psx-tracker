@@ -349,33 +349,40 @@ async function runAlertsForCurrentUser(forceDigest = false) {
     /* discipline data unavailable — skip */
   }
 
-  // The KSE-100 reaching the next of the strategy's buy steps (a quarter at
-  // 5, 10, 20 and 30% below its 52-week high), on the last close. Once per
-  // step per fall: the high's date names the fall, so a new high starts the
-  // steps again. Steps passed on the way to a lower one, and the steps
-  // already reached when this first ran, are logged without a message.
+  // The KSE-100 reaching one of the strategy's buy zones (past lows, a bad
+  // quarter, cheap against T-bills: lib/strategy/zones.ts), on the last
+  // close. Not the model's zone: it moves with each close. Once per zone per
+  // fall: the high's date names the fall, so a new high starts them again.
+  // Zones passed on the way to a lower one, and those already reached when
+  // this first ran, are logged without a message.
   try {
     const s = await getStrategy();
     const k = s.kse;
     if (k && Date.now() - Date.parse(k.asOf + "T00:00:00Z") < 5 * 86400000) {
-      const reached = s.plan.tranches.filter((t) => t.due).map((t) => t.n);
-      if (reached.length > 0) {
-        const me = await uid();
-        const keyOf = (n: number) => `kse-step:${k.highDate}:${n}`;
-        const quiet = (n: number) => AlertLogModel.updateOne({ userId: me, dedupeKey: keyOf(n) }, { $setOnInsert: { kind: "kse-step", message: "" } }, { upsert: true }).catch(() => {});
-        const logged = new Set(((await AlertLogModel.find({ userId: me, dedupeKey: { $in: reached.map(keyOf) } }, { dedupeKey: 1 }).lean()) as any[]).map((d) => d.dedupeKey));
-        const newly = reached.filter((n) => !logged.has(keyOf(n)));
-        if (!(await AlertLogModel.exists({ userId: me, dedupeKey: "kse-step:armed" }))) {
-          for (const n of newly) await quiet(n);
-          await AlertLogModel.create({ userId: me, dedupeKey: "kse-step:armed", kind: "kse-step", message: "" }).catch(() => {});
-        } else if (newly.length > 0) {
-          for (const n of newly.slice(0, -1)) await quiet(n);
-          candidates.push({ key: keyOf(newly[newly.length - 1]), message: `${kseStepMessage(s.plan, k, newly)}\n   ${appOrigin()}/strategy` });
-        }
+      const me = await uid();
+      const reached = s.plan.tranches.filter((t) => t.due && t.kind !== "model");
+      // Each zone's own name in the key: its kind, numbered when two share
+      // one (the nearest past lows "support", the deeper "support2").
+      const count: Record<string, number> = {};
+      const tag = new Map<number, string>();
+      for (const t of s.plan.tranches) {
+        count[t.kind] = (count[t.kind] ?? 0) + 1;
+        tag.set(t.n, t.kind === "level" ? String(t.n) : count[t.kind] > 1 ? `${t.kind}${count[t.kind]}` : t.kind);
+      }
+      const keyOf = (t: (typeof reached)[number]) => `kse-zone:${k.highDate}:${tag.get(t.n)}`;
+      const quiet = (t: (typeof reached)[number]) => AlertLogModel.updateOne({ userId: me, dedupeKey: keyOf(t) }, { $setOnInsert: { kind: "kse-zone", message: "" } }, { upsert: true }).catch(() => {});
+      const logged = reached.length ? new Set(((await AlertLogModel.find({ userId: me, dedupeKey: { $in: reached.map(keyOf) } }, { dedupeKey: 1 }).lean()) as any[]).map((d) => d.dedupeKey)) : new Set<string>();
+      const newly = reached.filter((t) => !logged.has(keyOf(t)));
+      if (!(await AlertLogModel.exists({ userId: me, dedupeKey: "kse-zone:armed" }))) {
+        for (const t of newly) await quiet(t);
+        await AlertLogModel.create({ userId: me, dedupeKey: "kse-zone:armed", kind: "kse-zone", message: "" }).catch(() => {});
+      } else if (newly.length > 0) {
+        for (const t of newly.slice(0, -1)) await quiet(t);
+        candidates.push({ key: keyOf(newly[newly.length - 1]), message: `${kseStepMessage(s.plan, k, newly.map((t) => t.n))}\n   ${appOrigin()}/strategy` });
       }
     }
   } catch {
-    /* no step alert this run */
+    /* no zone alert this run */
   }
 
   // A T-bill or sukuk maturing: a week before and the day before, with the
