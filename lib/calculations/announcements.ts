@@ -12,10 +12,11 @@
 //
 // No server imports here so scripts/test-announcements.ts can run it.
 
+import { dpsFetch } from "@/lib/prices/dps";
+
 export const PORTAL = "https://dps.psx.com.pk";
 export const BOARD_PAGE = `${PORTAL}/announcements/companies`;
 const BOARD_URL = `${PORTAL}/announcements`;
-const UA = "Mozilla/5.0 (compatible; psx-tracker/0.1)";
 
 export type BoardRow = {
   annId: string;
@@ -125,12 +126,12 @@ export function filingHours(now: Date): boolean {
 }
 
 export function nextPagesAt(now: Date, readOk: boolean, rnd: () => number = Math.random): Date {
-  const [lo, hi] = !readOk ? [120, 120] : filingHours(now) ? [15, 30] : [60, 120];
+  const [lo, hi] = !readOk ? [240, 360] : filingHours(now) ? [120, 240] : [360, 600];
   return new Date(now.getTime() + (lo + (hi - lo) * rnd()) * 60_000);
 }
 
 export function nextBoardAt(now: Date, rnd: () => number = Math.random): Date {
-  return new Date(now.getTime() + (300 + 120 * rnd()) * 60_000);
+  return new Date(now.getTime() + (600 + 240 * rnd()) * 60_000);
 }
 
 // The held names in a random order, so a read does not walk the same list
@@ -153,13 +154,11 @@ export function parseBoardTotal(html: string): number {
 export async function fetchBoard(opts: { offset?: number; count?: number; symbol?: string; timeoutMs?: number } = {}): Promise<{ rows: BoardRow[]; total: number } | null> {
   const body = new URLSearchParams({ type: "C", symbol: opts.symbol ?? "", query: "", count: String(opts.count ?? 100), offset: String(opts.offset ?? 0), date_from: "", date_to: "", page: "annc" });
   try {
-    const res = await fetch(BOARD_URL, {
-      method: "POST",
-      headers: { "user-agent": UA, "content-type": "application/x-www-form-urlencoded", accept: "text/html", referer: BOARD_PAGE },
-      body: body.toString(),
-      cache: "no-store",
-      signal: AbortSignal.timeout(opts.timeoutMs ?? 20_000),
-    });
+    const res = await dpsFetch(
+      BOARD_URL,
+      { method: "POST", headers: { "content-type": "application/x-www-form-urlencoded", accept: "text/html", referer: BOARD_PAGE }, body: body.toString() },
+      { relay: false, timeoutMs: opts.timeoutMs ?? 20_000 }
+    );
     if (!res.ok) return null;
     const html = await res.text();
     if (!/announcementsTable|No\s+(records|data)|entries/i.test(html)) return null;
@@ -175,7 +174,7 @@ export type BoardFile = { bytes: Buffer; contentType: string; ext: string };
 export async function fetchBoardFile(path: string, timeoutMs = 90_000): Promise<BoardFile | null> {
   if (!path.startsWith("/download/")) return null;
   try {
-    const res = await fetch(PORTAL + path, { headers: { "user-agent": UA, referer: BOARD_PAGE }, cache: "no-store", signal: AbortSignal.timeout(timeoutMs) });
+    const res = await dpsFetch(PORTAL + path, { headers: { referer: BOARD_PAGE } }, { relay: false, timeoutMs });
     if (!res.ok) return null;
     const bytes = Buffer.from(await res.arrayBuffer());
     if (bytes.length < 100) return null;

@@ -1,8 +1,10 @@
 import type { CompanyInfo, PriceFetcher, PriceQuote } from "./types";
 import { decodeEntities, titleCase } from "./types";
+import { dpsFetch } from "@/lib/prices/dps";
+import { fetchAllPrices } from "@/lib/timeseries/dps-indices";
+import { isMarketHoursNow } from "./types";
 
 const PSX_URL = (sym: string) => `https://dps.psx.com.pk/company/${encodeURIComponent(sym)}`;
-const UA = "Mozilla/5.0 (compatible; psx-tracker/0.1)";
 
 function extractField(html: string, klass: string, nestedSpan = false): string | null {
   const inner = nestedSpan
@@ -27,16 +29,14 @@ export type PSXSnapshot = {
   asOf: string | null;
 };
 
-export async function fetchPSXPage(symbol: string): Promise<PSXSnapshot | null> {
+// `relay: false` for a price: a page the home machine pushed last night is
+// no price for now (its name and sector are fine).
+export async function fetchPSXPage(symbol: string, relay = true): Promise<PSXSnapshot | null> {
   const upper = symbol.toUpperCase();
   try {
-    const res = await fetch(PSX_URL(upper), {
-      headers: { "user-agent": UA, accept: "text/html" },
-      cache: "no-store",
-      // The portal, when it is refusing the server's address, either closes at
-      // once or hangs; neither may hold a page for long.
-      signal: AbortSignal.timeout(4000),
-    });
+    // The portal, when it is refusing the server's address, either closes at
+    // once or hangs; neither may hold a page for long.
+    const res = await dpsFetch(PSX_URL(upper), { headers: { accept: "text/html" } }, { timeoutMs: 4000, relay });
     if (!res.ok) return null;
     const html = await res.text();
     const priceRaw = extractField(html, "quote__close");
@@ -59,14 +59,9 @@ export async function fetchPSXPage(symbol: string): Promise<PSXSnapshot | null> 
 
 export class PSXScraperFetcher implements PriceFetcher {
   readonly name = "psx-scraper";
-  private readonly delayMs: number;
-
-  constructor(opts?: { delayMs?: number }) {
-    this.delayMs = opts?.delayMs ?? 1500;
-  }
 
   async fetchPrice(symbol: string): Promise<PriceQuote | null> {
-    const snap = await fetchPSXPage(symbol);
+    const snap = await fetchPSXPage(symbol, false);
     if (!snap || snap.price == null) return null;
     return {
       symbol: snap.symbol,
@@ -77,26 +72,19 @@ export class PSXScraperFetcher implements PriceFetcher {
     };
   }
 
-  // Once the portal has refused three names in a row, it is left alone for
-  // ten minutes rather than paying the timeouts on every page.
-  private static blockedUntil = 0;
-
+  // Every name at once from the All-Share index page, one request a quarter
+  // of an hour at most, and only while the market trades: outside its hours
+  // the day's close stands (getPrices falls back to the evening file's).
   async fetchBatch(symbols: string[]): Promise<Map<string, PriceQuote>> {
     const out = new Map<string, PriceQuote>();
-    if (Date.now() < PSXScraperFetcher.blockedUntil) return out;
-    let misses = 0;
+    if (!isMarketHoursNow()) return out;
+    const board = await fetchAllPrices().catch(() => null);
+    if (!board) return out;
+    const now = new Date();
     for (const s of symbols) {
-      const q = await this.fetchPrice(s);
-      if (q) {
-        out.set(q.symbol, q);
-        misses = 0;
-      } else if (++misses >= 3 && out.size === 0) {
-        // Three straight failures with nothing back: the portal is not
-        // answering this address today. Stop asking; the caller falls back.
-        PSXScraperFetcher.blockedUntil = Date.now() + 10 * 60 * 1000;
-        break;
-      }
-      await new Promise((r) => setTimeout(r, this.delayMs));
+      const r = board.get(s.toUpperCase());
+      const price = r ? (r.current > 0 ? r.current : r.ldcp) : 0;
+      if (price > 0) out.set(s.toUpperCase(), { symbol: s.toUpperCase(), price, timestamp: now, source: this.name });
     }
     return out;
   }

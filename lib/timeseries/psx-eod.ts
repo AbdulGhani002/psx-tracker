@@ -2,17 +2,14 @@
 // Works for both stock symbols and indices (KSE100, KMI30, etc.).
 // Response: { status: 1, data: [[unix_ts_seconds, close, volume, vwap], ...] }
 
-const UA = "Mozilla/5.0 (compatible; psx-tracker/0.1)";
+import { dpsFetch } from "@/lib/prices/dps";
+
 
 export type EodPoint = { date: string; close: number };
 
 export async function fetchEodSeries(symbolOrIndex: string): Promise<EodPoint[]> {
   const url = `https://dps.psx.com.pk/timeseries/eod/${encodeURIComponent(symbolOrIndex)}`;
-  const res = await fetch(url, {
-    headers: { "user-agent": UA, accept: "application/json" },
-    cache: "no-store",
-    signal: AbortSignal.timeout(8000),
-  });
+  const res = await dpsFetch(url, { headers: { accept: "application/json" } }, { relay: false, timeoutMs: 8000 });
   if (!res.ok) return [];
   const body = await res.json();
   if (!body || body.status !== 1 || !Array.isArray(body.data)) return [];
@@ -39,11 +36,7 @@ export type EodBar = { date: string; close: number; volume: number; vwap: number
 
 export async function fetchEodBars(symbolOrIndex: string): Promise<EodBar[]> {
   const url = `https://dps.psx.com.pk/timeseries/eod/${encodeURIComponent(symbolOrIndex)}`;
-  const res = await fetch(url, {
-    headers: { "user-agent": UA, accept: "application/json" },
-    cache: "no-store",
-    signal: AbortSignal.timeout(8000),
-  });
+  const res = await dpsFetch(url, { headers: { accept: "application/json" } }, { relay: false, timeoutMs: 8000 });
   if (!res.ok) return [];
   const body = await res.json();
   if (!body || body.status !== 1 || !Array.isArray(body.data)) return [];

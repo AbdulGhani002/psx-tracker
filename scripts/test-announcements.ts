@@ -99,10 +99,10 @@ const thu11 = at("2026-10-01T06:00:00Z"); // Thursday, 11:00 in Karachi
 const thu23 = at("2026-10-01T18:30:00Z"); // Thursday, 23:30 in Karachi
 const sat11 = at("2026-10-03T06:00:00Z"); // Saturday, 11:00 in Karachi
 check("filing hours: weekdays 08:00 to 23:00 in Karachi", filingHours(thu11) && !filingHours(thu23) && !filingHours(sat11) && filingHours(at("2026-10-01T03:00:00Z")) && !filingHours(at("2026-10-01T02:59:00Z")));
-check("in filing hours the pages are read 15 to 30 minutes apart", mins(thu11, nextPagesAt(thu11, true, () => 0)) === 15 && mins(thu11, nextPagesAt(thu11, true, () => 0.999)) < 30);
-check("at night and at weekends one to two hours apart", mins(thu23, nextPagesAt(thu23, true, () => 0)) === 60 && mins(sat11, nextPagesAt(sat11, true, () => 0.5)) === 90);
-check("after a failed read, two hours", mins(thu11, nextPagesAt(thu11, false, () => 0)) === 120 && mins(thu11, nextPagesAt(thu11, false, () => 0.9)) === 120);
-check("the refused board is asked again in five to seven hours", mins(thu11, nextBoardAt(thu11, () => 0)) === 300 && mins(thu11, nextBoardAt(thu11, () => 0.999)) < 420);
+check("in filing hours the pages are read two to four hours apart", mins(thu11, nextPagesAt(thu11, true, () => 0)) === 120 && mins(thu11, nextPagesAt(thu11, true, () => 0.999)) < 240);
+check("at night and at weekends six to ten hours apart", mins(thu23, nextPagesAt(thu23, true, () => 0)) === 360 && mins(sat11, nextPagesAt(sat11, true, () => 0.5)) === 480);
+check("after a failed read, four to six hours", mins(thu11, nextPagesAt(thu11, false, () => 0)) === 240 && mins(thu11, nextPagesAt(thu11, false, () => 0.9)) === 348);
+check("the refused board is asked again in ten to fourteen hours", mins(thu11, nextBoardAt(thu11, () => 0)) === 600 && mins(thu11, nextBoardAt(thu11, () => 0.999)) < 840);
 let seed = 7;
 const rnd = () => ((seed = (seed * 1664525 + 1013904223) % 4294967296) / 4294967296);
 const names = ["AHCL", "HINOON", "HUBC", "LUCK", "MARI", "MEBL", "MUREB", "PTL"];

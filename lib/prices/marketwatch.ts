@@ -3,8 +3,9 @@
 // membership per holding — no paid feed needed. Cached in-process (market-wide,
 // changes slowly).
 
+import { dpsFetch } from "@/lib/prices/dps";
+
 const URL = "https://dps.psx.com.pk/market-watch";
-const UA = "Mozilla/5.0 (compatible; psx-tracker/0.1)";
 
 // Columns (observed live): SYMBOL | SECTOR(code) | LISTED IN | LDCP | OPEN |
 // HIGH | LOW | CURRENT | CHANGE | CHANGE% | VOLUME. We keep the membership +
@@ -76,7 +77,7 @@ const TTL = 6 * 60 * 60 * 1000; // 6h
 export async function fetchMarketWatch(): Promise<Map<string, MarketRow> | null> {
   if (cache && Date.now() - cache.at < TTL) return cache.data;
   try {
-    const res = await fetch(URL, { headers: { "user-agent": UA, accept: "text/html" }, cache: "no-store" });
+    const res = await dpsFetch(URL, { headers: { accept: "text/html" } });
     if (!res.ok) return cache?.data ?? null;
     const data = parseMarketWatch(await res.text());
     if (data.size > 0) cache = { at: Date.now(), data };

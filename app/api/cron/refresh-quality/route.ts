@@ -10,8 +10,9 @@ export const maxDuration = 900;
 // Machine-only, daily (psx-quality.timer): company pages for the quality and
 // price figures (lib/fundamentals/refresh.ts), for the KSE-100, every name
 // held and every share of a watched sector. A run reads the `max` names
-// checked longest ago (30 by default; never-read names first), so the whole
-// universe turns over in a few days and a run stays short. Body
+// checked longest ago (20 by default; never-read names first), so the whole
+// universe turns over in a couple of weeks and a run stays short; pages the
+// home machine pushed are used first (lib/prices/dps.ts). Body
 // {symbols:[...]} reads just those; {reread:true} reads the newest report's
 // balance sheet even if it was read before (after a fix to the statement
 // reader); {lite:true} reads only the pages never read, without payouts or
@@ -20,7 +21,7 @@ export async function POST(req: Request) {
   if (!(await cronAuthorised())) return NextResponse.json({ error: "forbidden" }, { status: 403 });
   await connectDb();
   const body: any = await req.json().catch(() => ({}));
-  const max = Math.max(1, Math.min(150, Number(body?.max ?? 30)));
+  const max = Math.max(1, Math.min(150, Number(body?.max ?? 20)));
   const reread = body?.reread === true;
   const lite = body?.lite === true;
   const t0 = Date.now();

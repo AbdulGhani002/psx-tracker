@@ -14,8 +14,8 @@
 
 import { inflateRawSync } from "node:zlib";
 import type { DayRow } from "./psx-history";
+import { dpsFetch } from "@/lib/prices/dps";
 
-const UA = "Mozilla/5.0 (compatible; psx-tracker/0.1)";
 const MONTHS = ["JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"];
 
 // The one file a zip holds whose name matches, or null. Reads the central
@@ -95,11 +95,7 @@ export type SheetFetch =
 export async function fetchClosingSheet(date: string): Promise<SheetFetch> {
   let res: Response;
   try {
-    res = await fetch(`https://dps.psx.com.pk/download/mkt_summary/${date}.Z`, {
-      headers: { "user-agent": UA },
-      cache: "no-store",
-      signal: AbortSignal.timeout(20000),
-    });
+    res = await dpsFetch(`/download/mkt_summary/${date}.Z`, {}, { relay: false });
   } catch (e) {
     return { status: "error", date, detail: String(e).slice(0, 120) };
   }

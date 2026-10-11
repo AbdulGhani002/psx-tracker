@@ -31,10 +31,11 @@ export async function POST(req: Request) {
   const report: Record<string, unknown> = {};
 
   // The board has refused the server since 24 Sep 2026. While it does, it is
-  // asked again every five to seven hours, not every tick, and the held
-  // companies' own pages stand in for it at random intervals (15 to 30
-  // minutes in filing hours, one to two hours otherwise, two hours after a
-  // failed read): see nextPagesAt. {board:true} or {pages:true} asks now.
+  // asked again every ten to fourteen hours, not every tick, and the held
+  // companies' own pages stand in for it at random intervals (two to four
+  // hours in filing hours, six to ten otherwise, four to six after a failed
+  // read): see nextPagesAt. Pages the home machine pushed are read first
+  // (lib/prices/dps.ts). {board:true} or {pages:true} asks now.
   const now = new Date();
   const sched = (await getFeedSnapshot<Schedule>(SCHEDULE_KEY).catch(() => null))?.data ?? {};
   const boardResting = !!sched.boardAt && now < new Date(sched.boardAt);

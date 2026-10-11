@@ -15,9 +15,6 @@ import { listings } from "@/lib/watchlist";
 // and the watchlist's Save, which reads the never-read shares of a newly
 // ticked sector at once.
 
-const PAUSE_MS = 1500;
-const pause = () => new Promise((r) => setTimeout(r, PAUSE_MS));
-
 // The KSE-100, every name held and every share of a sector someone watches.
 export async function qualityUniverse(): Promise<string[]> {
   await connectDb();
@@ -108,13 +105,13 @@ export async function readCompany(s: string, o: { lite?: boolean; reread?: boole
   }
 }
 
-// Several companies, one at a time with a pause, then the pages' inputs
-// gathered afresh so what was read shows at once.
+// Several companies, one at a time (the requests themselves are spaced by
+// lib/prices/dps.ts), then the pages' inputs gathered afresh so what was read
+// shows at once.
 export async function readCompanies(symbols: string[], o: { lite?: boolean; reread?: boolean } = {}): Promise<Record<string, string>> {
   const report: Record<string, string> = {};
   for (const s of symbols) {
     report[s] = await readCompany(s, o);
-    await pause();
   }
   await refreshQualityInputs().catch(() => {});
   return report;

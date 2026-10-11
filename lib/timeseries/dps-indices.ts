@@ -11,7 +11,8 @@
 // lib/quant/index-bars.ts keeps the stored index series current from them,
 // and rebuilds any session it missed from the constituents.
 
-const UA = "Mozilla/5.0 (compatible; psx-tracker/0.1)";
+import { dpsFetch } from "@/lib/prices/dps";
+
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
 export type IndexBoardRow = { code: string; high: number; low: number; current: number; change: number; changePct: number };
@@ -78,9 +79,9 @@ export function parseIndexConstituents(html: string): IndexConstituent[] {
   return out;
 }
 
-async function page(path: string): Promise<string | null> {
+async function page(path: string, relay = true): Promise<string | null> {
   try {
-    const res = await fetch(`https://dps.psx.com.pk${path}`, { headers: { "user-agent": UA }, cache: "no-store", signal: AbortSignal.timeout(20000) });
+    const res = await dpsFetch(path, {}, { relay });
     return res.ok ? await res.text() : null;
   } catch {
     return null;
@@ -94,7 +95,19 @@ export async function fetchIndexBoard(): Promise<IndexBoard | null> {
   return b.rows.size > 0 ? b : null;
 }
 
-export async function fetchIndexConstituents(code: string): Promise<IndexConstituent[]> {
-  const html = await page(`/indices/${encodeURIComponent(code)}`);
+export async function fetchIndexConstituents(code: string, relay = true): Promise<IndexConstituent[]> {
+  const html = await page(`/indices/${encodeURIComponent(code)}`, relay);
   return html ? parseIndexConstituents(html) : [];
+}
+
+// Every listed share's price now and its last close, from the All-Share
+// index page: one request for all of them, asked live (a page pushed last
+// night is no price for today), and kept for `maxAgeMs`.
+let allShares: { at: number; rows: Map<string, { current: number; ldcp: number }> } | null = null;
+export async function fetchAllPrices(maxAgeMs = 15 * 60_000): Promise<Map<string, { current: number; ldcp: number }> | null> {
+  if (allShares && Date.now() - allShares.at < maxAgeMs) return allShares.rows;
+  const cons = await fetchIndexConstituents("ALLSHR", false);
+  if (cons.length < 100) return allShares?.rows ?? null;
+  allShares = { at: Date.now(), rows: new Map(cons.map((c) => [c.symbol, { current: c.current, ldcp: c.ldcp }])) };
+  return allShares.rows;
 }

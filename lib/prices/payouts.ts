@@ -9,8 +9,9 @@
 // markers: (F)=Final, (i)/(ii)/(iii)=interim quarters; (D)=cash Dividend,
 // (B)=Bonus, (R)=Right. We keep cash dividends for income forecasting.
 
+import { dpsFetch } from "@/lib/prices/dps";
+
 const URL = "https://dps.psx.com.pk/payouts";
-const UA = "Mozilla/5.0 (compatible; psx-tracker/0.1)";
 
 export type PsxPayout = {
   pctOfFace: number; // e.g. 100 means 100% of face value
@@ -92,17 +93,15 @@ export function parsePayouts(html: string): PsxPayout[] {
 
 export async function fetchPayouts(symbol: string): Promise<PsxPayout[] | null> {
   try {
-    const res = await fetch(URL, {
-      method: "POST",
-      headers: {
-        "user-agent": UA,
-        "content-type": "application/x-www-form-urlencoded",
-        "x-requested-with": "XMLHttpRequest",
-        accept: "text/html, */*",
+    const res = await dpsFetch(
+      URL,
+      {
+        method: "POST",
+        headers: { "content-type": "application/x-www-form-urlencoded", "x-requested-with": "XMLHttpRequest", accept: "text/html, */*" },
+        body: `symbol=${encodeURIComponent(symbol.toUpperCase())}`,
       },
-      body: `symbol=${encodeURIComponent(symbol.toUpperCase())}`,
-      cache: "no-store",
-    });
+      { relay: false }
+    );
     if (!res.ok) return null;
     return parsePayouts(await res.text());
   } catch {

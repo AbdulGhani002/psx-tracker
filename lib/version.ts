@@ -1,7 +1,7 @@
 // Single source of truth for the app version + changelog.
 // Bump APP_VERSION and prepend a CHANGELOG entry on every release.
 
-export const APP_VERSION = "11.17.1";
+export const APP_VERSION = "11.18.0";
 
 export const BUILD_DATE =
   process.env.NEXT_PUBLIC_BUILD_DATE ?? "";
@@ -17,6 +17,17 @@ export type ChangelogEntry = {
 
 // Reverse-chronological. Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: "11.18.0",
+    date: "2026-10-11",
+    title: "Fewer requests to the exchange; your PC fetches for the server",
+    changes: [
+      "The server asks the exchange far less: one request at a time, a random 3 to 9 seconds apart, and nothing for 2 to 4 hours after a refusal.",
+      "Live prices: one request for every share, at most every 15 minutes and only while the market trades. Company pages for announcements every 2 to 4 hours, not every 15 minutes.",
+      "Your PC fetches what the exchange refuses the server (closing files, index pages, company pages) after each close and hands it over.",
+      "The model retrains on your PC each month and is kept only if its tested record is no worse.",
+    ],
+  },
   {
     version: "11.17.1",
     date: "2026-10-11",

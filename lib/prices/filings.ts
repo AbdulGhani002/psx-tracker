@@ -10,9 +10,10 @@
 // and is filled in later by the portal's own script, so there is nothing in the
 // HTML to read. It is not parsed here rather than guessed at.
 
+import { dpsFetch } from "@/lib/prices/dps";
+
 const PSX_URL = (sym: string) => `https://dps.psx.com.pk/company/${encodeURIComponent(sym)}`;
 const PSX_ORIGIN = "https://dps.psx.com.pk";
-const UA = "Mozilla/5.0 (compatible; psx-tracker/0.1)";
 
 export const FILING_CATEGORIES = ["Financial Results", "Board Meetings", "Others"] as const;
 export type FilingCategory = (typeof FILING_CATEGORIES)[number];
@@ -93,10 +94,7 @@ export function parseFilings(html: string, symbol: string): Filing[] {
 }
 
 export async function fetchFilings(symbol: string): Promise<Filing[]> {
-  const res = await fetch(PSX_URL(symbol), {
-    headers: { "user-agent": UA, accept: "text/html" },
-    next: { revalidate: 3600 },
-  });
+  const res = await dpsFetch(PSX_URL(symbol), { headers: { accept: "text/html" } });
   if (!res.ok) throw new Error(`PSX ${symbol}: HTTP ${res.status}`);
   return parseFilings(await res.text(), symbol.toUpperCase());
 }

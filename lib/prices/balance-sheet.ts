@@ -24,6 +24,7 @@
 // million"), and every figure is kept in rupees with the method that read it.
 
 import { extractLines } from "@/lib/pdf/pos-text";
+import { dpsFetch } from "@/lib/prices/dps";
 
 export type BalanceSheet = {
   periodEnd: string; // ISO date of the statement
@@ -223,7 +224,7 @@ export async function fetchBalanceSheet(reports: FiledReport[], tries = 3, ref?:
   const picks = reports.filter((r) => FILED_REPORT.test(r.title)).slice(0, tries);
   for (const r of picks) {
     try {
-      const res = await fetch(r.pdfUrl, { headers: { "user-agent": "Mozilla/5.0 (compatible; psx-tracker/0.1)" }, cache: "no-store", signal: AbortSignal.timeout(60000) });
+      const res = await dpsFetch(r.pdfUrl, {}, { relay: false, timeoutMs: 60000 });
       if (!res.ok) continue;
       const pages = await extractLines(new Uint8Array(await res.arrayBuffer()));
       const bs = parseBalanceSheet(pages, ref);

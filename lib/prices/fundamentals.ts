@@ -6,8 +6,9 @@
 // dividend model in earnings: a company can only sustainably pay out a fraction
 // of what it earns. All values are "as reported / standardized" by the source.
 
+import { dpsFetch } from "@/lib/prices/dps";
+
 const PSX_URL = (sym: string) => `https://dps.psx.com.pk/company/${encodeURIComponent(sym)}`;
-const UA = "Mozilla/5.0 (compatible; psx-tracker/0.1)";
 
 export type AnnualFinancial = {
   fiscalYear: number; // the calendar year the fiscal year ends (PSX column header)
@@ -169,7 +170,7 @@ export function parseFiscalYearEnd(html: string): number | null {
 // The company page itself, for callers that read more than one thing off it.
 export async function fetchCompanyPage(symbol: string): Promise<string | null> {
   try {
-    const res = await fetch(PSX_URL(symbol.toUpperCase()), { headers: { "user-agent": UA, accept: "text/html" }, cache: "no-store", signal: AbortSignal.timeout(20000) });
+    const res = await dpsFetch(PSX_URL(symbol.toUpperCase()), { headers: { accept: "text/html" } });
     return res.ok ? await res.text() : null;
   } catch {
     return null;
@@ -178,11 +179,7 @@ export async function fetchCompanyPage(symbol: string): Promise<string | null> {
 
 export async function fetchFundamentals(symbol: string): Promise<CompanyFundamentals | null> {
   try {
-    const res = await fetch(PSX_URL(symbol.toUpperCase()), {
-      headers: { "user-agent": UA, accept: "text/html" },
-      cache: "no-store",
-      signal: AbortSignal.timeout(15000), // don't let one hung request stall a bulk run
-    });
+    const res = await dpsFetch(PSX_URL(symbol.toUpperCase()), { headers: { accept: "text/html" } }, { timeoutMs: 15000 });
     if (!res.ok) return null;
     const html = await res.text();
     return parseFinancials(html, symbol);
