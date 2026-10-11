@@ -3,17 +3,18 @@ import { Card } from "@/components/ui/Card";
 import { StatCard } from "@/components/ui/StatCard";
 import { FundsManager } from "@/app/funds/FundsManager";
 import { SavingsManager } from "@/app/funds/SavingsManager";
+import { FixedIncomeManager } from "@/app/funds/FixedIncomeManager";
 import { StatementCard } from "@/app/funds/StatementCard";
 import { CashForm } from "./CashForm";
-import { getCashSummary, getCashEntries, getMutualFundsValued, getSavingsValued, getEffectiveInflationPct, getAppSettings } from "@/lib/data";
+import { getCashSummary, getCashEntries, getMutualFundsValued, getSavingsValued, getEffectiveInflationPct, getAppSettings, getFixedIncomeValued } from "@/lib/data";
 import { whtPct } from "@/lib/calculations/pk-tax";
 import { fmtRs, fmtSignedRs, fmtDate } from "@/lib/format";
 
 // Cash: the brokerage ledger the way Zar keeps it (deposits, withdrawals,
-// the balance) and, under it, the money-market funds and savings accounts
-// that are this portfolio's cash in all but name.
+// the balance) and, under it, the money-market funds, savings accounts, and
+// T-bills and sukuks that are this portfolio's cash in all but name.
 export async function CashTab() {
-  const [cash, entries, funds, savings, inf, settings] = await Promise.all([getCashSummary(), getCashEntries(), getMutualFundsValued(), getSavingsValued(), getEffectiveInflationPct(), getAppSettings()]);
+  const [cash, entries, funds, savings, inf, settings, fixed] = await Promise.all([getCashSummary(), getCashEntries(), getMutualFundsValued(), getSavingsValued(), getEffectiveInflationPct(), getAppSettings(), getFixedIncomeValued().catch(() => [])]);
   const fundValue = funds.reduce((s, f) => s + f.value, 0);
   const fundCost = funds.reduce((s, f) => s + f.cost, 0);
   const fundRealized = funds.reduce((s, f) => s + (f.realized ?? 0), 0);
@@ -98,6 +99,10 @@ export async function CashTab() {
 
       <Card className="mt-3" title="Savings accounts" eyebrow="Profit accrues daily on the balance and rate you set">
         <SavingsManager accounts={savings} inflationPct={inf.pct} podWhtPct={whtPct("profit-on-debt", settings as any)} />
+      </Card>
+
+      <Card className="mt-3" title="T-bills and sukuks" eyebrow="Valued daily to maturity">
+        <FixedIncomeManager rows={fixed as any} taxPct={whtPct("profit-on-debt", settings as any)} />
       </Card>
     </div>
   );

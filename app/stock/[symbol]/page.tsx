@@ -116,7 +116,7 @@ export default async function StockPage(props: { params: Promise<{ symbol: strin
       <Section
         number="02b"
         title="Quality & value"
-        description="What the company earns on its equity against what that equity costs, what the market charges for its earnings over a cycle, and the quadrant and grade that puts it in. The same figures, for every holding at once, are on the portfolio's Quality tab."
+        description="Quality against price."
       >
         <Suspense fallback={<Skeleton className="w-full" style={{ height: 260, borderRadius: 10 }} />}>
           <CompanyQualityPanel symbol={sym} />

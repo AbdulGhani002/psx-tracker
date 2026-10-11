@@ -72,6 +72,11 @@ const AppSettingsSchema = new Schema(
     alertWeeklyDigest: { type: Boolean, default: true }, // the Friday portfolio digest
     telegramQuant: { type: Boolean, default: true }, // the model's daily charts and next-day read
     announceEmailTo: { type: String, default: "" }, // blank: the verified account email
+    // The strategy page (lib/strategy/plan.ts): how much risk, for how long,
+    // and the day of the month the rates are entered (Telegram reminds).
+    strategyRisk: { type: String, default: "balanced" }, // defensive | balanced | aggressive
+    strategyHorizon: { type: String, default: "long" }, // short (<1y) | medium (1-3y) | long (3-5y+)
+    ratesDay: { type: Number, default: 1 }, // 1-28
   },
   { timestamps: true }
 );
@@ -121,4 +126,7 @@ export const DEFAULT_SETTINGS = {
   alertBoardMeetings: true,
   alertWeeklyDigest: true,
   telegramQuant: true,
+  strategyRisk: "balanced" as string,
+  strategyHorizon: "long" as string,
+  ratesDay: 1,
 };

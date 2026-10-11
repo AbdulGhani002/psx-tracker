@@ -45,6 +45,9 @@ const patchSchema = z.object({
   alertBoardMeetings: z.boolean().optional(),
   alertWeeklyDigest: z.boolean().optional(),
   telegramQuant: z.boolean().optional(),
+  strategyRisk: z.enum(["defensive", "balanced", "aggressive"]).optional(),
+  strategyHorizon: z.enum(["short", "medium", "long"]).optional(),
+  ratesDay: z.number().int().min(1).max(28).optional(),
 });
 
 // Never return the raw bot token to the client. Replace it with a flag.

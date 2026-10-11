@@ -4,7 +4,8 @@ import { connectDb } from "./db";
 import { getCurrentUserId } from "./auth/current-user";
 import { portfolioFilter } from "@/lib/portfolios";
 import { knownHoldingCompany } from "./holding-companies";
-import { PmexAccountModel, HoldingModel, TransactionModel, CashEntryModel, WatchlistEntryModel, SbpRateModel, MutualFundModel, SavingsAccountModel, AppSettingsModel, CommodityTradeModel, FundamentalModel, FeedSnapshotModel, UserModel, DEFAULT_SETTINGS, type Holding, type Transaction } from "./models";
+import { PmexAccountModel, HoldingModel, TransactionModel, CashEntryModel, WatchlistEntryModel, SbpRateModel, MutualFundModel, SavingsAccountModel, AppSettingsModel, CommodityTradeModel, FundamentalModel, FeedSnapshotModel, UserModel, FixedIncomeModel, RateSnapshotModel, DEFAULT_SETTINGS, type Holding, type Transaction } from "./models";
+import { valueFixedIncome, type FixedIncomeValue } from "./fixed-income/value";
 import { fetchFundamentals } from "./prices/fundamentals";
 import { fetchPayouts } from "./prices/payouts";
 import type { FundamentalsInput } from "./calculations/dividend-forecast";
@@ -1130,8 +1131,10 @@ async function _getMutualFundsValued(): Promise<ValuedFund[]> {
     // Money-market status is stored, but a fund added before the flag existed
     // still has to behave correctly, so fall back to reading the name. Cash and
     // money-market funds are the only ones carried forward between NAV publishes.
+    // The stored flag defaults to false for a fund added from the Cash tab, so
+    // false says nothing: a cash, money-market or liquid fund by its name is one.
     const moneyMarket =
-      (f as any).moneyMarket ?? /cash|money\s*market|liquid|savings/i.test(f.mufapName || f.name || "");
+      (f as any).moneyMarket === true || /cash|money\s*market|liquid|savings/i.test(f.mufapName || f.name || "");
     const v = valueFund(
       {
         units: f.units,
@@ -1203,10 +1206,38 @@ async function _getSavingsValued(): Promise<ValuedSavings[]> {
   });
 }
 
+// T-bills and sukuks held, valued today (lib/fixed-income/value.ts).
+export type ValuedFixedIncome = {
+  _id: string;
+  kind: "tbill" | "sukuk";
+  name: string;
+  face: number;
+  cost: number;
+  purchaseDate: string;
+  maturityDate: string;
+  couponPct: number;
+  couponsPerYear: number;
+  taxPct: number;
+  pricePct: number | null;
+  notes: string;
+} & FixedIncomeValue;
+
+async function _getFixedIncomeValued(): Promise<ValuedFixedIncome[]> {
+  if (!(await tryConnect())) return [];
+  const docs = await FixedIncomeModel.find({ userId: await meId(), ...(await portfolioFilter()) }).sort({ maturityDate: 1 }).lean();
+  const today = new Date(Date.now() + 5 * 3600_000).toISOString().slice(0, 10);
+  return docs.map((d: any) => {
+    const h = { kind: d.kind, name: d.name, face: Number(d.face) || 0, cost: Number(d.cost) || 0, purchaseDate: d.purchaseDate, maturityDate: d.maturityDate, couponPct: Number(d.couponPct) || 0, couponsPerYear: Number(d.couponsPerYear) || 0, taxPct: d.taxPct ?? 15, pricePct: d.pricePct ?? null };
+    return { _id: String(d._id), ...h, notes: d.notes ?? "", ...valueFixedIncome(h, today) };
+  });
+}
+export const getFixedIncomeValued = cache(_getFixedIncomeValued);
+
 export type NetWorth = {
   equity: number; // PSX holdings market value
   funds: number; // mutual funds value
   savings: number; // savings accounts accrued value
+  fixedIncome: number; // T-bills and sukuks still held
   total: number;
   breakdown: { label: string; value: number }[];
 };
@@ -1226,24 +1257,29 @@ export type NetWorth = {
 // summary all still work. If every deposit and withdrawal is ever recorded,
 // counting it again is a small change.
 async function _getNetWorth(): Promise<NetWorth> {
-  const [summary, funds, savings] = await Promise.all([
+  const [summary, funds, savings, fixed] = await Promise.all([
     getPortfolioSummary(),
     getMutualFundsValued(),
     getSavingsValued(),
+    getFixedIncomeValued(),
   ]);
   const equity = summary.totalValue;
   const fundsTotal = funds.reduce((s, f) => s + f.value, 0);
   const savingsTotal = savings.reduce((s, a) => s + a.balance, 0);
-  const total = equity + fundsTotal + savingsTotal;
+  // A matured T-bill or sukuk has paid out: its money is cash, not a holding.
+  const fixedTotal = fixed.filter((f) => !f.matured).reduce((s, f) => s + f.value, 0);
+  const total = equity + fundsTotal + savingsTotal + fixedTotal;
   return {
     equity,
     funds: fundsTotal,
     savings: savingsTotal,
+    fixedIncome: fixedTotal,
     total,
     breakdown: [
       { label: "PSX equities", value: equity },
       { label: "Mutual funds", value: fundsTotal },
       { label: "Savings", value: savingsTotal },
+      { label: "T-bills & sukuks", value: fixedTotal },
     ].filter((b) => b.value > 0),
   };
 }
@@ -1291,6 +1327,16 @@ async function _getAppSettings(): Promise<AppSettings> {
     alertBoardMeetings: (doc as any)?.alertBoardMeetings ?? DEFAULT_SETTINGS.alertBoardMeetings,
     alertWeeklyDigest: (doc as any)?.alertWeeklyDigest ?? DEFAULT_SETTINGS.alertWeeklyDigest,
     telegramQuant: (doc as any)?.telegramQuant ?? DEFAULT_SETTINGS.telegramQuant,
+    strategyRisk: (doc as any)?.strategyRisk ?? DEFAULT_SETTINGS.strategyRisk,
+    strategyHorizon: (doc as any)?.strategyHorizon ?? DEFAULT_SETTINGS.strategyHorizon,
+    ratesDay: (doc as any)?.ratesDay ?? DEFAULT_SETTINGS.ratesDay,
+    // Saved by the settings form but not read back before 11.12.0.
+    inflationPct: (doc as any)?.inflationPct ?? (DEFAULT_SETTINGS as any).inflationPct,
+    podWhtFiler: (doc as any)?.podWhtFiler ?? (DEFAULT_SETTINGS as any).podWhtFiler,
+    podWhtNonFiler: (doc as any)?.podWhtNonFiler ?? (DEFAULT_SETTINGS as any).podWhtNonFiler,
+    brokerCashPurpose: (doc as any)?.brokerCashPurpose ?? (DEFAULT_SETTINGS as any).brokerCashPurpose,
+    brokerCashReviewBy: (doc as any)?.brokerCashReviewBy ?? (DEFAULT_SETTINGS as any).brokerCashReviewBy,
+    brokerCashReviewReason: (doc as any)?.brokerCashReviewReason ?? (DEFAULT_SETTINGS as any).brokerCashReviewReason,
   } as AppSettings;
 }
 

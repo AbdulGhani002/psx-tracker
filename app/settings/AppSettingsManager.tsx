@@ -44,6 +44,9 @@ type Settings = {
   alertBoardMeetings?: boolean;
   alertWeeklyDigest?: boolean;
   telegramQuant?: boolean;
+  strategyRisk?: string;
+  strategyHorizon?: string;
+  ratesDay?: number;
 };
 
 const ANNOUNCE_LEVELS: Array<{ value: string; label: string }> = [
@@ -178,6 +181,38 @@ export function AppSettingsManager({ initial, telegramConfigured }: { initial: S
           <Toggle label="Price and plan alerts" value={s.alertPrices ?? true} onChange={(v) => set("alertPrices", v)} hint="Buy and sell zones, rebalance drift, foreign flows, KMI changes, sell discipline." />
           <Toggle label="Ex-dividend reminders" value={s.alertExDates ?? true} onChange={(v) => set("alertExDates", v)} hint="Book closures in the next two weeks." />
           <Toggle label="Model charts and the next-day read" value={s.telegramQuant ?? true} onChange={(v) => set("telegramQuant", v)} hint="The daily album of charts and the model's verdict." />
+        </div>
+      </div>
+
+      <div className="mt-6 pt-4 border-t border-rule">
+        <div className="text-[14px] font-semibold">Strategy</div>
+        <p className="text-[12.5px] text-muted mt-1 mb-3">
+          For the Strategy page. Telegram reminds you to enter rates on the day set here.
+        </p>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-x-6 gap-y-4">
+          <div>
+            <div className="text-[13px] font-medium">Risk</div>
+            <div className="seg mt-1.5">
+              {(["defensive", "balanced", "aggressive"] as const).map((k) => (
+                <button key={k} type="button" data-active={(s.strategyRisk ?? "balanced") === k} onClick={() => set("strategyRisk", k)}>
+                  {k === "defensive" ? "Defensive" : k === "balanced" ? "Balanced" : "Aggressive"}
+                </button>
+              ))}
+            </div>
+            <div className="text-[11.5px] text-muted mt-1.5">40 / 60 / 80% in stocks</div>
+          </div>
+          <div>
+            <div className="text-[13px] font-medium">Horizon</div>
+            <div className="seg mt-1.5">
+              {(["short", "medium", "long"] as const).map((k) => (
+                <button key={k} type="button" data-active={(s.strategyHorizon ?? "long") === k} onClick={() => set("strategyHorizon", k)}>
+                  {k === "short" ? "Under a year" : k === "medium" ? "1 to 3 years" : "3 to 5 years+"}
+                </button>
+              ))}
+            </div>
+
+          </div>
+          <NumberInput label="Rates day of the month" value={s.ratesDay ?? 1} onChange={(v) => set("ratesDay", Math.max(1, Math.min(28, Math.round(v))))} min={1} max={28} step={1} hint="1 to 28" />
         </div>
       </div>
 

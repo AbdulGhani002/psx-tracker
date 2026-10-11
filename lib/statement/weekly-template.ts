@@ -7,8 +7,8 @@
 // page of decisions rather than a page of performance.
 
 export type WeeklyReportData = {
-  weekKey: string; // 2026-W36
-  weekLabel: string; // "week ending 6 September 2026"
+  weekKey: string; // FY26-27-W10
+  weekLabel: string; // "week 10 of FY26-27, 6 September 2026"
   generatedOn: string;
 
   // regime
@@ -67,15 +67,17 @@ const esc = (s: string): string =>
 const rs = (v: number): string => `Rs ${Math.round(v).toLocaleString("en-PK")}`;
 const sgn = (v: number): string => (v >= 0 ? `+${v}` : `$-$${Math.abs(v)}`);
 
+// Weeks of the financial year (July to June), counted in Karachi: week 1 is
+// 1 to 7 July, week 2 from 8 July, and so on to week 53 at the end of June.
 export function weekOf(now = new Date()): { key: string; label: string } {
-  const d = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
-  // ISO week number.
-  const day = d.getUTCDay() || 7;
-  d.setUTCDate(d.getUTCDate() + 4 - day);
-  const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
-  const week = Math.ceil(((d.getTime() - yearStart.getTime()) / 86400000 + 1) / 7);
-  const label = now.toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" });
-  return { key: `${d.getUTCFullYear()}-W${String(week).padStart(2, "0")}`, label: `week ending ${label}` };
+  const pk = new Date(now.getTime() + 5 * 3600_000);
+  const y = pk.getUTCFullYear(), m = pk.getUTCMonth();
+  const startYear = m >= 6 ? y : y - 1;
+  const day = Date.UTC(y, m, pk.getUTCDate());
+  const week = Math.floor((day - Date.UTC(startYear, 6, 1)) / (7 * 86400000)) + 1;
+  const fy = `FY${String(startYear).slice(2)}-${String(startYear + 1).slice(2)}`;
+  const date = new Date(day).toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric", timeZone: "UTC" });
+  return { key: `${fy}-W${String(week).padStart(2, "0")}`, label: `week ${week} of ${fy}, ${date}` };
 }
 
 export function buildWeeklyTex(d: WeeklyReportData): string {

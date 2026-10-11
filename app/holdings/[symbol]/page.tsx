@@ -267,7 +267,7 @@ export default async function HoldingDetail(props: Props) {
       <Section
         number="02b"
         title="Quality & value"
-        description="What the company earns on its equity against what that equity costs, what the market charges for its earnings over a cycle, and the quadrant and grade that puts it in. The same figures, for every holding at once, are on the portfolio's Quality tab."
+        description="Quality against price."
         action={
           <Link href="/portfolio?tab=quality" className="font-mono text-[11px] uppercase tracking-stat text-muted hover:text-[var(--accent-deep)]">
             Portfolio quality →

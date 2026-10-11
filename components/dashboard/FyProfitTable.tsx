@@ -72,9 +72,9 @@ export function FyProfitTable({ board }: { board: FyBoard }) {
         </>
       )}
 
-      <p className="text-[11.5px] text-muted mt-4 leading-relaxed">
-        Profit is the worth at the end, less the worth at the start, less what was bought net of sales, plus the dividends paid. A dividend you reinvest counts once, the day it is paid: the shares it buys are a purchase like any other, and what they gain afterwards is price gain. Each year ends at the exchange&apos;s closing prices on the last trading day of June; the year not over, at today&apos;s. The return weighs each purchase and sale by the part of the year it was in.
-        {missing.length > 0 && <> No year-end price for {missing.join(", ")}: taken as unchanged over that year.</>}
+      <p className="text-[11.5px] text-muted mt-4">
+        Profit = end − start − (bought − sold) + dividends. Reinvested dividends count once.
+        {missing.length > 0 && <> No year-end price for {missing.join(", ")}.</>}
       </p>
     </Card>
   );

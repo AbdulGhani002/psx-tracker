@@ -6,7 +6,7 @@
 
 import "server-only";
 import { cache } from "react";
-import { getAllTransactions, getPortfolioSummary, getMutualFundsValued, getSavingsValued, getCashEntries, getCashSummary, getNetWorth, getAllHoldings, getAppSettings, getCurrentPrices } from "@/lib/data";
+import { getAllTransactions, getPortfolioSummary, getMutualFundsValued, getSavingsValued, getFixedIncomeValued, getCashEntries, getCashSummary, getNetWorth, getAllHoldings, getAppSettings, getCurrentPrices } from "@/lib/data";
 import { getCurrentUserId } from "@/lib/auth/current-user";
 import { computeBenchmarkCached } from "@/lib/feeds/benchmark";
 import { eodBarsCached } from "@/lib/timeseries/eod-cache";
@@ -16,6 +16,8 @@ import { TransactionModel } from "@/lib/models/Transaction";
 import { MutualFundModel } from "@/lib/models/MutualFund";
 import { SavingsAccountModel } from "@/lib/models/SavingsAccount";
 import { CashEntryModel } from "@/lib/models/CashEntry";
+import { FixedIncomeModel } from "@/lib/models/FixedIncome";
+import { valueFixedIncome } from "@/lib/fixed-income/value";
 import { deriveFromTransactions } from "@/lib/calculations";
 import { computeCashBalance } from "@/lib/calculations/cash";
 import { monthlyReturns, monthlyTable, drawdowns, dailyPnl, summarise, type MonthlyTable, type Drawdown, type DailyPnl, type PerfSummary } from "./performance";
@@ -103,6 +105,7 @@ export type PortfolioCard = {
   equity: number;
   funds: number;
   savings: number;
+  fixedIncome: number; // T-bills and sukuks still held
   cash: number; // the brokerage balance of this portfolio's ledger
   total: number;
   change30Pct: number | null; // the equities held today, priced 30 sessions ago
@@ -125,7 +128,10 @@ async function _getPortfolioCards(): Promise<PortfolioCard[]> {
   if (!uid) return [];
   const portfolios = await listPortfolios();
   await connectDb();
-  const [funds, savings, cashEntries, settings] = await Promise.all([MutualFundModel.find({ userId: uid }).lean(), SavingsAccountModel.find({ userId: uid }).lean(), CashEntryModel.find({ userId: uid }).lean(), getAppSettings() as Promise<any>]);
+  const [funds, savings, cashEntries, settings, fixedDocs] = await Promise.all([MutualFundModel.find({ userId: uid }).lean(), SavingsAccountModel.find({ userId: uid }).lean(), CashEntryModel.find({ userId: uid }).lean(), getAppSettings() as Promise<any>, FixedIncomeModel.find({ userId: uid }).lean()]);
+  const todayPk = new Date(Date.now() + 5 * 3600_000).toISOString().slice(0, 10);
+  // T-bills and sukuks still held, valued today.
+  const fixedValued = (fixedDocs as any[]).map((d) => ({ doc: d, v: valueFixedIncome({ kind: d.kind, name: d.name, face: Number(d.face) || 0, cost: Number(d.cost) || 0, purchaseDate: d.purchaseDate, maturityDate: d.maturityDate, couponPct: Number(d.couponPct) || 0, couponsPerYear: Number(d.couponsPerYear) || 0, taxPct: d.taxPct ?? 15, pricePct: d.pricePct ?? null }, todayPk) })).filter((x) => !x.v.matured);
   const cgtRatePct = settings.filerStatus === "filer" ? settings.cgtRateFiler : settings.cgtRateNonFiler;
   const fundsValued = await getMutualFundsValued().catch(() => [] as any[]);
   const savingsValued = await getSavingsValued().catch(() => [] as any[]);
@@ -187,23 +193,28 @@ async function _getPortfolioCards(): Promise<PortfolioCard[]> {
     const fundsRealized = pfFunds.reduce((s, f) => s + f.realized, 0);
     const savingsTotal = pfSavings.reduce((s, a) => s + a.balance, 0);
     const savingsPrincipal = pfSavings.reduce((s, a) => s + a.principal, 0);
+    const pfFixed = fixedValued.filter((x) => inPf(x.doc));
+    const fixedTotal = pfFixed.reduce((s, x) => s + x.v.value, 0);
+    const fixedCost = pfFixed.reduce((s, x) => s + Number(x.doc.cost || 0), 0);
+    const fixedProfit = pfFixed.reduce((s, x) => s + x.v.profitSoFar, 0);
     const unrealized = equity - invested + (fundsTotal - fundsCost);
     const dayProfit = last30 - prev + fundsPerDay;
     const dayBase = prev + fundsTotal + savingsTotal;
-    const total = equity + fundsTotal + savingsTotal + cash;
-    const totalReturn = unrealized + realized + fundsRealized + dividends + (savingsTotal - savingsPrincipal);
+    const total = equity + fundsTotal + savingsTotal + fixedTotal + cash;
+    const totalReturn = unrealized + realized + fundsRealized + dividends + (savingsTotal - savingsPrincipal) + fixedProfit;
     out.push({
       portfolio: p,
       equity,
       funds: fundsTotal,
       savings: savingsTotal,
+      fixedIncome: fixedTotal,
       cash,
       total,
       change30Pct: equity30 > 0 ? (last30 / equity30 - 1) * 100 : null,
       spark,
       names: shares.size,
       invested: total - totalReturn,
-      costBasis: invested + fundsCost + savingsPrincipal,
+      costBasis: invested + fundsCost + savingsPrincipal + fixedCost,
       unrealized,
       realized,
       dividends,
@@ -301,16 +312,17 @@ export async function getPerformance(range = "ALL"): Promise<Performance | null>
 export type Allocation = { label: string; value: number };
 
 // The book by asset class, for the donut and the invested figure.
-export async function getAllocation(): Promise<{ slices: Allocation[]; total: number; invested: number; availableCash: number; equity: number; funds: number; savings: number; brokerCash: number }> {
+export async function getAllocation(): Promise<{ slices: Allocation[]; total: number; invested: number; availableCash: number; equity: number; funds: number; savings: number; fixedIncome: number; brokerCash: number }> {
   const [nw, summary, cashSum] = await Promise.all([getNetWorth(), getPortfolioSummary(), getCashSummary().catch(() => null)]);
   const brokerCash = Math.max(0, cashSum?.balance ?? 0);
   const slices: Allocation[] = [
     { label: "Equities", value: nw.equity },
     { label: "Money-market funds", value: nw.funds },
     { label: "Savings", value: nw.savings },
+    { label: "T-bills & sukuks", value: nw.fixedIncome },
     { label: "Brokerage cash", value: brokerCash },
   ].filter((s) => s.value > 0);
-  return { slices, total: nw.total + brokerCash, invested: summary.totalCost, availableCash: nw.funds + brokerCash, equity: nw.equity, funds: nw.funds, savings: nw.savings, brokerCash };
+  return { slices, total: nw.total + brokerCash, invested: summary.totalCost, availableCash: nw.funds + brokerCash, equity: nw.equity, funds: nw.funds, savings: nw.savings, fixedIncome: nw.fixedIncome, brokerCash };
 }
 
 export type BookFigures = {
@@ -332,13 +344,18 @@ export type BookFigures = {
   equity: { cost: number; value: number; unrealized: number; realized: number; dividends: number; total: number; todayProfit: number; todayPct: number };
   funds: { cost: number; value: number; gain: number; realized: number; perDay: number; count: number }; // gain includes what redemptions banked; count is the funds still held
   savings: { principal: number; balance: number; profit: number };
+  fixedIncome: { cost: number; value: number; profit: number; count: number }; // T-bills and sukuks still held; profit includes coupons paid
 };
 
 // The book as one figure. The equity summary alone leaves the fund's gain
 // out of the return and the fund's cost out of what was invested, which
 // made a 1.4M book report a 1.27M investment and a share-only return.
 async function _getBookFigures(): Promise<BookFigures> {
-  const [summary, today, funds, savings, alloc] = await Promise.all([getPortfolioSummary(), getToday(), getMutualFundsValued().catch(() => []), getSavingsValued().catch(() => []), getAllocation()]);
+  const [summary, today, funds, savings, alloc, fixedAll] = await Promise.all([getPortfolioSummary(), getToday(), getMutualFundsValued().catch(() => []), getSavingsValued().catch(() => []), getAllocation(), getFixedIncomeValued().catch(() => [])]);
+  const fixed = fixedAll.filter((x) => !x.matured);
+  const fiCost = fixed.reduce((s, x) => s + x.cost, 0);
+  const fiValue = fixed.reduce((s, x) => s + x.value, 0);
+  const fiProfit = fixed.reduce((s, x) => s + x.profitSoFar, 0);
   const eqTotal = summary.unrealizedPL + summary.realizedPL + summary.dividendsTotal;
   const fCost = funds.reduce((s, f) => s + f.cost, 0);
   const fValue = funds.reduce((s, f) => s + f.value, 0);
@@ -348,8 +365,8 @@ async function _getBookFigures(): Promise<BookFigures> {
   const fPerDay = funds.reduce((s, f) => s + (f.moneyMarket || f.dailyDividend ? f.earnedPerDay : 0), 0);
   const sPrincipal = savings.reduce((s, a) => s + a.principal, 0);
   const sBalance = savings.reduce((s, a) => s + a.balance, 0);
-  const costBasis = summary.totalCost + fCost + sPrincipal;
-  const totalReturn = eqTotal + (fValue - fCost) + fRealized + (sBalance - sPrincipal);
+  const costBasis = summary.totalCost + fCost + sPrincipal + fiCost;
+  const totalReturn = eqTotal + (fValue - fCost) + fRealized + (sBalance - sPrincipal) + fiProfit;
   // Net worth less every gain ever made is the money that was put in, net of
   // what was taken out: the cost of what is held today includes the realised
   // gains and dividends that bought it, so cost overstates the capital.
@@ -369,6 +386,7 @@ async function _getBookFigures(): Promise<BookFigures> {
     equity: { cost: summary.totalCost, value: summary.totalValue, unrealized: summary.unrealizedPL, realized: summary.realizedPL, dividends: summary.dividendsTotal, total: eqTotal, todayProfit: today.profit, todayPct: today.profitPct },
     funds: { cost: fCost, value: fValue, gain: fValue - fCost + fRealized, realized: fRealized, perDay: fPerDay, count: funds.filter((f) => f.units > 0).length },
     savings: { principal: sPrincipal, balance: sBalance, profit: sBalance - sPrincipal },
+    fixedIncome: { cost: fiCost, value: fiValue, profit: fiProfit, count: fixed.length },
   };
 }
 export const getBookFigures = cache(_getBookFigures);

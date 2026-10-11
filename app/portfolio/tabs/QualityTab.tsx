@@ -46,7 +46,7 @@ export function QualityView({ b }: { b: QualityBoard }) {
 
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-3 mt-3">
         <div className="xl:col-span-2">
-          <Card title="Quality against price" action={<span className="text-[12px] text-muted">{b.counts.withRoe} of {b.counts.companies} companies with an ROE</span>}>
+          <Card title="Quality against price" action={<span className="text-[12px] text-muted">{b.counts.withRoe}/{b.counts.companies} with ROE</span>}>
             <QualityQuadrant rows={b.rows} costOfEquityPct={r} marketMedianCape={b.marketMedianCape} />
           </Card>
         </div>
@@ -68,37 +68,30 @@ export function QualityView({ b }: { b: QualityBoard }) {
               { label: "Not graded", share: p.grades.unknown, color: "var(--rule-strong)" },
             ]}
           />
-          <p className="text-[11.5px] text-muted mt-4 leading-relaxed">
-            Each bar is a share of the money in shares; funds and cash are left out. A name is not classed until its book value is known (from its filed balance sheet, or entered on the holding) and it has three years of earnings.
-          </p>
         </Card>
       </div>
 
-      <Card className="mt-3" title="Your holdings" action={<span className="text-[12px] text-muted">cost of equity {r.toFixed(1)}% · market median CAPE {mult(b.marketMedianCape)}</span>}>
+      <Card className="mt-3" title="Your holdings" action={<span className="text-[12px] text-muted">cost {r.toFixed(1)}% · market CAPE {mult(b.marketMedianCape)}</span>}>
         <QualityTable rows={held} r={r} showWeight />
       </Card>
 
       {offer.length > 0 && (
-        <Card className="mt-3" title="Compounders you don't hold" action={<span className="text-[12px] text-muted">KSE-100, grade A or B, below the market&apos;s multiple</span>}>
+        <Card className="mt-3" title="Compounders you don't hold" action={<span className="text-[12px] text-muted">KSE-100, A/B, cheap</span>}>
           <QualityTable rows={offer} r={r} />
         </Card>
       )}
 
-      <Card className="mt-3" title="How to read it">
-        <div className="grid md:grid-cols-2 gap-x-8 gap-y-3 text-[12.5px] leading-relaxed">
-          <Term name="Cycle-adjusted P/E">Price over the average of the past years&apos; EPS, each restated in today&apos;s rupees with the PBS price index, so one boom or bust year does not swing it. Its inverse is the real earnings yield, the measure Shiller found to track the next decade&apos;s returns. The exchange keeps four years; the window lengthens to ten as they accumulate.</Term>
-          <Term name="Return on equity">The year&apos;s profit over the shareholders&apos; equity in the company&apos;s own balance sheet. Above the cost of equity (the SBP rate plus the equity premium in your settings) the company creates value; below it, it destroys value however cheap it looks.</Term>
-          <Term name="DuPont split">ROE as net margin × asset turnover × leverage, on each company&apos;s page. A high ROE from margin or turnover is earned; one from leverage is borrowed and carries the balance sheet&apos;s risk.</Term>
-          <Term name="Justified P/B">The price to book a company&apos;s ROE and growth warrant at your cost of equity, (ROE − g) / (r − g). Trading below it means cheap for its quality.</Term>
-          <Term name="Implied return">Dividend yield plus ROE × the share of earnings kept: what a buyer at today&apos;s price earns if the business simply carries on. Compare it with the cost of equity. It is a reading of the price, not a forecast of it.</Term>
-          <Term name="Grade">A: ROE five points or more over its cost, profitable every year, earnings growing. B: earns its cost and always profitable. C: close to its cost, or growing without earning it yet. D: well under its cost.</Term>
-          <Term name="Portfolio figures">Weighted by value. Multiples combine as total value over total earnings, the way an index&apos;s do, so one name on a huge multiple cannot dominate. The KSE-100 figures weight its companies by market value.</Term>
-          <Term name="Where the numbers come from">Earnings, sales and margins from the exchange&apos;s company pages; equity and assets from the latest filed report&apos;s statement of financial position (scanned filings cannot be read: enter book value per share on the holding instead). Prices are live for your holdings and the last close for the rest.</Term>
-        </div>
-        <p className="text-[11px] text-muted mt-4">
-          {b.counts.companies} companies · {b.counts.withStatement} with a balance sheet read from their filings · {b.counts.withCape} with a cycle-adjusted P/E · CPI to {b.cpiPeriod ?? "—"} · gathered {fmtDateTime(b.inputsAt)}
-        </p>
-      </Card>
+      <details className="mt-3 text-[12.5px] text-muted">
+        <summary className="cursor-pointer select-none">Terms</summary>
+        <ul className="mt-2 space-y-1 pl-4 list-disc">
+          <li>CAPE: price over average real EPS (CPI-adjusted).</li>
+          <li>ROE vs cost: above it creates value.</li>
+          <li>Justified P/B: what ROE and growth earn at your cost of equity.</li>
+          <li>Implied return: dividend yield + ROE × earnings kept.</li>
+          <li>Grade A: ROE 5+ pts over cost, always profitable, growing. D: well under cost.</li>
+          <li>Book value from filed balance sheets; scanned ones need it entered on the holding.</li>
+        </ul>
+      </details>
     </div>
   );
 }

@@ -12,7 +12,7 @@ import { GradeBadge, GRADE_TEXT, QUADRANT_COLOR, mult, rate, signed } from "./pa
 export async function CompanyQualityPanel({ symbol }: { symbol: string }) {
   const res = await getCompanyQuality(symbol).catch(() => null);
   if (!res) {
-    return <p className="text-[13px] text-muted">No figures for {symbol} yet. The exchange&apos;s company page is read every day for the names you hold and the KSE-100; others are read once they are on the watchlist.</p>;
+    return <p className="text-[13px] text-muted">No figures for {symbol} yet.</p>;
   }
   return <CompanyQualityView row={res.row} ctx={res.ctx} />;
 }
@@ -57,7 +57,7 @@ export function CompanyQualityView({ row, ctx }: { row: QualityRow; ctx: Quality
 
       <div className="grid md:grid-cols-2 gap-6 mt-5">
         <div>
-          <div className="label-cap mb-2">Where the return on equity comes from</div>
+          <div className="label-cap mb-2">ROE split</div>
           {q.dupont ? (
             <>
               <div className="flex items-center gap-2 flex-wrap text-[13px]">
@@ -70,34 +70,28 @@ export function CompanyQualityView({ row, ctx }: { row: QualityRow; ctx: Quality
                 <Factor label="ROE" value={rate(q.roePct)} strong />
               </div>
               <p className="text-[12px] text-muted mt-2 leading-relaxed">
-                {q.dupont.equityMultiplier >= 4
-                  ? "Most of this return is leverage: assets are several times the equity, as in a bank, so the ROE moves with the balance sheet's risk."
-                  : q.dupont.netMarginPct >= 15
-                  ? "Earned on margin: the business keeps a large share of each rupee of sales."
-                  : q.dupont.assetTurnover >= 1.2
-                  ? "Earned on turnover: thin margins on sales several times its assets."
-                  : "A mix of margin, turnover and modest leverage."}
+                {q.dupont.equityMultiplier >= 4 ? "Mostly leverage." : q.dupont.netMarginPct >= 15 ? "Mostly margin." : q.dupont.assetTurnover >= 1.2 ? "Mostly turnover." : "Mixed."}
               </p>
             </>
           ) : (
-            <p className="text-[12.5px] text-muted">{q.bookSource === "manual" ? "From the book value entered on the holding, so ROE is EPS over book value and there is no split." : "Needs the company's balance sheet."}</p>
+            <p className="text-[12.5px] text-muted">{q.bookSource === "manual" ? "From your book value; no split." : "Needs a balance sheet."}</p>
           )}
           <div className="label-cap mt-5 mb-2">Book value</div>
           <p className="text-[12.5px] text-muted leading-relaxed">
             {q.bookSource === "statement" && row.balance ? (
               <>
-                Equity Rs {(row.balance.equity / 1e9).toFixed(2)} bn and total assets Rs {(row.balance.totalAssets / 1e9).toFixed(2)} bn, from the {row.balance.consolidated ? "consolidated" : "standalone"} statement of financial position as at {fmtDate(row.balance.periodEnd)}
-                {row.balance.source ? <> (<a href={row.balance.source} target="_blank" rel="noreferrer" className="underline">the filing</a>)</> : null}.
+                Equity Rs {(row.balance.equity / 1e9).toFixed(2)} bn · {row.balance.consolidated ? "group" : "standalone"} · {fmtDate(row.balance.periodEnd)}
+                {row.balance.source ? <> · <a href={row.balance.source} target="_blank" rel="noreferrer" className="underline">filing</a></> : null}
               </>
             ) : q.bookSource === "manual" ? (
-              <>Rs {q.bvps?.toFixed(2)} a share, as entered on the holding.</>
+              <>Rs {q.bvps?.toFixed(2)} a share (yours)</>
             ) : (
-              <>None yet. Scanned filings cannot be read; enter the book value per share on the holding&apos;s settings to add one.</>
+              <>None: enter it on the holding</>
             )}
           </p>
         </div>
         <div>
-          <div className="label-cap mb-2">Earnings per share, in today&apos;s rupees</div>
+          <div className="label-cap mb-2">EPS in today&apos;s rupees</div>
           {q.realEps.length ? (
             <table className="w-full text-[12.5px]">
               <thead>
@@ -124,9 +118,6 @@ export function CompanyQualityView({ row, ctx }: { row: QualityRow; ctx: Quality
           ) : (
             <p className="text-[12.5px] text-muted">No annual earnings on record.</p>
           )}
-          <p className="text-[11.5px] text-muted mt-2 leading-relaxed">
-            Restated with the PBS consumer price index{ctx.cpiPeriod ? ` to ${ctx.cpiPeriod}` : ""}. The cycle-adjusted P/E is the price over their average: Shiller averages ten years, the exchange keeps four, and the window lengthens as the years accumulate.
-          </p>
         </div>
       </div>
 

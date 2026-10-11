@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { connectDb } from "@/lib/db";
-import { AlertLogModel } from "@/lib/models";
+import { AlertLogModel, RateSnapshotModel } from "@/lib/models";
+import { appOrigin } from "@/lib/auth/mailer";
 import { getAppSettings, getZoneBoard, getDeploymentPlan, getStandInGroups, getPortfolioSummary, getAllHoldings, getUpcomingExDates, getAllUserIds, getIntrinsicValuations, getShariahStatus, getFeedSnapshot, saveFeedSnapshot, getNetWorth, getEffectiveInflationPct } from "@/lib/data";
 import { getUsdPkr } from "@/lib/fx";
 import { describeZone } from "@/lib/calculations/zones";
@@ -344,6 +345,23 @@ async function runAlertsForCurrentUser(forceDigest = false) {
     }
   } catch {
     /* discipline data unavailable — skip */
+  }
+
+  // The month's interest rates, from the rates day set in Settings until
+  // they are entered on the strategy page (which then works the strategy out
+  // again and sends it). Once a month.
+  try {
+    const pk = new Date(Date.now() + 5 * 3600_000);
+    const month = pk.toISOString().slice(0, 7);
+    if (pk.getUTCDate() >= Math.max(1, Math.min(28, Number(settings.ratesDay ?? 1)))) {
+      const entered = await RateSnapshotModel.exists({ userId: await uid(), month });
+      if (!entered) {
+        const label = pk.toLocaleString("en-GB", { month: "long", timeZone: "UTC" });
+        candidates.push({ key: `rates:${month}`, message: `🗓 <b>${label}'s rates</b>: enter the policy rate, T-bill, sukuk and savings rates and the strategy is worked out again. ${appOrigin()}/strategy` });
+      }
+    }
+  } catch {
+    /* no reminder this run */
   }
 
   // 8. Friday weekly digest (Pakistan time) — the portfolio's week in one

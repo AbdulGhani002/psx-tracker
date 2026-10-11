@@ -199,7 +199,7 @@ export async function PayoutsTab() {
       )}
 
       {upcoming.length > 0 && (
-        <Card className="mt-3" title={`Expected later in ${fyLabel}`} eyebrow="Last year's payouts, a year on; each goes once its date passes or the real one is announced or recorded">
+        <Card className="mt-3" title={`Expected later in ${fyLabel}`} eyebrow="Forecast · goes once due or paid">
           <div className="overflow-x-auto -mx-2">
             <table className="table-zar">
               <thead><tr><th>Expected</th><th>Name</th><th className="text-right">Per share</th><th className="text-right">Shares</th><th className="text-right">Gross</th><th>Confidence</th></tr></thead>

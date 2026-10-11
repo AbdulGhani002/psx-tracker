@@ -116,7 +116,7 @@ export async function HoldingTab() {
               tone={y.profit >= 0 ? "positive" : "negative"}
               delta={y.returnPct != null ? signedPct(y.returnPct, 1) : undefined}
               deltaTone={y.profit >= 0 ? "positive" : "negative"}
-              hint={`Price gain ${fmtSignedRs(y.capitalGain)} · dividends ${fmtRs(y.dividends)}, a reinvested dividend counted once`}
+              hint={`Price ${fmtSignedRs(y.capitalGain)} · dividends ${fmtRs(y.dividends)}`}
               action={<Link href="/portfolio?tab=analytics&view=profitability#by-year" className="text-[11px] link-underline whitespace-nowrap">By year</Link>}
             />
           ))}

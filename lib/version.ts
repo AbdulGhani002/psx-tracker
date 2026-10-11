@@ -1,7 +1,7 @@
 // Single source of truth for the app version + changelog.
 // Bump APP_VERSION and prepend a CHANGELOG entry on every release.
 
-export const APP_VERSION = "11.11.1";
+export const APP_VERSION = "11.12.0";
 
 export const BUILD_DATE =
   process.env.NEXT_PUBLIC_BUILD_DATE ?? "";
@@ -17,6 +17,19 @@ export type ChangelogEntry = {
 
 // Reverse-chronological. Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: "11.12.0",
+    date: "2026-10-11",
+    title: "Strategy, monthly rates, T-bills and sukuks",
+    changes: [
+      "Strategy page: market phase, stocks against T-bills, how much in stocks, buying in four steps, where to park cash, what to buy.",
+      "Monthly rates on the Strategy page, filled in from SBP and PBS. Saving sends the new plan to Telegram; a reminder comes on your day (Settings).",
+      "T-bills and sukuks on the Cash tab, valued daily and counted in net worth.",
+      "Weekly plan weeks count from 1 July.",
+      "Less text on the new pages.",
+      "Fixed: six settings were not read back; money market funds added from the Cash tab now count as cash.",
+    ],
+  },
   {
     version: "11.11.1",
     date: "2026-10-07",
