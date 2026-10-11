@@ -1,7 +1,7 @@
 // Single source of truth for the app version + changelog.
 // Bump APP_VERSION and prepend a CHANGELOG entry on every release.
 
-export const APP_VERSION = "11.15.0";
+export const APP_VERSION = "11.15.1";
 
 export const BUILD_DATE =
   process.env.NEXT_PUBLIC_BUILD_DATE ?? "";
@@ -17,6 +17,15 @@ export type ChangelogEntry = {
 
 // Reverse-chronological. Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: "11.15.1",
+    date: "2026-10-11",
+    title: "Watchlist: sectors, with a Save button",
+    changes: [
+      "Watchlist is sectors only. Tick, then Save: the list goes to the database and the page always reopens on it.",
+      "Every traded PSX share now has its price history on the server, and Save reads the company figures of newly watched shares straight away.",
+    ],
+  },
   {
     version: "11.15.0",
     date: "2026-10-11",

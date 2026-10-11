@@ -4,38 +4,36 @@ import { uid } from "@/lib/auth/uid";
 import { connectDb } from "@/lib/db";
 import { WatchlistModel } from "@/lib/models";
 import { listings } from "@/lib/watchlist";
+import { readNewlyWatched } from "@/lib/fundamentals/refresh";
 
 export const dynamic = "force-dynamic";
 
-// The watchlist page saves every tick as it is made: one share or one sector
-// on or off at a time, so two quick clicks can never overwrite each other.
+// The watchlist page's Save button: the ticked sectors, all at once, replacing
+// what was kept, and the company pages of their shares never read before
+// read in the background (`reading` says how many). GET reads them back, so
+// the page always opens on what the database holds.
 
-const toggleSchema = z.object({
-  kind: z.enum(["symbol", "sector"]),
-  value: z.string().min(1).max(80),
-  on: z.boolean(),
-});
+const saveSchema = z.object({ sectors: z.array(z.string().min(1).max(80)).max(200) });
 
 async function current(userId: string) {
   const doc: any = await WatchlistModel.findOne({ userId }).lean();
-  return { symbols: doc?.symbols ?? [], sectors: doc?.sectors ?? [] };
+  return { sectors: (doc?.sectors ?? []) as string[], savedAt: doc?.updatedAt ? new Date(doc.updatedAt).toISOString() : null };
 }
 
 export async function GET() {
   await connectDb();
-  return NextResponse.json(await current(await uid()));
+  return NextResponse.json(await current(await uid()), { headers: { "cache-control": "no-store" } });
 }
 
-export async function POST(req: NextRequest) {
-  const parsed = toggleSchema.safeParse(await req.json().catch(() => null));
+export async function PUT(req: NextRequest) {
+  const parsed = saveSchema.safeParse(await req.json().catch(() => null));
   if (!parsed.success) return NextResponse.json({ error: "invalid", issues: parsed.error.issues }, { status: 400 });
-  const { kind, value, on } = parsed.data;
-  const all = listings();
-  const known = kind === "symbol" ? all.some((l) => l.symbol === value) : all.some((l) => l.sector === value);
-  if (!known) return NextResponse.json({ error: `unknown ${kind}` }, { status: 400 });
+  const known = new Set(listings().map((l) => l.sector));
+  const unknown = parsed.data.sectors.filter((s) => !known.has(s));
+  if (unknown.length) return NextResponse.json({ error: `unknown sector ${unknown[0]}` }, { status: 400 });
   await connectDb();
   const userId = await uid();
-  const field = kind === "symbol" ? "symbols" : "sectors";
-  await WatchlistModel.updateOne({ userId }, on ? { $addToSet: { [field]: value } } : { $pull: { [field]: value } }, { upsert: true });
-  return NextResponse.json(await current(userId));
+  await WatchlistModel.updateOne({ userId }, { $set: { sectors: [...new Set(parsed.data.sectors)], symbols: [] } }, { upsert: true });
+  const reading = await readNewlyWatched().catch(() => 0);
+  return NextResponse.json({ ...(await current(userId)), reading }, { headers: { "cache-control": "no-store" } });
 }

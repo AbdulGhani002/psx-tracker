@@ -1,13 +1,14 @@
 import { Schema, model, models, type InferSchemaType, type Model } from "mongoose";
 
-// The shares and sectors ticked on the watchlist page, one document per user.
-// The strategy page reads them for what to buy; selling is only ever about
-// what is held.
+// The sectors ticked on the watchlist page, one document per user. The
+// strategy page researches every share in them; selling is only ever about
+// what is held. `symbols` is the single-share list of 11.15.0, emptied on the
+// first save since.
 const WatchlistSchema = new Schema(
   {
     userId: { type: String, required: true, unique: true },
-    symbols: { type: [String], default: [] },
     sectors: { type: [String], default: [] },
+    symbols: { type: [String], default: [] },
   },
   { timestamps: true }
 );

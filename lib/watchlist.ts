@@ -6,11 +6,11 @@ import { WatchlistModel } from "@/lib/models";
 import { getCurrentUserId } from "@/lib/auth/current-user";
 import { sectorKey, displaySector } from "@/lib/calculations/sector-weights";
 
-// The watchlist: shares and sectors ticked on its page, saved as ticked.
-// Sectors are kept by their normalised key (sectorKey), shares by symbol.
+// The watchlist: the sectors ticked on its page, kept by their normalised key
+// (sectorKey). Every share of a ticked sector is watched.
 
 export type Listing = { symbol: string; name: string; sector: string; sectorName: string };
-export type Watch = { symbols: string[]; sectors: string[] };
+export type Watch = { sectors: string[] };
 
 type Row = { symbol: string; name: string; sector: string; etf?: boolean };
 
@@ -26,15 +26,29 @@ export const listings = cache((): Listing[] =>
 
 async function _getWatchlist(): Promise<Watch> {
   const uid = await getCurrentUserId();
-  if (!uid) return { symbols: [], sectors: [] };
+  if (!uid) return { sectors: [] };
   await connectDb();
   const doc: any = await WatchlistModel.findOne({ userId: uid }).lean();
-  return { symbols: [...(doc?.symbols ?? [])], sectors: [...(doc?.sectors ?? [])] };
+  return { sectors: [...(doc?.sectors ?? [])] };
 }
 export const getWatchlist = cache(_getWatchlist);
 
-// The ticked shares and every share of a ticked sector.
+// Every share of a ticked sector.
 export function watchedSymbols(w: Watch): string[] {
   const sectors = new Set(w.sectors);
-  return [...new Set([...w.symbols, ...listings().filter((l) => sectors.has(l.sector)).map((l) => l.symbol)])];
+  return listings().filter((l) => sectors.has(l.sector)).map((l) => l.symbol);
+}
+
+// The sectors for the page, A to Z with "Other" last: each with its shares (to
+// find a sector by one of them) and the ones held.
+export type SectorGroup = { key: string; name: string; shares: Array<[string, string]>; held: string[] };
+
+export function sectorGroups(all: Listing[], held: Set<string>): SectorGroup[] {
+  const by = new Map<string, SectorGroup>();
+  for (const l of all) {
+    const g = by.get(l.sector) ?? by.set(l.sector, { key: l.sector, name: l.sectorName, shares: [], held: [] }).get(l.sector)!;
+    g.shares.push([l.symbol, l.name]);
+    if (held.has(l.symbol)) g.held.push(l.symbol);
+  }
+  return [...by.values()].sort((a, b) => (a.key === "OTHER" ? 1 : b.key === "OTHER" ? -1 : a.name.localeCompare(b.name)));
 }
