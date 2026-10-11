@@ -2,7 +2,7 @@
 //
 //   npx tsx scripts/test-fixed-income.ts
 
-import { valueFixedIncome, couponDates, tbillCost, fixedIncomeEvents, type FixedIncomeHolding } from "../lib/fixed-income/value";
+import { valueFixedIncome, couponDates, tbillCost, fixedIncomeEvents, depositFace, type FixedIncomeHolding } from "../lib/fixed-income/value";
 
 let pass = 0, fail = 0;
 function check(name: string, cond: boolean, got?: unknown) {
@@ -49,6 +49,22 @@ check("a sukuk at par: ten coupons of Rs 60,000, Rs 9,000 tax each, nothing more
 const discountEvents = fixedIncomeEvents({ ...sukuk, cost: 950_000 });
 check("bought at a discount, the Rs 50,000 back over the price comes at maturity", discountEvents.length === 11 && discountEvents[10].what === "maturity" && near(discountEvents[10].gross, 50_000));
 check("bought at a premium, no maturity profit", fixedIncomeEvents({ ...sukuk, cost: 1_020_000 }).every((e) => e.what === "coupon"));
+
+// --- fixed deposits ----------------------------------------------------------
+check("a deposit paying its profit as it goes repays its principal", depositFace(1_000_000, 12, "2026-01-15", "2027-01-15", 12) === 1_000_000);
+check("one paying at maturity repays the principal plus the simple profit", depositFace(1_000_000, 12, "2026-01-15", "2027-01-15", 0) === 1_120_000 && depositFace(500_000, 10.5, "2026-10-11", "2027-01-11", 0) === Math.round(500_000 * (1 + 0.105 * 92 / 365) * 100) / 100);
+const monthly: FixedIncomeHolding = { kind: "fd", name: "Meezan Bank FD", face: 1_000_000, cost: 1_000_000, purchaseDate: "2026-01-15", maturityDate: "2027-01-15", couponPct: 12, couponsPerYear: 12, taxPct: 15 };
+const m1 = valueFixedIncome(monthly, "2026-03-01");
+check("monthly profit: one month paid, two weeks accrued, worth the principal and the accrual", near(m1.couponsPaid, 10_000) && m1.couponsPaidCount === 1 && near(m1.value, 1_000_000 + (1_000_000 * 0.12 * 14) / 365) && m1.nextCouponDate === "2026-03-15", m1);
+check("its yield is its rate, before and after tax", near(m1.yieldPct, 12) && near(m1.afterTaxYieldPct, 10.2));
+const mEv = fixedIncomeEvents(monthly);
+check("twelve monthly payments, tax withheld on each, no maturity profit", mEv.length === 12 && mEv.every((e) => e.what === "coupon" && near(e.gross, 10_000) && near(e.tax, 1_500)) && mEv[0].date === "2026-02-15" && mEv[11].date === "2027-01-15");
+const atEnd: FixedIncomeHolding = { ...monthly, couponsPerYear: 0, face: depositFace(1_000_000, 12, "2026-01-15", "2027-01-15", 0) };
+const a1 = valueFixedIncome(atEnd, "2026-07-16");
+check("profit at maturity: the worth grows from the principal in a straight line", near(a1.value, 1_000_000 + (120_000 * 182) / 365) && a1.couponsPaid === 0 && near(a1.yieldPct, 12) && a1.atMaturity === 1_120_000, a1);
+const aEv = fixedIncomeEvents(atEnd);
+check("and pays it all at maturity, taxed once", aEv.length === 1 && aEv[0].what === "maturity" && aEv[0].date === "2027-01-15" && near(aEv[0].gross, 120_000) && near(aEv[0].tax, 18_000));
+check("matured: worth what it repaid", valueFixedIncome(atEnd, "2027-02-01").value === 1_120_000 && valueFixedIncome(atEnd, "2027-02-01").matured);
 
 console.log("\n" + pass + " passed, " + fail + " failed");
 if (fail > 0) process.exit(1);

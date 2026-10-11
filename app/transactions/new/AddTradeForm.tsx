@@ -5,13 +5,17 @@ import { useRouter } from "next/navigation";
 import { CompanyMark } from "@/components/ui/CompanyMark";
 import { computePSXFees } from "@/lib/calculations";
 import { fmtRs } from "@/lib/format";
+import { CASH_KINDS, FixedDepositForm, BankForm, BillSukukForm, BrokerCashForm, type CashKind, type CashAccount } from "./CashForms";
 
-// Add trade, the way Zar does it: pick the asset (stock or mutual fund), the
-// action, the name, then date, quantity, price and deductions; the strip at
-// the bottom shows what the trade comes to before it is recorded.
+// Add trade, the way Zar does it: pick the asset (stock, mutual fund or
+// cash), the action, the name, then date, quantity, price and deductions; the
+// strip at the bottom shows what the trade comes to before it is recorded.
+// Cash is a money-market fund (the fund form, marked money-market), a fixed
+// deposit, a bank account, a T-bill or sukuk, or the brokerage account
+// (CashForms.tsx).
 
 type Held = { symbol: string; name: string; sector: string; shares: number; price: number | null };
-type Fund = { _id: string; name: string; mufapName: string; amc: string; units: number; nav: number };
+type Fund = { _id: string; name: string; mufapName: string; amc: string; units: number; nav: number; moneyMarket: boolean };
 type Portfolio = { _id: string; name: string; isDefault: boolean };
 type Hit = { symbol: string; name: string; sector: string; logo: boolean };
 type NavHit = { name: string; amc: string; nav: number };
@@ -28,7 +32,7 @@ const STOCK_ACTIONS: Array<{ key: StockAction; label: string }> = [
 
 const today = () => new Date().toISOString().slice(0, 10);
 
-export type TradeInitial = { asset?: string; symbol?: string; type?: string; shares?: number; date?: string };
+export type TradeInitial = { asset?: string; kind?: string; symbol?: string; type?: string; shares?: number; date?: string };
 
 function Field({ label, children, hint }: { label: string; children: React.ReactNode; hint?: React.ReactNode }) {
   return (
@@ -40,9 +44,14 @@ function Field({ label, children, hint }: { label: string; children: React.React
   );
 }
 
-export function AddTradeForm({ held, funds, portfolios, defaultPortfolioId, brokeragePct, initial = {} }: { held: Held[]; funds: Fund[]; portfolios: Portfolio[]; defaultPortfolioId: string; brokeragePct: number; initial?: TradeInitial }) {
+export function AddTradeForm({ held, funds, accounts, taxPct, portfolios, defaultPortfolioId, brokeragePct, initial = {} }: { held: Held[]; funds: Fund[]; accounts: CashAccount[]; taxPct: number; portfolios: Portfolio[]; defaultPortfolioId: string; brokeragePct: number; initial?: TradeInitial }) {
   const router = useRouter();
-  const [asset, setAsset] = useState<"stock" | "fund">(initial.asset === "fund" ? "fund" : "stock");
+  const [asset, setAsset] = useState<"stock" | "fund" | "cash">(initial.asset === "fund" ? "fund" : initial.asset === "cash" ? "cash" : "stock");
+  const [cashKind, setCashKind] = useState<CashKind>(CASH_KINDS.some((k) => k.key === initial.kind) ? (initial.kind as CashKind) : "mmf");
+  // The fund form serves a mutual fund and, under Cash, a money-market fund.
+  const fundForm = asset === "fund" || (asset === "cash" && cashKind === "mmf");
+  const mmfOnly = asset === "cash";
+  const fundList = mmfOnly ? funds.filter((f) => f.moneyMarket) : funds;
   const [portfolioId, setPortfolioId] = useState(defaultPortfolioId);
   const [date, setDate] = useState(initial.date && /^\d{4}-\d{2}-\d{2}$/.test(initial.date) ? initial.date : today());
   const [notes, setNotes] = useState("");
@@ -214,7 +223,7 @@ export function AddTradeForm({ held, funds, portfolios, defaultPortfolioId, brok
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
           fundId: fund.id,
-          fund: fund.id ? undefined : { name: fund.name, mufapName: fund.mufapName, amc: fund.amc, moneyMarket },
+          fund: fund.id ? undefined : { name: fund.name, mufapName: fund.mufapName, amc: fund.amc, moneyMarket: mmfOnly || moneyMarket },
           side,
           units: fundUnits,
           nav,
@@ -242,6 +251,7 @@ export function AddTradeForm({ held, funds, portfolios, defaultPortfolioId, brok
           <div className="seg">
             <button type="button" data-active={asset === "stock"} onClick={() => setAsset("stock")}>Stock</button>
             <button type="button" data-active={asset === "fund"} onClick={() => setAsset("fund")}>Mutual fund</button>
+            <button type="button" data-active={asset === "cash"} onClick={() => setAsset("cash")}>Cash</button>
           </div>
           {portfolios.length > 1 && (
             <div className="field !min-h-[34px] w-[200px] relative">
@@ -255,7 +265,23 @@ export function AddTradeForm({ held, funds, portfolios, defaultPortfolioId, brok
           )}
         </div>
 
-        {asset === "stock" ? (
+        {asset === "cash" && (
+          <div className="tabs mt-4">
+            {CASH_KINDS.map((k) => (
+              <button key={k.key} type="button" data-active={cashKind === k.key} onClick={() => { setCashKind(k.key); setError(null); }}>{k.label}</button>
+            ))}
+          </div>
+        )}
+
+        {asset === "cash" && cashKind === "fd" ? (
+          <FixedDepositForm taxPct={taxPct} portfolioId={portfolioId} />
+        ) : asset === "cash" && cashKind === "bank" ? (
+          <BankForm accounts={accounts} portfolioId={portfolioId} />
+        ) : asset === "cash" && cashKind === "tbill" ? (
+          <BillSukukForm taxPct={taxPct} portfolioId={portfolioId} />
+        ) : asset === "cash" && cashKind === "broker" ? (
+          <BrokerCashForm portfolioId={portfolioId} />
+        ) : asset === "stock" ? (
           <>
             <div className="tabs mt-4">
               {STOCK_ACTIONS.map((a) => (
@@ -351,7 +377,7 @@ export function AddTradeForm({ held, funds, portfolios, defaultPortfolioId, brok
               </div>
             )}
           </>
-        ) : (
+        ) : fundForm ? (
           <>
             <div className="tabs mt-4">
               <button type="button" data-active={side === "BUY"} onClick={() => setSide("BUY")}>Buy units</button>
@@ -366,11 +392,11 @@ export function AddTradeForm({ held, funds, portfolios, defaultPortfolioId, brok
                   <input value={fundQuery} onChange={(e) => { setFundQuery(e.target.value); setFund(null); setFundOpen(true); }} onFocus={() => setFundOpen(true)} placeholder="Search MUFAP, e.g. MCB Cash Management Optimizer" autoComplete="off" />
                   {fund && <span className="text-[12px] text-muted truncate max-w-[220px]">{fund.amc}{fund.units > 0 ? ` · ${fund.units.toLocaleString(undefined, { maximumFractionDigits: 2 })} units held` : ""}</span>}
                 </div>
-                {fundOpen && (fundHits.length > 0 || (!fundQuery && funds.length > 0)) && (
+                {fundOpen && (fundHits.length > 0 || (!fundQuery && fundList.length > 0)) && (
                   <div className="absolute left-0 right-0 top-full mt-1 card py-1 z-30 max-h-[300px] overflow-auto">
-                    {!fundQuery && <div className="px-3 py-1.5 text-[10.5px] uppercase tracking-[0.06em] text-muted">Your funds</div>}
+                    {!fundQuery && <div className="px-3 py-1.5 text-[10.5px] uppercase tracking-[0.06em] text-muted">{mmfOnly ? "Your money market funds" : "Your funds"}</div>}
                     {!fundQuery &&
-                      funds.map((f) => (
+                      fundList.map((f) => (
                         <button key={f._id} type="button" onClick={() => { setFund({ id: f._id, name: f.name, mufapName: f.mufapName, amc: f.amc, nav: f.nav, units: f.units }); setFundQuery(f.name); setNav(f.nav); setFundOpen(false); }} className="w-full flex items-center justify-between gap-3 px-3 py-2 text-left hover:bg-[var(--surface-2)]">
                           <span className="min-w-0"><span className="block text-[13px] font-semibold truncate">{f.name}</span><span className="block text-[11px] text-muted">{f.amc} · {f.units.toLocaleString(undefined, { maximumFractionDigits: 2 })} units</span></span>
                           <span className="mono-num text-[12px]">{f.nav ? f.nav.toFixed(4) : ""}</span>
@@ -415,7 +441,7 @@ export function AddTradeForm({ held, funds, portfolios, defaultPortfolioId, brok
                   <input type="number" min={0} step={0.0001} value={units || ""} onChange={(e) => setUnits(Number(e.target.value))} className="field mono-num" placeholder="0" />
                 )}
               </Field>
-              {fund && !fund.id && (
+              {fund && !fund.id && !mmfOnly && (
                 <Field label="Fund type">
                   <label className="flex items-center gap-2 text-[13px] h-[38px]">
                     <input type="checkbox" checked={moneyMarket} onChange={(e) => setMoneyMarket(e.target.checked)} /> Money-market fund (NAV carries forward on non-trading days)
@@ -435,16 +461,18 @@ export function AddTradeForm({ held, funds, portfolios, defaultPortfolioId, brok
               <div><div className="label-cap">{side === "BUY" ? "Amount" : "Proceeds"}</div><div className="mono-num font-semibold mt-0.5">{fmtRs(fundAmount)}</div></div>
             </div>
           </>
-        )}
+        ) : null}
 
-        {error && <div className="text-[12.5px] mt-3 rounded-lg px-3 py-2" style={{ color: "var(--negative)", background: "#fef2f2" }}>{error}</div>}
+        {(asset !== "cash" || cashKind === "mmf") && error && <div className="text-[12.5px] mt-3 rounded-lg px-3 py-2" style={{ color: "var(--negative)", background: "#fef2f2" }}>{error}</div>}
 
+        {(asset !== "cash" || cashKind === "mmf") && (
         <div className="flex items-center gap-2 mt-4">
           <button type="button" onClick={asset === "stock" ? submitStock : submitFund} disabled={busy} className={asset === "stock" && action === "SELL" ? "btn-danger !py-2 !px-4 !text-[13px] !rounded-lg" : "btn-primary"}>
             {busy ? "Saving…" : asset === "stock" ? `Record ${STOCK_ACTIONS.find((a) => a.key === action)?.label.toLowerCase()}` : side === "BUY" ? "Record purchase" : "Record redemption"}
           </button>
           <button type="button" className="btn-ghost" onClick={() => router.back()}>Cancel</button>
         </div>
+        )}
       </div>
     </div>
   );

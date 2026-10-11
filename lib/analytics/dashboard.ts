@@ -315,14 +315,15 @@ export type Allocation = { label: string; value: number };
 export async function getAllocation(): Promise<{ slices: Allocation[]; total: number; invested: number; availableCash: number; equity: number; funds: number; savings: number; fixedIncome: number; brokerCash: number }> {
   const [nw, summary, cashSum] = await Promise.all([getNetWorth(), getPortfolioSummary(), getCashSummary().catch(() => null)]);
   const brokerCash = Math.max(0, cashSum?.balance ?? 0);
+  // Cash: money-market funds, bank and savings accounts, fixed deposits,
+  // T-bills and the brokerage balance.
   const slices: Allocation[] = [
     { label: "Equities", value: nw.equity },
-    { label: "Money-market funds", value: nw.funds },
-    { label: "Savings", value: nw.savings },
-    { label: "T-bills & sukuks", value: nw.fixedIncome },
-    { label: "Brokerage cash", value: brokerCash },
+    { label: "Equity funds", value: nw.equityFunds },
+    { label: "Cash", value: nw.cash + brokerCash },
+    { label: "Sukuks", value: nw.sukuks },
   ].filter((s) => s.value > 0);
-  return { slices, total: nw.total + brokerCash, invested: summary.totalCost, availableCash: nw.funds + brokerCash, equity: nw.equity, funds: nw.funds, savings: nw.savings, fixedIncome: nw.fixedIncome, brokerCash };
+  return { slices, total: nw.total + brokerCash, invested: summary.totalCost, availableCash: nw.cash + brokerCash, equity: nw.equity, funds: nw.funds, savings: nw.savings, fixedIncome: nw.fixedIncome, brokerCash };
 }
 
 export type BookFigures = {

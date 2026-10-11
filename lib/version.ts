@@ -1,7 +1,7 @@
 // Single source of truth for the app version + changelog.
 // Bump APP_VERSION and prepend a CHANGELOG entry on every release.
 
-export const APP_VERSION = "11.18.0";
+export const APP_VERSION = "11.19.0";
 
 export const BUILD_DATE =
   process.env.NEXT_PUBLIC_BUILD_DATE ?? "";
@@ -17,6 +17,17 @@ export type ChangelogEntry = {
 
 // Reverse-chronological. Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: "11.19.0",
+    date: "2026-10-11",
+    title: "Cash in Add trade, fixed deposits",
+    changes: [
+      "Add trade has a Cash button: money market funds, fixed deposits, bank accounts, T-bills and sukuks, and broker cash.",
+      "Fixed deposits: profit monthly, quarterly, yearly or at maturity, valued daily, in the income calendar, the tax pack and the maturity reminders.",
+      "Money market funds, bank accounts, fixed deposits and T-bills count as cash: in net worth, available cash and the strategy's dry powder.",
+      "On phones the watchlist's Save bar sits above the bottom menu.",
+    ],
+  },
   {
     version: "11.18.0",
     date: "2026-10-11",

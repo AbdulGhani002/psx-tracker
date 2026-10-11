@@ -11,8 +11,9 @@ import { whtPct } from "@/lib/calculations/pk-tax";
 import { fmtRs, fmtSignedRs, fmtDate } from "@/lib/format";
 
 // Cash: the brokerage ledger the way Zar keeps it (deposits, withdrawals,
-// the balance) and, under it, the money-market funds, savings accounts, and
-// T-bills and sukuks that are this portfolio's cash in all but name.
+// the balance) and, under it, the money-market funds, savings accounts, fixed
+// deposits, and T-bills and sukuks that are this portfolio's cash in all but
+// name. Each can be added from Add trade, under Cash.
 export async function CashTab() {
   const [cash, entries, funds, savings, inf, settings, fixed] = await Promise.all([getCashSummary(), getCashEntries(), getMutualFundsValued(), getSavingsValued(), getEffectiveInflationPct(), getAppSettings(), getFixedIncomeValued().catch(() => [])]);
   const fundValue = funds.reduce((s, f) => s + f.value, 0);
@@ -101,7 +102,7 @@ export async function CashTab() {
         <SavingsManager accounts={savings} inflationPct={inf.pct} podWhtPct={whtPct("profit-on-debt", settings as any)} />
       </Card>
 
-      <Card className="mt-3" title="T-bills and sukuks" eyebrow="Valued daily to maturity">
+      <Card className="mt-3" title="T-bills, sukuks and fixed deposits" eyebrow="Valued daily to maturity" action={<Link href="/transactions/new?asset=cash&kind=fd" className="btn-green !py-1.5 text-[12px]">+ Fixed deposit</Link>}>
         <FixedIncomeManager rows={fixed as any} taxPct={whtPct("profit-on-debt", settings as any)} />
       </Card>
     </div>

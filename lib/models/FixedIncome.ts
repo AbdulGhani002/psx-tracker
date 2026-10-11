@@ -1,15 +1,17 @@
 import { Schema, model, models, type InferSchemaType, type Model } from "mongoose";
 
-// A T-bill or a sukuk held (lib/fixed-income/value.ts values it): what was
-// paid, the face value it repays, its dates and, for a sukuk, its profit rate
-// and how often it pays. A market price can be entered for a sukuk; without
-// one it is carried at cost pulled to face over its life.
+// A T-bill, a sukuk or a fixed deposit held (lib/fixed-income/value.ts values
+// it): what was paid, the face value it repays, its dates and, for a sukuk or
+// a deposit, its profit rate and how often it pays. A deposit that pays its
+// profit at maturity repays that profit with the principal, so its face is
+// the principal plus the profit. A market price can be entered for a sukuk;
+// without one it is carried at cost pulled to face over its life.
 const FixedIncomeSchema = new Schema(
   {
     userId: { type: String, default: "", index: true },
     portfolioId: { type: String, default: "", index: true },
-    kind: { type: String, enum: ["tbill", "sukuk"], required: true },
-    name: { type: String, required: true, trim: true }, // "12M T-bill", "GoP Ijara Sukuk 5Y"
+    kind: { type: String, enum: ["tbill", "sukuk", "fd"], required: true },
+    name: { type: String, required: true, trim: true }, // "12M T-bill", "GoP Ijara Sukuk 5Y", "Meezan Bank FD"
     face: { type: Number, required: true, min: 0 },
     cost: { type: Number, required: true, min: 0 },
     purchaseDate: { type: String, required: true }, // yyyy-mm-dd

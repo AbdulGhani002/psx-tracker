@@ -21,7 +21,7 @@ function Cell({ c, bold }: { c: IncomeCell; bold?: boolean }) {
 export function IncomeCalendar({ cal }: { cal: Calendar }) {
   if (cal.received + cal.expected < 1) return null;
   const rows: Array<[string, (m: Calendar["months"][number]) => IncomeCell]> = [["Dividends", (m) => m.dividends]];
-  if (cal.hasFixed) rows.push(["T-bills & sukuks", (m) => m.fixed]);
+  if (cal.hasFixed) rows.push(["T-bills, sukuks & FDs", (m) => m.fixed]);
   if (cal.hasCash) rows.push(["Savings & funds", (m) => m.cash]);
   return (
     <Card className="mt-3" title={`Income by month, ${cal.fyLabel}`} action={<span className="text-[12px] text-muted">After tax</span>}>

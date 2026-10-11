@@ -13,6 +13,7 @@ const postSchema = z.object({
   anchorDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   anchorBalance: z.number().min(0),
   notes: z.string().default(""),
+  portfolioId: z.string().optional(),
 });
 
 export async function GET() {
@@ -25,7 +26,9 @@ export async function POST(req: NextRequest) {
   try {
     const parsed = postSchema.parse(await req.json());
     await connectDb();
-    const created = await SavingsAccountModel.create({ ...parsed, userId: await uid() });
+    // A portfolio only when the form names one (Add trade); otherwise the
+    // account is shared, as before.
+    const created = await SavingsAccountModel.create({ ...parsed, portfolioId: parsed.portfolioId ?? "", userId: await uid() });
     return NextResponse.json(created.toObject(), { status: 201 });
   } catch (err) {
     if (err instanceof z.ZodError) {

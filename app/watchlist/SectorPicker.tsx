@@ -165,7 +165,7 @@ export function SectorPicker({ groups, initial }: { groups: SectorGroup[]; initi
       </div>
 
       {(dirty || status !== "idle") && (
-        <div className="fixed inset-x-0 bottom-0 z-40 flex justify-center px-4 pointer-events-none" style={{ paddingBottom: "max(16px, env(safe-area-inset-bottom))" }}>
+        <div className="fixed inset-x-0 bottom-[calc(56px+env(safe-area-inset-bottom))] lg:bottom-0 z-50 flex justify-center px-4 pb-3 lg:pb-4 pointer-events-none">
           <div className="pointer-events-auto card flex items-center gap-3 pl-4 pr-2 py-2" style={{ boxShadow: "0 8px 28px rgba(15,23,42,.22)" }} role="status" aria-live="polite">
             {status === "saved" && !dirty ? (
               <span className="text-[13.5px] pr-2">

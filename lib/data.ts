@@ -1264,9 +1264,14 @@ export const getFixedIncomeValued = cache(_getFixedIncomeValued);
 
 export type NetWorth = {
   equity: number; // PSX holdings market value
-  funds: number; // mutual funds value
+  funds: number; // mutual funds value, money-market and equity
   savings: number; // savings accounts accrued value
-  fixedIncome: number; // T-bills and sukuks still held
+  fixedIncome: number; // T-bills, sukuks and fixed deposits still held
+  // Cash and what is as good as cash: money-market funds, bank and savings
+  // accounts, fixed deposits and T-bills.
+  cash: number;
+  equityFunds: number; // the mutual funds that are not money-market
+  sukuks: number;
   total: number;
   breakdown: { label: string; value: number }[];
 };
@@ -1294,21 +1299,29 @@ async function _getNetWorth(): Promise<NetWorth> {
   ]);
   const equity = summary.totalValue;
   const fundsTotal = funds.reduce((s, f) => s + f.value, 0);
+  const moneyMarket = funds.filter((f) => f.moneyMarket).reduce((s, f) => s + f.value, 0);
   const savingsTotal = savings.reduce((s, a) => s + a.balance, 0);
-  // A matured T-bill or sukuk has paid out: its money is cash, not a holding.
-  const fixedTotal = fixed.filter((f) => !f.matured).reduce((s, f) => s + f.value, 0);
+  // A matured T-bill, sukuk or deposit has paid out: its money is cash, not a
+  // holding.
+  const held = fixed.filter((f) => !f.matured);
+  const fixedTotal = held.reduce((s, f) => s + f.value, 0);
+  const sukuks = held.filter((f) => f.kind === "sukuk").reduce((s, f) => s + f.value, 0);
+  const cash = moneyMarket + savingsTotal + (fixedTotal - sukuks);
   const total = equity + fundsTotal + savingsTotal + fixedTotal;
   return {
     equity,
     funds: fundsTotal,
     savings: savingsTotal,
     fixedIncome: fixedTotal,
+    cash,
+    equityFunds: fundsTotal - moneyMarket,
+    sukuks,
     total,
     breakdown: [
       { label: "PSX equities", value: equity },
-      { label: "Mutual funds", value: fundsTotal },
-      { label: "Savings", value: savingsTotal },
-      { label: "T-bills & sukuks", value: fixedTotal },
+      { label: "Equity funds", value: fundsTotal - moneyMarket },
+      { label: "Cash", value: cash },
+      { label: "Sukuks", value: sukuks },
     ].filter((b) => b.value > 0),
   };
 }

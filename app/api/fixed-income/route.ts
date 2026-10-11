@@ -3,19 +3,22 @@ import { uid } from "@/lib/auth/uid";
 import { z } from "zod";
 import { connectDb } from "@/lib/db";
 import { FixedIncomeModel } from "@/lib/models";
-import { tbillCost } from "@/lib/fixed-income/value";
+import { tbillCost, depositFace } from "@/lib/fixed-income/value";
 
 export const dynamic = "force-dynamic";
 
 const date = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
 
-// A T-bill or a sukuk. The price can be given as what was paid (cost) or, for
-// a T-bill, as the yield it was bought at; the maturity as a date or a tenor.
+// A T-bill, a sukuk or a fixed deposit. The price can be given as what was
+// paid (cost) or, for a T-bill, as the yield it was bought at; the maturity as
+// a date or a tenor. A deposit is given by its principal (cost), its profit
+// rate (couponPct) and how often it pays (couponsPerYear, 0 at maturity); its
+// face is worked out here.
 const postSchema = z
   .object({
-    kind: z.enum(["tbill", "sukuk"]),
+    kind: z.enum(["tbill", "sukuk", "fd"]),
     name: z.string().trim().min(1),
-    face: z.number().positive(),
+    face: z.number().positive().optional(),
     cost: z.number().positive().optional(),
     yieldPct: z.number().positive().max(100).optional(),
     purchaseDate: date,
@@ -29,6 +32,8 @@ const postSchema = z
     portfolioId: z.string().optional(),
   })
   .refine((v) => v.cost != null || (v.kind === "tbill" && v.yieldPct != null), { message: "give what was paid, or for a T-bill its yield" })
+  .refine((v) => v.kind === "fd" || v.face != null, { message: "give the face value" })
+  .refine((v) => v.kind !== "fd" || v.couponPct > 0, { message: "give the deposit's profit rate" })
   .refine((v) => v.maturityDate != null || v.tenorMonths != null, { message: "give the maturity date or the tenor" });
 
 function addMonths(iso: string, months: number): string {
@@ -49,7 +54,8 @@ export async function POST(req: NextRequest) {
     const maturityDate = p.maturityDate ?? addMonths(p.purchaseDate, p.tenorMonths!);
     if (maturityDate <= p.purchaseDate) return NextResponse.json({ error: "invalid", detail: "the maturity must come after the purchase" }, { status: 400 });
     const days = Math.round((Date.parse(maturityDate) - Date.parse(p.purchaseDate)) / 86400000);
-    const cost = p.cost ?? Math.round(tbillCost(p.face, p.yieldPct!, days) * 100) / 100;
+    const face = p.kind === "fd" ? depositFace(p.cost!, p.couponPct, p.purchaseDate, maturityDate, p.couponsPerYear) : p.face!;
+    const cost = p.cost ?? Math.round(tbillCost(face, p.yieldPct!, days) * 100) / 100;
     await connectDb();
     const { selectedPortfolio, defaultPortfolio } = await import("@/lib/portfolios");
     const portfolioId = p.portfolioId || (await selectedPortfolio())?._id || (await defaultPortfolio())?._id || "";
@@ -58,7 +64,7 @@ export async function POST(req: NextRequest) {
       portfolioId,
       kind: p.kind,
       name: p.name,
-      face: p.face,
+      face,
       cost,
       purchaseDate: p.purchaseDate,
       maturityDate,

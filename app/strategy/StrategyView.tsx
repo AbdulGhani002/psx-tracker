@@ -108,7 +108,7 @@ function PlanTab({ s, prefill }: { s: StrategyData; prefill: RatesPrefill }) {
         <StatCard label="Market" value={PHASES[p.phase.key].label} delta={p.phase.drawdownPct != null ? `${p.phase.drawdownPct.toFixed(1)}% from high` : undefined} deltaTone="muted" hint={s.model?.state ? `Model: ${s.model.state.toLowerCase()}` : s.kse ? `High ${Math.round(s.kse.high).toLocaleString("en-US")}` : undefined} />
         <StatCard label="Stocks against T-bills" value={p.valuation.verdict ? p.valuation.verdict[0].toUpperCase() + p.valuation.verdict.slice(1) : "—"} delta={p.valuation.premiumPp != null ? `${p.valuation.premiumPp >= 0 ? "+" : ""}${p.valuation.premiumPp.toFixed(1)} pts` : undefined} deltaTone={p.valuation.premiumPp == null ? "muted" : p.valuation.premiumPp >= 0 ? "positive" : "negative"} hint={`${pct(p.valuation.earningsYieldPct)} vs ${pct(p.valuation.tbillPct)}`} />
         <StatCard label="In stocks" value={pct(p.allocation.stocksNowPct, 0)} delta={`target ${pct(p.allocation.stocksTargetPct, 0)}`} deltaTone="muted" hint={s.profile.risk[0].toUpperCase() + s.profile.risk.slice(1)} />
-        <StatCard label="Dry powder" value={fmtRs(s.book.cashLike + s.book.fixedIncome)} delta={pct(p.allocation.dryNowPct, 0)} deltaTone="muted" hint={`T-bills & sukuks ${fmtRs(s.book.fixedIncome)}`} />
+        <StatCard label="Dry powder" value={fmtRs(s.book.cashLike + s.book.fixedIncome)} delta={pct(p.allocation.dryNowPct, 0)} deltaTone="muted" hint={`T-bills, sukuks & FDs ${fmtRs(s.book.fixedIncome)}`} />
       </div>
 
       <BuyListCard r={s.research} />

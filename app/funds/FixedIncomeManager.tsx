@@ -9,14 +9,15 @@ import { TextInput } from "@/components/ui/TextInput";
 import { Select } from "@/components/ui/Select";
 import { fmtRs, fmtDate } from "@/lib/format";
 
-// T-bills and sukuks held: add one (a T-bill by the yield it was bought at or
-// the price paid, a sukuk by its price, profit rate and payments a year), see
-// what each is worth today and has earned, set a sukuk's market price, take
-// one off once it has matured or been sold.
+// T-bills, sukuks and fixed deposits held: add a T-bill (by the yield it was
+// bought at or the price paid) or a sukuk (by its price, profit rate and
+// payments a year) here, a deposit from Add trade; see what each is worth
+// today and has earned, set a sukuk's market price, take one off once it has
+// matured or been sold.
 
 type Row = {
   _id: string;
-  kind: "tbill" | "sukuk";
+  kind: "tbill" | "sukuk" | "fd";
   name: string;
   face: number;
   cost: number;
@@ -206,7 +207,7 @@ export function FixedIncomeManager({ rows, taxPct }: { rows: Row[]; taxPct: numb
                     <td>
                       <div className="font-semibold">{r.name}</div>
                       <div className="text-[11px] text-muted">
-                        {r.kind === "tbill" ? "T-bill" : `Sukuk, ${r.couponPct}% ${r.couponsPerYear === 2 ? "half-yearly" : r.couponsPerYear === 4 ? "quarterly" : r.couponsPerYear === 12 ? "monthly" : "a year"}`}
+                        {r.kind === "tbill" ? "T-bill" : `${r.kind === "fd" ? "Fixed deposit" : "Sukuk"}, ${r.couponPct}% ${r.couponsPerYear === 2 ? "half-yearly" : r.couponsPerYear === 4 ? "quarterly" : r.couponsPerYear === 12 ? "monthly" : r.couponsPerYear === 0 ? "at maturity" : "a year"}`}
                         {r.nextCouponDate ? ` · next payment ${fmtDate(r.nextCouponDate)}` : ""}
                         {r.pricePct != null ? ` · at ${r.pricePct}%` : ""}
                       </div>

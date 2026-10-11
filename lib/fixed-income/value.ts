@@ -1,5 +1,5 @@
-// T-bills and sukuks: what one is worth today, what it has earned, and what
-// it yields.
+// T-bills, sukuks and fixed deposits: what one is worth today, what it has
+// earned, and what it yields.
 //
 // A T-bill pays nothing until it matures at its face value; it is bought at
 // a discount. Its worth grows from what was paid to the face value in a
@@ -14,9 +14,23 @@
 // market price is entered, the face value at that price plus the accrual.
 // Coupons already paid are income, not worth: they went to cash.
 //
+// A fixed deposit is one of the two. One that pays its profit monthly,
+// quarterly or yearly is a sukuk at par: the principal is its face and its
+// cost, and the profit comes as coupons. One that pays its profit at maturity
+// is a T-bill: it repays the principal plus the simple profit for its term,
+// so its worth grows from the principal to that in a straight line.
+//
 // No server imports, so scripts/test-fixed-income.ts can run it.
 
-export type FixedIncomeKind = "tbill" | "sukuk";
+export type FixedIncomeKind = "tbill" | "sukuk" | "fd";
+
+// A fixed deposit's face: the principal, or for one that pays its profit at
+// maturity the principal plus the simple profit for its term (365-day year).
+export function depositFace(principal: number, ratePct: number, purchaseDate: string, maturityDate: string, payoutsPerYear: number): number {
+  if (payoutsPerYear > 0) return principal;
+  const days = Math.max(0, Math.round((Date.parse(maturityDate) - Date.parse(purchaseDate)) / 86400000));
+  return Math.round(principal * (1 + (ratePct / 100) * (days / 365)) * 100) / 100;
+}
 
 export type FixedIncomeHolding = {
   kind: FixedIncomeKind;

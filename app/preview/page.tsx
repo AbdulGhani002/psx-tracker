@@ -39,7 +39,7 @@ const rs = (v: number) => `Rs ${Math.round(v).toLocaleString("en-US")}`;
 const signed = (v: number) => `${v >= 0 ? "+" : "-"}Rs ${Math.abs(Math.round(v)).toLocaleString("en-US")}`;
 
 export default async function PreviewPage(
-  props: { searchParams?: Promise<{ view?: string; symbol?: string; type?: string; asset?: string }> }
+  props: { searchParams?: Promise<{ view?: string; symbol?: string; type?: string; asset?: string; kind?: string }> }
 ) {
   const searchParams = await props.searchParams;
   if (process.env.NODE_ENV === "production" || process.env.DEV_PREVIEW !== "1") notFound();
@@ -132,15 +132,17 @@ export default async function PreviewPage(
       <div>
         <div className="mb-3">
           <div className="text-[18px] font-semibold leading-tight">Add trade</div>
-          <div className="text-[12px] text-muted mt-0.5">A stock or a mutual fund. Buys, sells, dividends, bonuses, rights and splits flow into cost and P&amp;L.</div>
+          <div className="text-[12px] text-muted mt-0.5">A stock, a mutual fund or cash. Money-market funds, fixed deposits, bank accounts and T-bills all count as cash.</div>
         </div>
         <AddTradeForm
           held={names.map((n) => ({ symbol: n[0], name: n[1], sector: n[2], shares: n[3], price: n[5] }))}
-          funds={[{ _id: "f1", name: "MCB Cash Management Optimizer", mufapName: "MCB Cash Management Optimizer", amc: "MCB Investments", units: 2311.4, nav: 100.0 }]}
+          funds={[{ _id: "f1", name: "MCB Cash Management Optimizer", mufapName: "MCB Cash Management Optimizer", amc: "MCB Investments", units: 2311.4, nav: 100.0, moneyMarket: true }, { _id: "f2", name: "Meezan Islamic Fund", mufapName: "Meezan Islamic Fund", amc: "Al Meezan", units: 120, nav: 92.4, moneyMarket: false }]}
+          accounts={[{ _id: "s1", name: "Bank Alfalah Alfa", bank: "Bank Alfalah", balance: 152_430, ratePercent: 9.5 }]}
+          taxPct={15}
           portfolios={[{ _id: "p1", name: "Main", isDefault: true }, { _id: "p2", name: "Trading book", isDefault: false }]}
           defaultPortfolioId="p1"
           brokeragePct={0.15}
-          initial={{ symbol: searchParams?.symbol, type: searchParams?.type, asset: searchParams?.asset }}
+          initial={{ symbol: searchParams?.symbol, type: searchParams?.type, asset: searchParams?.asset, kind: searchParams?.kind }}
         />
       </div>
     );
