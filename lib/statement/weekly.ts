@@ -3,13 +3,28 @@
 
 import { assemblePlan } from "@/lib/plan";
 import { getPortfolioSummary } from "@/lib/data";
+import { getStrategy } from "@/lib/strategy/data";
 import { buildWeeklyTex, weekOf, type WeeklyReportData } from "./weekly-template";
 
 export { buildWeeklyTex, weekOf, type WeeklyReportData };
 
 export async function assembleWeeklyReport(now = new Date()): Promise<WeeklyReportData> {
-  const [plan, summary] = await Promise.all([assemblePlan(), getPortfolioSummary().catch(() => null as any)]);
+  const [plan, summary, s] = await Promise.all([assemblePlan(), getPortfolioSummary().catch(() => null as any), getStrategy().catch(() => null)]);
   const wk = weekOf(now);
+  const r = s?.rates ?? null;
+  const month = r ? new Date(r.month + "-01T00:00:00Z").toLocaleString("en-GB", { month: "long", year: "numeric", timeZone: "UTC" }) : "";
+  const strategy: WeeklyReportData["strategy"] = s
+    ? {
+        steps: s.plan.steps,
+        levels: s.plan.tranches.map((t) => ({ level: t.kseLevel, pct: t.drawdownPct, reached: t.due })),
+        rates: r
+          ? {
+              label: s.ratesEntered ? month : `${month}, not entered`,
+              values: [["Policy", r.policyPct], ["T-bill 3M", r.tbill3mPct], ["6M", r.tbill6mPct], ["12M", r.tbill12mPct], ["Sukuk", r.sukukPct], ["Money market", r.moneyMarketPct], ["Savings", r.savingsPct], ["CPI", r.inflationPct]],
+            }
+          : null,
+      }
+    : null;
 
   const positions = ((summary?.positions ?? []) as any[])
     .filter((p) => p.shares > 0)
@@ -73,6 +88,7 @@ export async function assembleWeeklyReport(now = new Date()): Promise<WeeklyRepo
 
     positions,
     parked,
+    strategy,
   };
 }
 
@@ -85,6 +101,7 @@ export function weeklySummaryText(d: WeeklyReportData): string {
     "",
     d.ladderAction === "DEPLOY" ? `ACTION: ${d.ladderLine}` : `No action. ${d.ladderLine}`,
     "",
+    ...(d.strategy ? ["Strategy:", ...d.strategy.steps, ""] : []),
     `Regime: ${d.regimeLabel} (${d.rawScore >= 0 ? "+" : ""}${d.rawScore} of ${d.maxScore}, ${d.confidence.toLowerCase()} confidence)`,
     `Cash floor for this regime: ${d.cashFloorPct}%. You hold ${d.cashPct.toFixed(0)}%.`,
     `Favour: ${d.favour.join(", ")}`,

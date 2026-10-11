@@ -4,6 +4,7 @@
 //   npx tsx scripts/test-strategy.ts
 
 import { strategyPlan, phaseOf, type StrategyInput, type Rates } from "../lib/strategy/plan";
+import { kseStepMessage, maturityMessage } from "../lib/strategy/alerts";
 
 let pass = 0, fail = 0;
 function check(name: string, cond: boolean, got?: unknown) {
@@ -59,6 +60,22 @@ const rising = strategyPlan({ ...base, prevRates: { ...rates, policyPct: 10 } })
 check("rates rose: keep it short", rising.parking.options.some((o) => o.key === "tbill3m" && o.best) && !rising.parking.options.some((o) => o.key === "tbill12m" && o.best));
 const noRates = strategyPlan({ ...base, rates: null, prevRates: null });
 check("without rates: no verdict, no parking, the steps say to enter them", noRates.valuation.verdict === null && noRates.parking.options.length === 0 && noRates.steps.some((s) => s.includes("Enter this month's rates")));
+
+// The Telegram messages (lib/strategy/alerts).
+const p0 = strategyPlan(base);
+const m3 = kseStepMessage(p0, { level: 156_000, high: 200_000 }, [3]);
+check("step message: the level, the fall, the step", m3.includes("KSE-100 156,000</b>, 22% below its high: buy step 3 of 4."), m3.split("\n")[0]);
+check("step message: that step's money, the buy list, the next level", m3.includes(`Plan: invest Rs ${Math.round(p0.tranches[2].amount).toLocaleString("en-US")}.`) && m3.includes("Buy list: ") && m3.includes("Next step: 140,000"), m3);
+const m23 = kseStepMessage(p0, { level: 156_000, high: 200_000 }, [2, 3]);
+check("two steps at once: both named, both steps' money", m23.includes("buy steps 2 to 3 of 4") && m23.includes(`invest Rs ${Math.round(p0.tranches[1].amount + p0.tranches[2].amount).toLocaleString("en-US")}`));
+const full = strategyPlan({ ...base, book: { stocks: 1_000_000, equityFunds: 0, cashLike: 0, fixedIncome: 0 } });
+const m4 = kseStepMessage(full, { level: 139_000, high: 200_000 }, [4]);
+check("above target: says no buying, with the split; no next step after the last", m4.includes("Plan: no buying. Stocks 100%, target ") && !m4.includes("Next step"), m4);
+const mat = maturityMessage({ name: "12M T-bill", face: 1_000_000, maturityDate: "2026-10-18", daysLeft: 7 }, rates, true);
+check("maturity: when, what comes back, the rates to buy again at", mat.includes("<b>12M T-bill</b> matures in 7 days (18 Oct): Rs 1,000,000 back.") && mat.includes("Rates: T-bill 3M 10.90%, 6M 10.80%, 12M 11.00%; sukuk 11.40%"), mat);
+const tomorrow = maturityMessage({ name: "Sukuk <A&B>", face: 500_000, maturityDate: "2026-10-12", daysLeft: 1 }, rates, false);
+check("maturity tomorrow; rates flagged when not this month's; the name escaped", tomorrow.includes("Sukuk &lt;A&amp;B&gt;</b> matures tomorrow") && tomorrow.includes("Rates (not this month's): "), tomorrow);
+check("maturity without rates: no rates line", !maturityMessage({ name: "3M T-bill", face: 100_000, maturityDate: "2026-10-15", daysLeft: 4 }, null, false).includes("Rates"));
 
 console.log("\n" + pass + " passed, " + fail + " failed");
 if (fail > 0) process.exit(1);

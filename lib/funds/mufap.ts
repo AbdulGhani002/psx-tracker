@@ -6,8 +6,7 @@
 //   <p id="netval" ...>109.82</p> <p>NAV</p>
 // We parse those into { name, amc, nav }.
 
-const UA =
-  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124 Safari/537.36";
+const UA = "Mozilla/5.0 (compatible; psx-tracker/0.1)";
 const MUFAP_URL = "https://mufap.com.pk/WebPost/WebPostById?title=Open-FundScheme";
 
 export type FundNav = { name: string; amc: string; nav: number; fundId: number | null };
@@ -110,20 +109,31 @@ export async function fetchFundReturns(fundId: number): Promise<FundReturns | nu
 
 let cache: { at: number; data: FundNav[] } | null = null;
 const TTL_MS = 6 * 60 * 60 * 1000; // NAVs update once per business day
+// MUFAP has refused the server since September 2026: after a refusal, ask
+// again in two hours rather than on every page.
+let failedAt = 0;
+const RETRY_MS = 2 * 60 * 60 * 1000;
 
 export async function fetchAllNavs(force = false): Promise<FundNav[]> {
   if (!force && cache && Date.now() - cache.at < TTL_MS) return cache.data;
+  if (!force && Date.now() - failedAt < RETRY_MS) return cache?.data ?? [];
   try {
     const res = await fetch(MUFAP_URL, {
       headers: { "user-agent": UA, accept: "text/html" },
       cache: "no-store",
+      signal: AbortSignal.timeout(15000),
     });
-    if (!res.ok) return cache?.data ?? [];
+    if (!res.ok) {
+      failedAt = Date.now();
+      return cache?.data ?? [];
+    }
     const html = await res.text();
     const data = parseMufap(html);
     if (data.length > 0) cache = { at: Date.now(), data };
+    else failedAt = Date.now();
     return data;
   } catch {
+    failedAt = Date.now();
     return cache?.data ?? [];
   }
 }

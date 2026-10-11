@@ -2,7 +2,7 @@
 //
 //   npx tsx scripts/test-fixed-income.ts
 
-import { valueFixedIncome, couponDates, tbillCost, type FixedIncomeHolding } from "../lib/fixed-income/value";
+import { valueFixedIncome, couponDates, tbillCost, fixedIncomeEvents, type FixedIncomeHolding } from "../lib/fixed-income/value";
 
 let pass = 0, fail = 0;
 function check(name: string, cond: boolean, got?: unknown) {
@@ -39,6 +39,16 @@ check("bought at a discount, the worth is pulled to face over the life", discoun
 
 // Month ends: a sukuk maturing on 31 August pays on 28 or 29 February.
 check("a month-end coupon date clamps to the shorter month", couponDates({ maturityDate: "2028-08-31", couponsPerYear: 2 }, "2027-01-01").join() === "2027-02-28,2027-08-31,2028-02-29,2028-08-31");
+
+// What each pays and when, with the tax on it (the income calendar and the
+// tax by year read these).
+const billEvents = fixedIncomeEvents(bill);
+check("a T-bill pays once, its discount at maturity, taxed", billEvents.length === 1 && billEvents[0].what === "maturity" && billEvents[0].date === "2027-01-01" && near(billEvents[0].gross, 1_000_000 - cost) && near(billEvents[0].tax, (1_000_000 - cost) * 0.15));
+const sukukEvents = fixedIncomeEvents(sukuk);
+check("a sukuk at par: ten coupons of Rs 60,000, Rs 9,000 tax each, nothing more at maturity", sukukEvents.length === 10 && sukukEvents.every((e) => e.what === "coupon" && near(e.gross, 60_000) && near(e.tax, 9_000)) && sukukEvents[9].date === "2031-03-15");
+const discountEvents = fixedIncomeEvents({ ...sukuk, cost: 950_000 });
+check("bought at a discount, the Rs 50,000 back over the price comes at maturity", discountEvents.length === 11 && discountEvents[10].what === "maturity" && near(discountEvents[10].gross, 50_000));
+check("bought at a premium, no maturity profit", fixedIncomeEvents({ ...sukuk, cost: 1_020_000 }).every((e) => e.what === "coupon"));
 
 console.log("\n" + pass + " passed, " + fail + " failed");
 if (fail > 0) process.exit(1);

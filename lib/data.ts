@@ -5,7 +5,7 @@ import { getCurrentUserId } from "./auth/current-user";
 import { portfolioFilter } from "@/lib/portfolios";
 import { knownHoldingCompany } from "./holding-companies";
 import { PmexAccountModel, HoldingModel, TransactionModel, CashEntryModel, WatchlistEntryModel, SbpRateModel, MutualFundModel, SavingsAccountModel, AppSettingsModel, CommodityTradeModel, FundamentalModel, FeedSnapshotModel, UserModel, FixedIncomeModel, RateSnapshotModel, DEFAULT_SETTINGS, type Holding, type Transaction } from "./models";
-import { valueFixedIncome, type FixedIncomeValue } from "./fixed-income/value";
+import { valueFixedIncome, fixedIncomeEvents, type FixedIncomeValue } from "./fixed-income/value";
 import { fetchFundamentals } from "./prices/fundamentals";
 import { fetchPayouts } from "./prices/payouts";
 import type { FundamentalsInput } from "./calculations/dividend-forecast";
@@ -1475,6 +1475,9 @@ export type FbrPack = {
   divTotals: { gross: number; wht: number; zakat: number; net: number };
   disposals: Disposal[];
   cgt: { netGain: number; longTermGain: number; shortTermGain: number; cgt: number; rate: number };
+  // T-bill and sukuk profit paid in the year (a coupon, or the discount at
+  // maturity), with the tax withheld on it; `paid` false for one still to come.
+  fixed: { rows: Array<{ name: string; kind: string; date: string; what: "coupon" | "maturity"; gross: number; tax: number; paid: boolean }>; gross: number; tax: number };
 };
 
 // Everything the FBR return needs for ONE tax year, from recorded warrants and
@@ -1496,6 +1499,12 @@ export async function getFbrPack(endYear?: number): Promise<FbrPack> {
   const activeYears = new Set<number>();
   for (const t of txs) if (t.type === "DIVIDEND") activeYears.add(taxYearOf(t.date).endYear);
   for (const d of allDisposals) activeYears.add(taxYearOf(d.soldDate).endYear);
+
+  const fixedDocs: any[] = (await tryConnect()) ? await FixedIncomeModel.find({ userId: await meId(), ...(await portfolioFilter()) }).lean() : [];
+  const fixedEvents = fixedDocs.flatMap((d) =>
+    fixedIncomeEvents({ kind: d.kind, name: d.name, face: Number(d.face) || 0, cost: Number(d.cost) || 0, purchaseDate: d.purchaseDate, maturityDate: d.maturityDate, couponPct: Number(d.couponPct) || 0, couponsPerYear: Number(d.couponsPerYear) || 0, taxPct: d.taxPct ?? 15 }).map((e) => ({ name: String(d.name), kind: String(d.kind), ...e }))
+  );
+  for (const e of fixedEvents) activeYears.add(taxYearOf(e.date).endYear);
 
   const year = taxYearOf(new Date(Date.UTC(endYear ?? currentTaxYear().endYear - 1, 0, 15)));
 
@@ -1523,6 +1532,12 @@ export async function getFbrPack(endYear?: number): Promise<FbrPack> {
   const netGain = disposals.reduce((s, d) => s + d.gain, 0);
   const longTermGain = disposals.filter((d) => d.longTerm).reduce((s, d) => s + d.gain, 0);
 
+  const today = new Date(Date.now() + 5 * 3600_000).toISOString().slice(0, 10);
+  const fixedRows = fixedEvents
+    .filter((e) => taxYearOf(e.date).endYear === year.endYear)
+    .map((e) => ({ ...e, paid: e.date <= today }))
+    .sort((a, b) => a.date.localeCompare(b.date));
+
   return {
     year,
     years: [...activeYears].sort((a, b) => b - a),
@@ -1530,7 +1545,23 @@ export async function getFbrPack(endYear?: number): Promise<FbrPack> {
     divTotals,
     disposals,
     cgt: { netGain, longTermGain, shortTermGain: netGain - longTermGain, cgt: Math.max(0, netGain) * (rate / 100), rate },
+    fixed: { rows: fixedRows, gross: fixedRows.reduce((s, r) => s + r.gross, 0), tax: fixedRows.reduce((s, r) => s + r.tax, 0) },
   };
+}
+
+const paidTax = (p: FbrPack) => p.fixed.rows.filter((r) => r.paid).reduce((s, r) => s + r.tax, 0);
+
+export type TaxYearRow = { endYear: number; label: string; current: boolean; cgt: number; dividendTax: number; fixedTax: number; total: number };
+
+// Every tax year with a sale, a dividend or T-bill and sukuk profit, and the
+// one under way: the tax on each, newest first. The year under way counts
+// what has been paid so far.
+export async function getTaxYears(): Promise<TaxYearRow[]> {
+  const { currentTaxYear } = await import("./dates");
+  const cur = currentTaxYear().endYear;
+  const years = [...new Set([...(await getFbrPack(cur)).years, cur])].sort((a, b) => b - a);
+  const packs = await Promise.all(years.map((y) => getFbrPack(y)));
+  return packs.map((p) => ({ endYear: p.year.endYear, label: p.year.label, current: p.year.endYear === cur, cgt: p.cgt.cgt, dividendTax: p.divTotals.wht, fixedTax: paidTax(p), total: p.cgt.cgt + p.divTotals.wht + paidTax(p) }));
 }
 
 async function _getRiskMetrics(): Promise<RiskMetrics | null> {

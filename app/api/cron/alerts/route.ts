@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { connectDb } from "@/lib/db";
 import { AlertLogModel, RateSnapshotModel } from "@/lib/models";
 import { appOrigin } from "@/lib/auth/mailer";
-import { getAppSettings, getZoneBoard, getDeploymentPlan, getStandInGroups, getPortfolioSummary, getAllHoldings, getUpcomingExDates, getAllUserIds, getIntrinsicValuations, getShariahStatus, getFeedSnapshot, saveFeedSnapshot, getNetWorth, getEffectiveInflationPct } from "@/lib/data";
+import { getAppSettings, getZoneBoard, getDeploymentPlan, getStandInGroups, getPortfolioSummary, getAllHoldings, getUpcomingExDates, getAllUserIds, getIntrinsicValuations, getShariahStatus, getFeedSnapshot, saveFeedSnapshot, getNetWorth, getEffectiveInflationPct, getFixedIncomeValued } from "@/lib/data";
 import { getUsdPkr } from "@/lib/fx";
 import { describeZone } from "@/lib/calculations/zones";
 import { getPriceFreshness } from "@/lib/prices";
@@ -12,6 +12,8 @@ import { getDecisionInbox, getSellDiscipline } from "@/lib/data-decisions";
 import { runAsUser } from "@/lib/auth/current-user";
 import { uid } from "@/lib/auth/uid";
 import { sendTelegram } from "@/lib/notify/telegram";
+import { getStrategy, getRatesPrefill } from "@/lib/strategy/data";
+import { kseStepMessage, maturityMessage } from "@/lib/strategy/alerts";
 import { cronAuthorised } from "@/lib/auth/cron";
 
 export const dynamic = "force-dynamic";
@@ -347,6 +349,49 @@ async function runAlertsForCurrentUser(forceDigest = false) {
     /* discipline data unavailable — skip */
   }
 
+  // The KSE-100 reaching the next of the strategy's buy steps (a quarter at
+  // 5, 10, 20 and 30% below its 52-week high), on the last close. Once per
+  // step per fall: the high's date names the fall, so a new high starts the
+  // steps again. Steps passed on the way to a lower one, and the steps
+  // already reached when this first ran, are logged without a message.
+  try {
+    const s = await getStrategy();
+    const k = s.kse;
+    if (k && Date.now() - Date.parse(k.asOf + "T00:00:00Z") < 5 * 86400000) {
+      const reached = s.plan.tranches.filter((t) => t.due).map((t) => t.n);
+      if (reached.length > 0) {
+        const me = await uid();
+        const keyOf = (n: number) => `kse-step:${k.highDate}:${n}`;
+        const quiet = (n: number) => AlertLogModel.updateOne({ userId: me, dedupeKey: keyOf(n) }, { $setOnInsert: { kind: "kse-step", message: "" } }, { upsert: true }).catch(() => {});
+        const logged = new Set(((await AlertLogModel.find({ userId: me, dedupeKey: { $in: reached.map(keyOf) } }, { dedupeKey: 1 }).lean()) as any[]).map((d) => d.dedupeKey));
+        const newly = reached.filter((n) => !logged.has(keyOf(n)));
+        if (!(await AlertLogModel.exists({ userId: me, dedupeKey: "kse-step:armed" }))) {
+          for (const n of newly) await quiet(n);
+          await AlertLogModel.create({ userId: me, dedupeKey: "kse-step:armed", kind: "kse-step", message: "" }).catch(() => {});
+        } else if (newly.length > 0) {
+          for (const n of newly.slice(0, -1)) await quiet(n);
+          candidates.push({ key: keyOf(newly[newly.length - 1]), message: `${kseStepMessage(s.plan, k, newly)}\n   ${appOrigin()}/strategy` });
+        }
+      }
+    }
+  } catch {
+    /* no step alert this run */
+  }
+
+  // A T-bill or sukuk maturing: a week before and the day before, with the
+  // month's rates to buy again at.
+  try {
+    const soon = (await getFixedIncomeValued()).filter((f) => !f.matured && f.daysLeft <= 7);
+    if (soon.length > 0) {
+      const prefill = await getRatesPrefill().catch(() => null);
+      for (const f of soon) {
+        candidates.push({ key: `maturity:${f._id}:${f.daysLeft <= 1 ? "1d" : "7d"}`, message: maturityMessage(f, prefill?.values ?? null, prefill?.entered ?? false) });
+      }
+    }
+  } catch {
+    /* no maturity reminder this run */
+  }
+
   // The month's interest rates, from the rates day set in Settings until
   // they are entered on the strategy page (which then works the strategy out
   // again and sends it). Once a month.
@@ -405,11 +450,11 @@ async function runAlertsForCurrentUser(forceDigest = false) {
   // Insert-only dedup: a successful insert means this key is fresh today.
   // Scoped by userId so each user has their own daily dedupe slots.
   const myId = await uid();
-  const fresh: string[] = [];
+  const fresh: Array<{ id: unknown; message: string }> = [];
   for (const c of candidates.filter((c) => wanted(c.key, settings))) {
     try {
-      await AlertLogModel.create({ userId: myId, dedupeKey: c.key, kind: c.key.split(":")[0], message: c.message });
-      fresh.push(c.message);
+      const doc = await AlertLogModel.create({ userId: myId, dedupeKey: c.key, kind: c.key.split(":")[0], message: c.message });
+      fresh.push({ id: doc._id, message: c.message });
     } catch {
       /* duplicate — already alerted today */
     }
@@ -419,9 +464,33 @@ async function runAlertsForCurrentUser(forceDigest = false) {
     return { sent: 0, checked: candidates.length };
   }
 
-  const text = `<b>PSX Portfolio alerts</b>\n${fresh.join("\n")}`;
-  const result = await sendTelegram(token, chatId, text);
-  return { sent: result.ok ? fresh.length : 0, ok: result.ok, detail: result.detail, checked: candidates.length };
+  // One message, or a few when a busy day runs past Telegram's 4,096
+  // characters. An alert whose message did not go out comes off the log, so
+  // the next run (half an hour on) sends it again.
+  const header = "<b>PSX Portfolio alerts</b>";
+  const batches: Array<typeof fresh> = [];
+  let size = 0;
+  for (const f of fresh) {
+    const last = batches[batches.length - 1];
+    if (!last || size + 1 + f.message.length > 3900) {
+      batches.push([f]);
+      size = header.length + 1 + f.message.length;
+    } else {
+      last.push(f);
+      size += 1 + f.message.length;
+    }
+  }
+  let sent = 0;
+  let detail: string | undefined;
+  for (const b of batches) {
+    const r = await sendTelegram(token, chatId, `${header}\n${b.map((f) => f.message).join("\n")}`);
+    if (r.ok) sent += b.length;
+    else {
+      detail = r.detail;
+      await AlertLogModel.deleteMany({ _id: { $in: b.map((f) => f.id) } }).catch(() => {});
+    }
+  }
+  return { sent, ok: sent === fresh.length, detail, checked: candidates.length };
 }
 
 // ISO-8601 week key, e.g. "2026-W29" — dedupes the digest to once a week.

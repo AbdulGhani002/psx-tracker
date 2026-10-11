@@ -36,10 +36,10 @@ export function StrategyView({ s, prefill }: { s: StrategyData; prefill: RatesPr
       </div>
 
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-3 mt-3">
-        <Card title="Buying in steps" action={<span className="text-[12px] text-muted">{p.allocation.room > 0 ? `${fmtRs(p.allocation.room)} to put to work` : "Nothing to put to work"}</span>}>
+        <Card title="Buying in steps" action={<span className="text-[12px] text-muted">{p.allocation.room > 0 ? `${fmtRs(p.allocation.room)} to put to work` : "No buying now"}</span>}>
           <table className="table-zar">
             <thead>
-              <tr><th>Step</th><th className="text-right">KSE-100 at</th><th className="text-right">Below the high</th><th className="text-right">Amount</th><th>Status</th></tr>
+              <tr><th>Step</th><th className="text-right">KSE-100 at</th><th className="text-right">Below the high</th><th className="text-right">Amount</th><th>Level</th></tr>
             </thead>
             <tbody>
               {p.tranches.map((t) => (
@@ -47,12 +47,18 @@ export function StrategyView({ s, prefill }: { s: StrategyData; prefill: RatesPr
                   <td>{t.n}</td>
                   <td className="text-right mono-num">{t.kseLevel?.toLocaleString("en-US") ?? "—"}</td>
                   <td className="text-right mono-num">{t.drawdownPct}%</td>
-                  <td className="text-right mono-num">{fmtRs(t.amount)}</td>
-                  <td>{t.amount <= 0 ? <span className="text-muted">—</span> : <span className="pill" data-tone={t.due ? "positive" : "muted"}>{t.due ? "Due" : "Waiting"}</span>}</td>
+                  <td className="text-right mono-num">{t.amount > 0 ? fmtRs(t.amount) : <span className="text-muted">—</span>}</td>
+                  <td><span className="pill" data-tone={t.due ? "positive" : "muted"}>{t.due ? "Reached" : "Waiting"}</span></td>
                 </tr>
               ))}
             </tbody>
           </table>
+          <p className="text-[12px] text-muted mt-3">
+            Telegram tells you when the next level is reached.
+            {s.book.cashLike + s.book.fixedIncome <= 0 && (
+              <> No cash, funds or T-bills recorded: <Link href="/portfolio?tab=cash" className="link-underline">add them on the Cash tab</Link>.</>
+            )}
+          </p>
         </Card>
 
         <Card title="Where the dry powder waits" action={<span className="text-[12px] text-muted">after {pct(s.rates?.taxPct, 0)} tax</span>}>

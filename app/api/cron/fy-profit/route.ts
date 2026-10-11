@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { cronAuthorised } from "@/lib/auth/cron";
 import { connectDb } from "@/lib/db";
 import { runAsUser } from "@/lib/auth/current-user";
-import { getAllUserIds } from "@/lib/data";
+import { getAllUserIds, getTaxYears } from "@/lib/data";
 import { getFyProfits } from "@/lib/analytics/fy";
 
 export const dynamic = "force-dynamic";
@@ -18,12 +18,13 @@ export async function POST(req: Request) {
   const uid = ids[Math.max(0, Math.min(ids.length - 1, Number(body?.user ?? 0)))];
   if (!uid) return NextResponse.json({ ok: false, error: "no users" });
   const t0 = Date.now();
-  const b = await runAsUser(uid, () => getFyProfits());
+  const [b, tax] = await runAsUser(uid, () => Promise.all([getFyProfits(), getTaxYears()]));
   const r = (v: number) => Math.round(v);
   return NextResponse.json({
     ok: true,
     ms: Date.now() - t0,
     firstTrade: b.firstTrade,
+    tax: tax.map((y) => `${y.label}${y.current ? " so far" : ""}: CGT ${Math.round(y.cgt)}, dividends ${Math.round(y.dividendTax)}, T-bills ${Math.round(y.fixedTax)}, total ${Math.round(y.total)}`),
     years: b.years.map((y) => ({
       fy: y.fy.label + (y.fy.current ? " (to date)" : ""),
       start: r(y.startValue),

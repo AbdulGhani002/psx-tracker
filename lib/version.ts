@@ -1,7 +1,7 @@
 // Single source of truth for the app version + changelog.
 // Bump APP_VERSION and prepend a CHANGELOG entry on every release.
 
-export const APP_VERSION = "11.12.1";
+export const APP_VERSION = "11.13.0";
 
 export const BUILD_DATE =
   process.env.NEXT_PUBLIC_BUILD_DATE ?? "";
@@ -17,6 +17,20 @@ export type ChangelogEntry = {
 
 // Reverse-chronological. Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: "11.13.0",
+    date: "2026-10-11",
+    title: "Buy-step and maturity alerts, tax by year, income by month",
+    changes: [
+      "Telegram: a message when the KSE-100 reaches the next buy step, and a week and a day before a T-bill or sukuk matures, with the rates to buy again at.",
+      "Telegram: an alert or report that fails to send goes again on the next run.",
+      "Tax tab (was CGT): tax by year, now with T-bill and sukuk tax.",
+      "Payouts: income by month for the financial year, received and expected.",
+      "Weekly PDF: the strategy and the month's rates.",
+      "Strategy: buy levels show reached or waiting, without Rs 0 amounts.",
+      "Two build packages flagged by GitHub updated.",
+    ],
+  },
   {
     version: "11.12.1",
     date: "2026-10-11",

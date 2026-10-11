@@ -9,7 +9,7 @@ import { valueFixedIncome, tbillCost, type FixedIncomeHolding } from "@/lib/fixe
 // machine with no database. Development only.
 export const dynamic = "force-dynamic";
 
-export default async function StrategyPreview() {
+export default async function StrategyPreview({ searchParams }: { searchParams: Promise<{ full?: string }> }) {
   if (process.env.NODE_ENV === "production" || process.env.DEV_PREVIEW !== "1") notFound();
   const rates: Rates = { month: "2026-10", policyPct: 11.5, tbill3mPct: 11.6, tbill6mPct: 11.9, tbill12mPct: 11.99, sukukPct: 11.8, savingsPct: 10, moneyMarketPct: 10.6, inflationPct: 11.15, taxPct: 15 };
   const input: StrategyInput = {
@@ -19,7 +19,8 @@ export default async function StrategyPreview() {
     market: { pe: 8.4, cape: 7.4, dividendYieldPct: 6.2 },
     rates,
     prevRates: { ...rates, month: "2026-09", policyPct: 12 },
-    book: { stocks: 1_980_000, equityFunds: 0, cashLike: 650_000, fixedIncome: 500_000 },
+    // ?full=1: everything in stocks, no cash recorded.
+    book: (await searchParams).full === "1" ? { stocks: 2_065_000, equityFunds: 0, cashLike: 0, fixedIncome: 0 } : { stocks: 1_980_000, equityFunds: 0, cashLike: 650_000, fixedIncome: 500_000 },
     names: [
       { symbol: "MEBL", held: true, value: 450_000, grade: "A", quadrant: "premium", roeSpreadPp: 13.8, dividendYieldPct: 3.9, marginOfSafetyPct: 8 },
       { symbol: "HINOON", held: true, value: 500_000, grade: "A", quadrant: "premium", roeSpreadPp: 16.8, dividendYieldPct: 5.4, marginOfSafetyPct: 24 },

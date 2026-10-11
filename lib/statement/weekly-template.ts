@@ -55,6 +55,13 @@ export type WeeklyReportData = {
   // positions
   positions: Array<{ symbol: string; weightPct: number; value: number; priceKnown: boolean }>;
   parked: Array<{ symbol: string; shares: number; value: number }>; // kept for the companies' reports; outside the figures
+
+  // the strategy page: its plan, its buy levels and the month's rates
+  strategy: {
+    steps: string[];
+    levels: Array<{ level: number | null; pct: number; reached: boolean }>;
+    rates: { label: string; values: Array<[string, number | null]> } | null;
+  } | null;
 };
 
 const esc = (s: string): string =>
@@ -108,6 +115,24 @@ export function buildWeeklyTex(d: WeeklyReportData): string {
     )
     .join("\n");
 
+  const st = d.strategy;
+  const strategyBlock = st
+    ? `\\vspace{12pt}
+{\\large\\bfseries Strategy}\\par
+\\vspace{3pt}
+${st.steps.map((x) => `\\textbullet\\ ${esc(x)}\\par`).join("\n")}
+${st.levels.length ? `\\vspace{2pt}{\\footnotesize Buy levels: ${st.levels.map((l) => `${l.level != null ? Math.round(l.level).toLocaleString("en-PK") : "---"} (${l.pct}\\%${l.reached ? ", reached" : ""})`).join(", ")}}\\par` : ""}
+${
+  st.rates
+    ? `\\vspace{6pt}{\\small\\bfseries Rates, ${esc(st.rates.label)}}\\par
+\\vspace{2pt}
+\\begin{tabular}{@{}${"r".repeat(st.rates.values.length)}@{}}\\toprule ${st.rates.values.map(([k]) => esc(k)).join(" & ")} \\\\\\midrule
+${st.rates.values.map(([, v]) => (v == null ? "---" : `${v.toFixed(2)}\\%`)).join(" & ")} \\\\
+\\bottomrule\\end{tabular}\\par`
+    : ""
+}`
+    : "";
+
   const actionBox =
     d.ladderAction === "DEPLOY"
       ? `\\fbox{\\parbox{\\dimexpr\\textwidth-2\\fboxsep-2\\fboxrule}{\\bfseries ACTION THIS WEEK\\par\\vspace{3pt}\\normalfont ${esc(d.ladderLine)}}}`
@@ -127,9 +152,10 @@ export function buildWeeklyTex(d: WeeklyReportData): string {
 \\vspace{6pt}\\hrule\\vspace{10pt}
 
 ${actionBox}
+${strategyBlock}
 
 \\vspace{12pt}
-{\\large\\bfseries Regime: ${esc(d.regimeLabel)}}\\quad{\\small score ${sgn(d.rawScore)} of ${d.maxScore}, confidence ${esc(
+{\\large\\bfseries Regime:${esc(d.regimeLabel)}}\\quad{\\small score ${sgn(d.rawScore)} of ${d.maxScore}, confidence ${esc(
     d.confidence.toLowerCase()
   )}}\\par
 \\vspace{3pt}

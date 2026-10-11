@@ -6,21 +6,31 @@ import { Badge } from "@/components/ui/Badge";
 import { DividendUploader } from "@/app/dividends/DividendUploader";
 import { StackedPayoutBars, AssetBars, type MonthStack } from "@/components/charts/DividendBars";
 import { getAllTransactions, getAllHoldings, getDividendForecast } from "@/lib/data";
+import { getIncomeCalendar } from "@/lib/analytics/income";
+import { IncomeCalendar } from "@/components/dashboard/IncomeCalendar";
 import { getYields } from "@/lib/analytics/dashboard";
 import { getAnnouncedActions } from "@/lib/corporate-actions";
 import { cycleLabel } from "@/lib/corporate-actions";
 import { fmtRs, fmtDate, fmtNum } from "@/lib/format";
 import type { Transaction } from "@/lib/types";
 
-// Payouts, the way Zar shows them: the summary, income over time stacked by
-// asset, the total per asset, a month-by-year table, then yields, what is
-// coming, and the warrants themselves.
+// Payouts, the way Zar shows them: the summary, this financial year's income
+// month by month, income over time stacked by asset, the total per asset, a
+// month-by-year table, then yields, what is coming, and the warrants
+// themselves.
 
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 const fmtK = (v: number) => (v >= 1e6 ? `Rs ${(v / 1e6).toFixed(2)}M` : v >= 1e3 ? `Rs ${(v / 1e3).toFixed(2)}K` : `Rs ${v.toFixed(0)}`);
 
 export async function PayoutsTab() {
-  const [allTx, holdings, yields, forecast, announced] = await Promise.all([getAllTransactions(), getAllHoldings(), getYields().catch(() => null), getDividendForecast().catch(() => null), getAnnouncedActions().catch(() => ({ upcoming: [], recorded: [] }))]);
+  const [allTx, holdings, yields, forecast, announced, calendar] = await Promise.all([
+    getAllTransactions(),
+    getAllHoldings(),
+    getYields().catch(() => null),
+    getDividendForecast().catch(() => null),
+    getAnnouncedActions().catch(() => ({ upcoming: [], recorded: [] })),
+    getIncomeCalendar().catch(() => null),
+  ]);
   const dividends = allTx.filter((t) => t.type === "DIVIDEND");
   const bonuses = allTx.filter((t) => t.type === "BONUS");
   const gross = dividends.reduce((s, t) => s + t.totalAmount, 0);
@@ -61,6 +71,7 @@ export async function PayoutsTab() {
   }
   const yearRows = [...years.entries()].sort((a, b) => a[0] - b[0]);
 
+
   // Still to come this financial year: gone once its date passes or the
   // real payout is announced or recorded (lib/calculations/dividend-forecast).
   const upcoming = (forecast?.due ?? []).filter((e) => new Date(e.date) > new Date()).slice(0, 12);
@@ -94,6 +105,8 @@ export async function PayoutsTab() {
         <StatCard label="Zakat" value={fmtRs(zakat)} tone="negative" />
         <StatCard label="Net dividend" value={fmtRs(net)} />
       </div>
+
+      {calendar && <IncomeCalendar cal={calendar} />}
 
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-3 mt-3">
         <Card title="Dividend income over time" eyebrow="Net dividend per asset per month, last 24 months">

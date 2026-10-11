@@ -13,7 +13,7 @@ import { cronAuthorised } from "@/lib/auth/cron";
 import { sendTelegramDocument, sendTelegram } from "@/lib/notify/telegram";
 import { sendEmail } from "@/lib/auth/mailer";
 import { getPlaybook } from "@/lib/plan";
-import { assembleWeeklyReport, buildWeeklyTex, weeklySummaryText, weeklyEmailHtml } from "@/lib/statement/weekly";
+import { assembleWeeklyReport, buildWeeklyTex, weeklySummaryText, weeklyEmailHtml, weekOf } from "@/lib/statement/weekly";
 import { buildQuantReport, type QuantReport } from "@/lib/quant/report";
 import { quantEmailHtml, quantEmailAttachments } from "@/lib/quant/email";
 
@@ -75,21 +75,15 @@ export async function POST(req: Request) {
         return;
       }
 
-      const data = await assembleWeeklyReport();
-      const dedupeKey = `weekly-plan:${data.weekKey}`;
-      if (!force) {
-        try {
-          await AlertLogModel.create({
-            userId: await uid(),
-            dedupeKey,
-            kind: "weekly-plan",
-            message: data.weekLabel,
-          });
-        } catch {
-          skipped++; // already sent this week
-          return;
-        }
+      // Logged once delivered, so a run that could not deliver leaves the
+      // week open for the next one.
+      const dedupeKey = `weekly-plan:${weekOf().key}`;
+      if (!force && (await AlertLogModel.exists({ userId: await uid(), dedupeKey }))) {
+        skipped++; // already sent this week
+        return;
       }
+      const data = await assembleWeeklyReport();
+      let delivered = false;
 
       let pdf: Buffer | null = null;
       try {
@@ -112,16 +106,12 @@ export async function POST(req: Request) {
 
       if (token && chatId && !emailOnly) {
         try {
-          if (pdf) {
-            const r = await sendTelegramDocument(token, chatId, filename, pdf, caption);
-            if (r.ok) telegramSent++;
-            else errors.push(r.detail ?? "telegram_failed");
-          } else {
-            // No PDF is not a reason to stay silent about the week's action.
-            const r = await sendTelegram(token, chatId, caption);
-            if (r.ok) telegramSent++;
-            else errors.push(r.detail ?? "telegram_failed");
-          }
+          // No PDF is not a reason to stay silent about the week's action.
+          const r = pdf ? await sendTelegramDocument(token, chatId, filename, pdf, caption) : await sendTelegram(token, chatId, caption);
+          if (r.ok) {
+            telegramSent++;
+            delivered = true;
+          } else errors.push(r.detail ?? "telegram_failed");
         } catch (e) {
           errors.push(`telegram: ${String(e).slice(0, 160)}`);
         }
@@ -137,12 +127,15 @@ export async function POST(req: Request) {
             weeklyEmailHtml(data) + (quant ? quantEmailHtml(quant) : ""),
             attachments
           );
-          if (ok) emailSent++;
-          else errors.push("email_failed");
+          if (ok) {
+            emailSent++;
+            delivered = true;
+          } else errors.push("email_failed");
         } catch (e) {
           errors.push(`email: ${String(e).slice(0, 160)}`);
         }
       }
+      if (delivered) await AlertLogModel.create({ userId: await uid(), dedupeKey, kind: "weekly-plan", message: data.weekLabel }).catch(() => {});
     });
   }
 

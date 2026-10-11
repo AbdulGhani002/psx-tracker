@@ -73,13 +73,9 @@ async function runForCurrentUser(force: boolean, withEmail = false, fullEmail = 
   const today = new Date().toISOString().slice(0, 10);
   const myId = await uid();
   const key = `quant-report:${today}`;
-  if (!force) {
-    try {
-      await AlertLogModel.create({ userId: myId, dedupeKey: key, kind: "quant-report", message: "daily charts" });
-    } catch {
-      return { sent: false, reason: "already_sent_today" };
-    }
-  }
+  // Logged once something went out, so a run that could not send leaves the
+  // day open for the next one.
+  if (!force && (await AlertLogModel.exists({ userId: myId, dedupeKey: key }))) return { sent: false, reason: "already_sent_today" };
 
   const report = await buildQuantReport();
   if (report.indices.length + report.holdings.length === 0) return { sent: false, reason: "no_charts" };
@@ -91,8 +87,10 @@ async function runForCurrentUser(force: boolean, withEmail = false, fullEmail = 
   const errors: string[] = [];
   let charts = 0;
   const all = skipTelegram ? [] : [...report.indices, ...report.holdings];
+  let summarySent = false;
   if (!skipTelegram) {
     const s = await sendTelegram(token, chatId, report.summary);
+    summarySent = s.ok;
     if (!s.ok) errors.push(`summary: ${s.detail ?? "failed"}`);
   }
   for (let i = 0; i < all.length; i += 10) {
@@ -116,5 +114,6 @@ async function runForCurrentUser(force: boolean, withEmail = false, fullEmail = 
     }
   }
   if (errors.length) console.log(`[quant-report] ${errors.join(" | ")}`);
+  if (summarySent || charts > 0 || emailed) await AlertLogModel.create({ userId: myId, dedupeKey: key, kind: "quant-report", message: "daily charts" }).catch(() => {});
   return { sent: charts > 0, charts, emailed, errors };
 }

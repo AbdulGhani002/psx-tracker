@@ -1,19 +1,22 @@
 import Link from "next/link";
 import { Card } from "@/components/ui/Card";
 import { StatCard } from "@/components/ui/StatCard";
-import { getFbrPack, getAllTransactions, getAppSettings, getCashSummary } from "@/lib/data";
+import { TaxByYear, FixedIncomeTax } from "@/components/tax/TaxTables";
+import { getFbrPack, getAllTransactions, getAppSettings, getCashSummary, getTaxYears } from "@/lib/data";
 import { currentTaxYear, taxYearOf } from "@/lib/dates";
 import { whtPct } from "@/lib/calculations/pk-tax";
 import { fmtRs, fmtSignedRs, fmtDate, fmtNum } from "@/lib/format";
 import type { PortfolioSearch } from "../page";
 
-// Capital gains tax for a tax year (July to June), from the FIFO lots the app
-// keeps: each disposal, its slab and the tax on it, then the deductions.
+// Tax by tax year (July to June): every year in brief, then one year in
+// full: capital gains tax from the FIFO lots the app keeps (each disposal,
+// its slab and the tax on it), dividend withholding, the tax on T-bill and
+// sukuk profit, and the deductions.
 export async function CgtTab({ search }: { search: PortfolioSearch }) {
   const requested = Number(search?.fy);
   const cur = currentTaxYear();
   const endYear = Number.isFinite(requested) && requested > 2000 ? requested : cur.endYear;
-  const [pack, txs, settings, cashSum] = await Promise.all([getFbrPack(endYear), getAllTransactions(), getAppSettings(), getCashSummary().catch(() => null)]);
+  const [pack, txs, settings, cashSum, taxYears] = await Promise.all([getFbrPack(endYear), getAllTransactions(), getAppSettings(), getCashSummary().catch(() => null), getTaxYears().catch(() => [])]);
   const years = [...new Set([...pack.years, cur.endYear, cur.endYear - 1])].sort((a, b) => b - a);
   const filer = (settings as any).filerStatus !== "non-filer";
   const divRate = whtPct("dividend", settings as any);
@@ -22,6 +25,9 @@ export async function CgtTab({ search }: { search: PortfolioSearch }) {
   const brokerage = trades.reduce((s, t) => s + (t.fees ?? 0), 0);
   const totalLoss = pack.disposals.filter((d) => d.gain < 0).reduce((s, d) => s + d.gain, 0);
   const totalGain = pack.disposals.filter((d) => d.gain > 0).reduce((s, d) => s + d.gain, 0);
+  const fixedPaid = pack.fixed.rows.filter((r) => r.paid);
+  const fixedTax = fixedPaid.reduce((s, r) => s + r.tax, 0);
+  const fixedProfit = fixedPaid.reduce((s, r) => s + r.gross, 0);
 
   return (
     <div>
@@ -38,10 +44,13 @@ export async function CgtTab({ search }: { search: PortfolioSearch }) {
         </div>
       </div>
 
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 stagger">
+      <TaxByYear years={taxYears} selected={endYear} />
+
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-3 stagger">
         <StatCard label="Net capital gain" value={fmtSignedRs(pack.cgt.netGain)} tone={pack.cgt.netGain >= 0 ? "positive" : "negative"} hint={`Long term ${fmtSignedRs(pack.cgt.longTermGain)} · short term ${fmtSignedRs(pack.cgt.shortTermGain)}`} />
         <StatCard label={`CGT at ${pack.cgt.rate}%`} value={fmtRs(pack.cgt.cgt)} tone="negative" hint={cashSum && cashSum.cgtWithheld > 0 ? `Held back from proceeds so far: ${fmtRs(cashSum.cgtWithheld)}` : "NCCPL collects it after the sale"} />
         <StatCard label="Dividend withholding" value={fmtRs(pack.divTotals.wht)} hint={`${divRate}% on ${fmtRs(pack.divTotals.gross)} gross`} />
+        <StatCard label="T-bill & sukuk tax" value={fmtRs(fixedTax)} hint={fixedProfit > 0 ? `On ${fmtRs(fixedProfit)} profit` : "None paid"} />
         <StatCard label="Brokerage and levies" value={fmtRs(brokerage)} hint={`${trades.length} trades this year`} />
       </div>
 
@@ -82,6 +91,8 @@ export async function CgtTab({ search }: { search: PortfolioSearch }) {
         </div>
       </Card>
 
+      <FixedIncomeTax rows={pack.fixed.rows} />
+
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-3 mt-3">
         <Card title="Dividends by name" eyebrow="Gross, withheld, net, this tax year">
           {pack.dividends.length === 0 ? (
@@ -104,7 +115,8 @@ export async function CgtTab({ search }: { search: PortfolioSearch }) {
               <tr><td>Withholding on dividends ({divRate}%)</td><td className="text-right mono-num">{fmtRs(pack.divTotals.wht)}</td></tr>
               <tr><td>Zakat deducted at source</td><td className="text-right mono-num">{fmtRs(pack.divTotals.zakat)}</td></tr>
               <tr><td>Capital gains tax on this year&apos;s sales ({pack.cgt.rate}%)</td><td className="text-right mono-num">{fmtRs(pack.cgt.cgt)}</td></tr>
-              <tr><td className="font-semibold">Total</td><td className="text-right mono-num font-semibold">{fmtRs(brokerage + pack.divTotals.wht + pack.divTotals.zakat + pack.cgt.cgt)}</td></tr>
+              <tr><td>Tax on T-bill and sukuk profit</td><td className="text-right mono-num">{fmtRs(fixedTax)}</td></tr>
+              <tr><td className="font-semibold">Total</td><td className="text-right mono-num font-semibold">{fmtRs(brokerage + pack.divTotals.wht + pack.divTotals.zakat + pack.cgt.cgt + fixedTax)}</td></tr>
             </tbody>
           </table>
         </Card>

@@ -117,6 +117,20 @@ export function valueFixedIncome(h: FixedIncomeHolding, today: string): FixedInc
   };
 }
 
+export type FixedIncomeEvent = { date: string; what: "coupon" | "maturity"; gross: number; tax: number };
+
+// What a holding pays and when: each coupon after the purchase, and at
+// maturity what the face value repays over the price paid (a T-bill's whole
+// profit). Tax is withheld on each at the holding's rate.
+export function fixedIncomeEvents(h: FixedIncomeHolding): FixedIncomeEvent[] {
+  const perCoupon = h.couponsPerYear > 0 ? (h.face * (h.couponPct / 100)) / h.couponsPerYear : 0;
+  const tax = (v: number) => (v > 0 ? (v * (h.taxPct || 0)) / 100 : 0);
+  const out: FixedIncomeEvent[] = perCoupon > 0 ? couponDates(h, h.purchaseDate).map((date) => ({ date, what: "coupon" as const, gross: perCoupon, tax: tax(perCoupon) })) : [];
+  const gain = h.face - h.cost;
+  if (gain > 0) out.push({ date: h.maturityDate, what: "maturity", gross: gain, tax: tax(gain) });
+  return out;
+}
+
 // The price to pay for a T-bill of a given face value at a quoted yield
 // (simple, 365-day), as the auction and the banks quote it.
 export function tbillCost(face: number, yieldPct: number, days: number): number {

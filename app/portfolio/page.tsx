@@ -26,7 +26,7 @@ const TABS = [
   { key: "trades", label: "Trade history" },
   { key: "payouts", label: "Payouts" },
   { key: "cash", label: "Cash" },
-  { key: "cgt", label: "CGT" },
+  { key: "cgt", label: "Tax" },
   { key: "rebalance", label: "Rebalance" },
   { key: "settings", label: "Settings" },
 ] as const;

@@ -53,21 +53,21 @@ export async function POST(req: Request) {
       const chatId = settings.telegramChatId ?? "";
       if (!settings.alertsEnabled || !token || !chatId) { skipped++; return; }
 
+      // Logged once sent, so a run that could not send leaves the month open
+      // for the next one.
       const data = await assembleMonthlyStatement();
       const dedupeKey = `monthly-stmt:${data.monthKey}`;
-      if (!force) {
-        try {
-          await AlertLogModel.create({ userId: await uid(), dedupeKey, kind: "monthly-stmt", message: data.monthLabel });
-        } catch {
-          skipped++; // already sent this month
-          return;
-        }
+      if (!force && (await AlertLogModel.exists({ userId: await uid(), dedupeKey }))) {
+        skipped++; // already sent this month
+        return;
       }
       try {
         const pdf = await compilePdf(buildStatementTex(data));
         const r = await sendTelegramDocument(token, chatId, `psx-statement-${data.monthKey}.pdf`, pdf, `📄 ${data.monthLabel} statement`);
-        if (r.ok) sent++;
-        else errors.push(r.detail ?? "telegram_failed");
+        if (r.ok) {
+          sent++;
+          await AlertLogModel.create({ userId: await uid(), dedupeKey, kind: "monthly-stmt", message: data.monthLabel }).catch(() => {});
+        } else errors.push(r.detail ?? "telegram_failed");
       } catch (e) {
         errors.push(String(e).slice(0, 200));
       }

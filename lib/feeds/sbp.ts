@@ -127,7 +127,7 @@ export function corridorAgrees(r: SbpRates): boolean {
 export async function fetchSbpRatesDetailed(): Promise<{ rates: SbpRates | null; httpStatus: number | null }> {
   try {
     const res = await fetch(SBP_URL, {
-      headers: { "user-agent": "Mozilla/5.0", accept: "text/html" },
+      headers: { "user-agent": "Mozilla/5.0 (compatible; psx-tracker/0.1)", accept: "text/html" },
       cache: "no-store",
       signal: AbortSignal.timeout(20000),
     });
