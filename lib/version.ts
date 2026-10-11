@@ -1,7 +1,7 @@
 // Single source of truth for the app version + changelog.
 // Bump APP_VERSION and prepend a CHANGELOG entry on every release.
 
-export const APP_VERSION = "11.15.1";
+export const APP_VERSION = "11.17.1";
 
 export const BUILD_DATE =
   process.env.NEXT_PUBLIC_BUILD_DATE ?? "";
@@ -17,6 +17,37 @@ export type ChangelogEntry = {
 
 // Reverse-chronological. Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: "11.17.1",
+    date: "2026-10-11",
+    title: "P/E tested quarter by quarter",
+    changes: [
+      "Whether P/E against its usual predicts is now tested quarter by quarter, the right way; it does not move the calls until it holds over 8 quarters or more, and then only so far.",
+    ],
+  },
+  {
+    version: "11.17.0",
+    date: "2026-10-11",
+    title: "Calls that learn",
+    changes: [
+      "Each share gets an expected 3-month edge against the market, from what the model's ranks did on years it never saw. Buy over 1% (a trade's costs), avoid or sell under -1%.",
+      "Every close is saved. Three months on each call is checked, and the edges move toward what really happened.",
+      "P/E against its usual counts only if the data shows it predicts; it is tested every day. Usual P/E is now its median when rates were near today's.",
+      "Dividends are read off the exchange's closing file each evening; each share shows its yield on every 30 June.",
+    ],
+  },
+  {
+    version: "11.16.0",
+    date: "2026-10-11",
+    title: "Research on every share of your sectors",
+    changes: [
+      "Strategy has three tabs: Plan, Research, Model.",
+      "Research: every share of each ticked sector, with the model's score, P/E now against its usual at today's policy rate, its P/E each June, yield, ROE, buy and sell zones, and a call.",
+      "Calls: buy now, buy at a price, wait, dear, avoid. Held shares only: hold, take profit, sell.",
+      "The model: five neural networks ranking the 150 most traded shares, tested on 2008 to now (top fifth beat the bottom fifth by 5.1% per 3 months).",
+      "Telegram tells you when a share of your sectors reaches its buy price, or a held one turns to sell.",
+    ],
+  },
   {
     version: "11.15.1",
     date: "2026-10-11",

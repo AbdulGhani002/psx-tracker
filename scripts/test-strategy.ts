@@ -4,7 +4,7 @@
 //   npx tsx scripts/test-strategy.ts
 
 import { strategyPlan, phaseOf, type StrategyInput, type Rates } from "../lib/strategy/plan";
-import { kseStepMessage, maturityMessage } from "../lib/strategy/alerts";
+import { kseStepMessage, maturityMessage, researchMessage } from "../lib/strategy/alerts";
 
 let pass = 0, fail = 0;
 function check(name: string, cond: boolean, got?: unknown) {
@@ -76,6 +76,12 @@ check("maturity: when, what comes back, the rates to buy again at", mat.includes
 const tomorrow = maturityMessage({ name: "Sukuk <A&B>", face: 500_000, maturityDate: "2026-10-12", daysLeft: 1 }, rates, false);
 check("maturity tomorrow; rates flagged when not this month's; the name escaped", tomorrow.includes("Sukuk &lt;A&amp;B&gt;</b> matures tomorrow") && tomorrow.includes("Rates (not this month's): "), tomorrow);
 check("maturity without rates: no rates line", !maturityMessage({ name: "3M T-bill", face: 100_000, maturityDate: "2026-10-15", daysLeft: 4 }, null, false).includes("Rates"));
+
+const bahl = { symbol: "BAHL", price: 164.5, pctile: 0.83, pe: 5.9, fairPe: 6.4, zone: { buyLow: 160, buyHigh: 165 } };
+check("a share at its buy price: the zone, the model's score and its P/E against its usual", researchMessage(bahl, "buy") === "🟢 <b>BAHL</b> Rs 165: buy, zone 160–165 (model 9/10, P/E 5.9, usual 6.4).", researchMessage(bahl, "buy"));
+check("with its expected edge", researchMessage({ ...bahl, edge: 0.0183 }, "buy") === "🟢 <b>BAHL</b> Rs 165: buy, zone 160–165 (model 9/10, +1.8% in 3m vs market, P/E 5.9, usual 6.4).", researchMessage({ ...bahl, edge: 0.0183 }, "buy"));
+check("a held share to sell or take profit; a price under 100 keeps its paisa", researchMessage({ ...bahl, symbol: "PTL", price: 61.2, pctile: 0.12, fairPe: null }, "sell") === "🔴 <b>PTL</b> Rs 61.20: sell (model 2/10, P/E 5.9)." && researchMessage({ ...bahl, pctile: null, pe: null }, "take-profit") === "🟠 <b>BAHL</b> Rs 165: take profit.");
+check("the zone alert names the research's buy list when given", kseStepMessage(p0, { level: 156_000, high: 200_000 }, [3], ["BAHL", "FCCL"]).includes("Buy list: BAHL, FCCL"));
 
 console.log("\n" + pass + " passed, " + fail + " failed");
 if (fail > 0) process.exit(1);

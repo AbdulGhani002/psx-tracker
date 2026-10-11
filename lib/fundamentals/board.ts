@@ -245,3 +245,22 @@ export async function getCompanyQuality(symbol: string): Promise<{ row: QualityR
     ctx,
   };
 }
+
+// The quality figures for any set of names: the board's own row for a name on
+// it, else the same assessment on its last close (a watched share outside the
+// index). A name whose page has never been read is left out.
+export async function getQualityFor(symbols: string[]): Promise<Map<string, Quality>> {
+  const board = await getQualityBoard();
+  const want = new Set(symbols);
+  const out = new Map(board.rows.filter((r) => want.has(r.symbol)).map((r) => [r.symbol, r.q]));
+  const missing = symbols.filter((s) => !out.has(s));
+  if (missing.length === 0) return out;
+  const [inp, holdings] = await Promise.all([loadInputs(), getAllHoldings()]);
+  const bvps = new Map(holdings.map((h: any) => [h.symbol, Number(h.bookValuePerShare) > 0 ? Number(h.bookValuePerShare) : null]));
+  for (const s of missing) {
+    const c = inp.companies[s];
+    if (!c || !(c.close && c.close > 0)) continue;
+    out.set(s, assess(c, c.close, inp.cpi, board.costOfEquityPct, board.marketMedianCape, bvps.get(s) ?? null));
+  }
+  return out;
+}

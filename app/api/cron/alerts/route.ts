@@ -13,7 +13,7 @@ import { uid } from "@/lib/auth/uid";
 import { sendTelegram } from "@/lib/notify/telegram";
 import { getWatchlist, watchedSymbols } from "@/lib/watchlist";
 import { getStrategy, getRatesPrefill } from "@/lib/strategy/data";
-import { kseStepMessage, maturityMessage } from "@/lib/strategy/alerts";
+import { kseStepMessage, maturityMessage, researchMessage } from "@/lib/strategy/alerts";
 import { cronAuthorised } from "@/lib/auth/cron";
 
 export const dynamic = "force-dynamic";
@@ -25,7 +25,7 @@ type Candidate = { key: string; message: string };
 // Which alerts this user wants. Every candidate carries a key whose prefix
 // says what it is, so one filter at the end decides what goes out instead of
 // nine scattered conditions.
-const PRICE_KEYS = ["zone", "drift", "near-ceiling", "near-buy", "fipi", "kmi-drop", "sellsig"];
+const PRICE_KEYS = ["zone", "drift", "near-ceiling", "near-buy", "fipi", "kmi-drop", "sellsig", "research-buy", "research-sell"];
 
 function wanted(key: string, s: any): boolean {
   const prefix = key.split(":")[0];
@@ -258,10 +258,10 @@ async function runAlertsForCurrentUser(forceDigest = false) {
   // fall: the high's date names the fall, so a new high starts them again.
   // Zones passed on the way to a lower one, and those already reached when
   // this first ran, are logged without a message.
+  const s = await getStrategy().catch(() => null);
   try {
-    const s = await getStrategy();
-    const k = s.kse;
-    if (k && Date.now() - Date.parse(k.asOf + "T00:00:00Z") < 5 * 86400000) {
+    const k = s?.kse;
+    if (s && k && Date.now() - Date.parse(k.asOf + "T00:00:00Z") < 5 * 86400000) {
       const me = await uid();
       const reached = s.plan.tranches.filter((t) => t.due && t.kind !== "model");
       // Each zone's own name in the key: its kind, numbered when two share
@@ -281,11 +281,33 @@ async function runAlertsForCurrentUser(forceDigest = false) {
         await AlertLogModel.create({ userId: me, dedupeKey: "kse-zone:armed", kind: "kse-zone", message: "" }).catch(() => {});
       } else if (newly.length > 0) {
         for (const t of newly.slice(0, -1)) await quiet(t);
-        candidates.push({ key: keyOf(newly[newly.length - 1]), message: `${kseStepMessage(s.plan, k, newly.map((t) => t.n))}\n   ${appOrigin()}/strategy` });
+        candidates.push({ key: keyOf(newly[newly.length - 1]), message: `${kseStepMessage(s.plan, k, newly.map((t) => t.n), s.research.buys.slice(0, 5).map((r) => r.symbol))}\n   ${appOrigin()}/strategy` });
       }
     }
   } catch {
     /* no zone alert this run */
+  }
+
+  // The research (lib/strategy/picks.ts): a share of a ticked sector at its
+  // buy price (the model's top two-fifths, not dear), the five best ranked;
+  // a held share turning to sell, or reaching its take-profit price. Each
+  // again a week later at most, and only on a close under five days old.
+  try {
+    const r = s?.research;
+    if (r?.asOf && Date.now() - Date.parse(r.asOf + "T00:00:00Z") < 5 * 86400000) {
+      const week = isoWeekKey(new Date());
+      for (const x of r.buys.filter((b) => b.buy.verdict === "buy" && !b.held).slice(0, 5)) {
+        candidates.push({ key: `research-buy:${x.symbol}:${week}`, message: researchMessage(x, "buy") });
+      }
+      for (const x of r.held) {
+        const v = x.sell?.verdict;
+        if (v === "sell" || (v === "take-profit" && x.price != null && x.sell!.sellAt != null && x.price >= x.sell!.sellAt)) {
+          candidates.push({ key: `research-sell:${x.symbol}:${v}:${week}`, message: researchMessage(x, v) });
+        }
+      }
+    }
+  } catch {
+    /* no research alert this run */
   }
 
   // A T-bill or sukuk maturing: a week before and the day before, with the

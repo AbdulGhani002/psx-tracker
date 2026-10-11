@@ -27,3 +27,5 @@ export { PortfolioModel, type Portfolio } from "./Portfolio";
 export { AnnouncementModel, type Announcement } from "./Announcement";
 export { FixedIncomeModel, type FixedIncome } from "./FixedIncome";
 export { RateSnapshotModel, type RateSnapshot } from "./RateSnapshot";
+export { ShareSignalModel, type ShareSignal } from "./ShareSignal";
+export { ShareEventModel, type ShareEvent } from "./ShareEvent";

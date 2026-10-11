@@ -2,28 +2,100 @@ import Link from "next/link";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { Card } from "@/components/ui/Card";
 import { StatCard } from "@/components/ui/StatCard";
-import { CompanyMark } from "@/components/ui/CompanyMark";
 import { KseZonesChart } from "@/components/charts/KseZonesChart";
-import { ZoneBar, ScoreMeter } from "@/app/analysis/ZoneBar";
 import type { StrategyView as StrategyData, RatesPrefill } from "@/lib/strategy/data";
 import { PHASES, zoneRange, type StrategyName } from "@/lib/strategy/plan";
 import { fmtRs } from "@/lib/format";
 import { RatesForm } from "./RatesForm";
+import { BuyListCard, HoldingsCard, ResearchSector, SectorsCard, AnalogsCard, SensitivityCard, RecordCard, CalibrationCard, LearningCard } from "./ModelSections";
 
 // The strategy page's body, from what lib/strategy/data.ts gathered (the
-// preview page draws it on sample figures).
+// preview page draws it on sample figures), in three tabs: the plan, the
+// research on every share of the ticked sectors, and the model.
+
+export type StrategyTab = "plan" | "research" | "model";
+const TABS: Array<{ key: StrategyTab; label: string }> = [
+  { key: "plan", label: "Plan" },
+  { key: "research", label: "Research" },
+  { key: "model", label: "Model" },
+];
 
 const pct = (v: number | null | undefined, d = 1) => (v == null || !Number.isFinite(v) ? "—" : `${v.toFixed(d)}%`);
 const monthLabel = (m: string) => new Date(m + "-01T00:00:00Z").toLocaleString("en-GB", { month: "long", year: "numeric", timeZone: "UTC" });
 
-export function StrategyView({ s, prefill }: { s: StrategyData; prefill: RatesPrefill }) {
-  const p = s.plan;
-  const buy = p.quality.add;
-  const withAmounts = p.tranches.some((t) => t.amount > 0);
+export function StrategyView({ s, prefill, tab = "plan" }: { s: StrategyData; prefill: RatesPrefill; tab?: StrategyTab }) {
   return (
     <div className="fade-in">
       <PageHeader title="Strategy" subtitle="Buy quality in zones, keep dry powder." />
+      <div className="tabs mb-4">
+        {TABS.map((t) => (
+          <Link key={t.key} href={t.key === "plan" ? "/strategy" : `/strategy?tab=${t.key}`} data-active={tab === t.key}>
+            {t.label}
+          </Link>
+        ))}
+      </div>
+      {tab === "research" ? <ResearchTab s={s} /> : tab === "model" ? <ModelTab s={s} /> : <PlanTab s={s} prefill={prefill} />}
+    </div>
+  );
+}
 
+function ResearchTab({ s }: { s: StrategyData }) {
+  const r = s.research;
+  if (r.watched.sectors === 0) {
+    return <Card><p className="text-[13px] text-muted">Tick sectors on the <Link href="/watchlist" className="link-underline">Watchlist</Link> and every share in them is researched here.</p></Card>;
+  }
+  return (
+    <div>
+      <p className="text-[12.5px] text-muted">
+        {r.watched.shares} shares in {r.watched.sectors} sectors{r.asOf ? `, prices of ${r.asOf}` : ""}. Usual P/E: its median P/E when the policy rate was near today&apos;s {r.rateNow ?? "—"}%. <Link href="/watchlist" className="link-underline">Change sectors</Link>
+      </p>
+      {r.sectors.map((sec, k) => (
+        <ResearchSector key={sec.sector} sec={sec} m={s.macro} rate={r.rateNow} open={k < 2} />
+      ))}
+      <Rules />
+    </div>
+  );
+}
+
+function ModelTab({ s }: { s: StrategyData }) {
+  if (!s.macro) return <Card><p className="text-[13px] text-muted">The model has not been sent to the server yet.</p></Card>;
+  return (
+    <div>
+      <div className="grid grid-cols-1 xl:grid-cols-2 gap-3">
+        <SectorsCard m={s.macro} />
+        <AnalogsCard m={s.macro} />
+      </div>
+      <div className="grid grid-cols-1 xl:grid-cols-2 gap-3 mt-3">
+        <CalibrationCard m={s.macro} />
+        <LearningCard m={s.macro} />
+      </div>
+      <div className="mt-3"><SensitivityCard m={s.macro} /></div>
+      <div className="mt-3"><RecordCard m={s.macro} /></div>
+    </div>
+  );
+}
+
+function Rules() {
+  return (
+    <details className="mt-4 text-[12.5px] text-muted">
+      <summary className="cursor-pointer select-none">How the calls are made</summary>
+      <ul className="mt-2 space-y-1 pl-4 list-disc">
+        <li>One number decides: what a share should do against the market over the next 3 months. It comes from the model&apos;s rank and what each rank did on years the model never saw (2008 on).</li>
+        <li>Every close, each share&apos;s reading is saved. Three months on it is checked against what happened, and the expected returns move toward the real outcomes.</li>
+        <li>P/E against its usual counts only if the data shows it predicts. It is tested again every day; so far it has not.</li>
+        <li>Buy: expected over 1% (a trade&apos;s costs). Now at or under the 20-day buy zone, else at it. Avoid: under −1%. Thin shares (outside the 150 most traded) get no call.</li>
+        <li>Held only. Sell: under −1%. Take profit: under 0, into the 20-day sell zone.</li>
+        <li>Usual P/E: its median quarter-end P/E with the policy rate within 2.5 points of today&apos;s. Yields: from the exchange&apos;s own dividend record. Not advice.</li>
+      </ul>
+    </details>
+  );
+}
+
+function PlanTab({ s, prefill }: { s: StrategyData; prefill: RatesPrefill }) {
+  const p = s.plan;
+  const withAmounts = p.tranches.some((t) => t.amount > 0);
+  return (
+    <div>
       <Card title="The plan" action={<span className="text-[12px] text-muted">{s.ratesEntered && s.rates ? monthLabel(s.rates.month) : "Rates not entered"}</span>}>
         <ol className="space-y-1.5 text-[14px] list-decimal pl-5">
           {p.steps.map((x, k) => (
@@ -38,6 +110,9 @@ export function StrategyView({ s, prefill }: { s: StrategyData; prefill: RatesPr
         <StatCard label="In stocks" value={pct(p.allocation.stocksNowPct, 0)} delta={`target ${pct(p.allocation.stocksTargetPct, 0)}`} deltaTone="muted" hint={s.profile.risk[0].toUpperCase() + s.profile.risk.slice(1)} />
         <StatCard label="Dry powder" value={fmtRs(s.book.cashLike + s.book.fixedIncome)} delta={pct(p.allocation.dryNowPct, 0)} deltaTone="muted" hint={`T-bills & sukuks ${fmtRs(s.book.fixedIncome)}`} />
       </div>
+
+      <BuyListCard r={s.research} />
+      <HoldingsCard r={s.research} />
 
       <Card className="mt-3" title="KSE-100 buy zones" action={<span className="text-[12px] text-muted">{p.allocation.room > 0 ? `${fmtRs(p.allocation.room)} to put to work` : "No buying now"}</span>}>
         {s.chart.length > 1 && (
@@ -72,41 +147,6 @@ export function StrategyView({ s, prefill }: { s: StrategyData; prefill: RatesPr
           )}
         </p>
       </Card>
-
-      {buy.length > 0 && (
-        <section className="mt-6">
-          <div className="flex flex-wrap items-baseline justify-between gap-2 mb-3">
-            <h2 className="text-[17px] font-bold">Buy list</h2>
-            <Link href="/analysis" className="text-[12px] link-underline">Zones from the Model page</Link>
-          </div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3">
-            {buy.map((n) => {
-              const z = s.model?.names[n.symbol];
-              return (
-                <Card key={n.symbol}>
-                  <div className="flex items-start justify-between gap-3">
-                    <Link href={n.held ? `/holdings/${n.symbol}` : `/stock/${n.symbol}`} className="flex items-center gap-2.5 min-w-0 group">
-                      <CompanyMark symbol={n.symbol} size="sm" />
-                      <div className="min-w-0">
-                        <div className="text-[14px] font-bold leading-tight group-hover:text-[var(--accent-deep)]">{n.symbol}</div>
-                        <div className="text-[12px] text-muted">
-                          Grade {n.grade}
-                          {n.held ? " · held" : ""}
-                          {n.marginOfSafetyPct != null && n.marginOfSafetyPct >= 20 ? ` · ${n.marginOfSafetyPct.toFixed(0)}% under fair value` : ""}
-                        </div>
-                      </div>
-                    </Link>
-                    {z && <ScoreMeter pctile={z.pctile} />}
-                  </div>
-                  <div className="mt-3">
-                    {z ? <ZoneBar price={z.price} buyLow={z.buyLow} buyHigh={z.buyHigh} sellLow={z.sellLow} sellHigh={z.sellHigh} stop={z.fails} compact /> : <p className="text-[12px] text-muted">No model zone for it today.</p>}
-                  </div>
-                </Card>
-              );
-            })}
-          </div>
-        </section>
-      )}
 
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-3 mt-3">
         <Card title="Where the dry powder waits" action={<span className="text-[12px] text-muted">after {pct(s.rates?.taxPct, 0)} tax</span>}>
@@ -175,7 +215,7 @@ export function StrategyView({ s, prefill }: { s: StrategyData; prefill: RatesPr
           <li>Stocks: 40 / 60 / 80% by risk; −10 or −20 for a shorter horizon; ±10 cheap or dear; +5 mandi, +10 crash.</li>
           <li>Zones: the model&apos;s (next 20 days), past lows, a bad quarter (1 in 20), cheap against T-bills. More money in deeper zones.</li>
           <li>Park: next zones&apos; money liquid; the rest longer when rates fall.</li>
-          <li>Buy grade A/B below the market&apos;s P/E or 20% under fair value. Not advice.</li>
+          <li>Which shares: the Research tab, from the sectors ticked on the Watchlist. Not advice.</li>
         </ul>
       </details>
     </div>

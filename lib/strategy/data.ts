@@ -5,10 +5,15 @@ import { RateSnapshotModel } from "@/lib/models";
 import { getCurrentUserId } from "@/lib/auth/current-user";
 import { getAppSettings, getPortfolioSummary, getMutualFundsValued, getSavingsValued, getFixedIncomeValued, getSbpLive, getInflationLive, getIntrinsicValuations } from "@/lib/data";
 import { eodSeriesCached } from "@/lib/timeseries/eod-cache";
-import { getQualityBoard } from "@/lib/fundamentals/board";
+import { getQualityBoard, getQualityFor } from "@/lib/fundamentals/board";
 import { whtPct } from "@/lib/calculations/pk-tax";
 import { strategyPlan, type Rates, type StrategyPlan, type RiskProfile, type Horizon, type StrategyName } from "./plan";
 import { buyZones } from "./zones";
+import { buyPick, sellPick, type BuyPick, type SellPick, type BuyVerdict, type SellVerdict } from "./picks";
+import { median } from "@/lib/fundamentals/quality";
+import { getMacroLive, type MacroLive, type Zone } from "@/lib/macro/live";
+import { getWatchlist, listings } from "@/lib/watchlist";
+import { latestCloses } from "@/lib/quant/sheet-bars";
 import { loadQuantSnapshot } from "@/lib/quant/store";
 import type { StoredReport } from "@/lib/quant/report";
 
@@ -89,6 +94,45 @@ export type StrategyView = {
   // The Model page's read: its date, the market's state, and each name's
   // zones (the same numbers that page shows).
   model: { date: string; state: string | null; names: Record<string, NameZone> } | null;
+  // The strategy model (lib/macro/live.ts): sectors ranked, times like now,
+  // what moves each sector, and the model's tested record.
+  macro: (Omit<MacroLive, "names" | "pe" | "sectors"> & { sectors: Array<MacroLive["sectors"][number] & { watched: boolean }> }) | null;
+  // Every share of each ticked sector and every held share, researched.
+  research: Research;
+};
+
+export type ResearchRow = {
+  symbol: string;
+  name: string;
+  sector: string;
+  held: boolean;
+  price: number | null;
+  pctile: number | null;
+  thin: boolean;
+  pe: number | null;
+  fairPe: number | null; // the P/E it has had with the policy rate near today's
+  peLo: number | null;
+  peHi: number | null;
+  june: Array<[string, number]>;
+  dividendYieldPct: number | null;
+  yieldJune: Array<[string, number]>; // the dividend yield on each 30 June
+  edge: number | null; // expected return against the market over 3 months
+  roePct: number | null;
+  grade: string | null;
+  ret12: number | null;
+  offHigh: number | null;
+  zone: Zone | null;
+  buy: BuyPick;
+  sell: SellPick | null; // held shares only
+};
+export type SectorResearch = { sector: string; name: string; pctile: number | null; rank: number | null; peNow: number | null; peFair: number | null; rows: ResearchRow[]; quiet: number };
+export type Research = {
+  asOf: string | null;
+  rateNow: number | null;
+  sectors: SectorResearch[]; // the ticked ones, the model's best first
+  buys: ResearchRow[]; // buy now or at a price, the model's best first
+  held: ResearchRow[]; // every held share, sells first
+  watched: { sectors: number; shares: number };
 };
 
 export type NameZone = { price: number; buyLow: number; buyHigh: number; sellLow: number; sellHigh: number; fails: number; pctile: number };
@@ -169,6 +213,120 @@ async function _getStrategy(): Promise<StrategyView> {
     tbillPct: rates ? rates.tbill12mPct ?? rates.tbill6mPct ?? rates.tbill3mPct ?? rates.policyPct : null,
   });
   const plan = strategyPlan({ today, profile, kse, market: board?.market ? { pe: board.market.pe, cape: board.market.cape, dividendYieldPct: board.market.dividendYieldPct } : null, rates, prevRates, book, names, zones });
-  return { plan, rates, ratesEntered: prefill.entered, profile, kse, book, history, chart, model };
+  const [live, watch] = await Promise.all([getMacroLive().catch(() => null), getWatchlist().catch(() => ({ sectors: [] as string[] }))]);
+  const research = await buildResearch(live, watch.sectors, model, summary.positions).catch(() => emptyResearch(watch.sectors.length));
+  const watchedSet = new Set(watch.sectors);
+  const macro: StrategyView["macro"] = live
+    ? { asOf: live.asOf, computedAt: live.computedAt, model: live.model, state: live.state, analogs: live.analogs, rate: live.rate, learning: live.learning, sectors: live.sectors.map((x) => ({ ...x, watched: watchedSet.has(x.sector) })) }
+    : null;
+
+  // The plan's steps, with the research's: sectors to favour, what to buy and
+  // where, what to sell. The quality board's own buy list gives way to it.
+  const money = (v: number) => (v >= 1000 ? Math.round(v).toLocaleString("en-US") : String(v));
+  const steps = plan.steps.filter((x) => !x.startsWith("Buy:") && !x.startsWith("Reconsider:"));
+  const favour = research.sectors.filter((x) => x.pctile != null && x.pctile >= 0.5).slice(0, 3).map((x) => x.name);
+  if (favour.length) steps.push(`Favour: ${favour.join(", ")}`);
+  const nowBuys = research.buys.filter((r) => r.buy.verdict === "buy").slice(0, 5);
+  const atBuys = research.buys.filter((r) => r.buy.verdict === "buy-at").slice(0, 5);
+  if (nowBuys.length) steps.push(`Buy now: ${nowBuys.map((r) => r.symbol).join(", ")}`);
+  if (atBuys.length) steps.push(`Buy at: ${atBuys.map((r) => `${r.symbol} ${money(r.buy.buyAt!)}`).join(", ")}`);
+  if (watch.sectors.length === 0) steps.push("Tick sectors on the Watchlist page");
+  const sellNow = research.held.filter((r) => r.sell?.verdict === "sell").map((r) => r.symbol);
+  const profit = research.held.filter((r) => r.sell?.verdict === "take-profit").map((r) => r.symbol);
+  if (sellNow.length) steps.push(`Sell: ${sellNow.join(", ")}`);
+  if (profit.length) steps.push(`Take profit: ${profit.join(", ")}`);
+  plan.steps = steps;
+
+  return { plan, rates, ratesEntered: prefill.entered, profile, kse, book, history, chart, model, macro, research };
+}
+
+const BUY_ORDER: Record<BuyVerdict, number> = { buy: 0, "buy-at": 1, wait: 2, avoid: 3, thin: 4, unknown: 5 };
+const SELL_ORDER: Record<SellVerdict, number> = { sell: 0, "take-profit": 1, hold: 2, thin: 3, unknown: 4 };
+
+const emptyResearch = (sectors: number): Research => ({ asOf: null, rateNow: null, sectors: [], buys: [], held: [], watched: { sectors, shares: 0 } });
+
+// Every share of the ticked sectors and every held one: the model's rank and
+// the expected edge it gives, P/E now against its usual and its history, the
+// dividend yield now and on each 30 June (the exchange's record), the
+// quality board's ROE and grade, its year, its zones (the Model page's where
+// that page has it, else the same walk on the latest close), and what to do
+// (lib/strategy/picks.ts). A share that has not traded lately and that
+// nobody holds is only counted.
+async function buildResearch(
+  live: MacroLive | null,
+  sectors: string[],
+  model: StrategyView["model"],
+  positions: Array<{ symbol: string; shares: number; priceKnown: boolean; currentPrice: number }>
+): Promise<Research> {
+  const held = new Map(positions.filter((p) => p.shares > 0).map((p) => [p.symbol, p]));
+  const ticked = new Set(sectors);
+  const all = listings();
+  const listing = new Map(all.map((l) => [l.symbol, l]));
+  const symbols = [...new Set([...all.filter((l) => ticked.has(l.sector)).map((l) => l.symbol), ...held.keys()])];
+  const [quality, closes] = await Promise.all([getQualityFor(symbols).catch(() => new Map()), latestCloses().catch(() => new Map<string, { date: string; close: number }>())]);
+  const liveOf = new Map((live?.names ?? []).map((n) => [n.symbol, n]));
+
+  const rows: ResearchRow[] = [];
+  const quiet = new Map<string, number>();
+  for (const symbol of symbols) {
+    const n = liveOf.get(symbol);
+    const pos = held.get(symbol);
+    const l = listing.get(symbol);
+    const price = pos?.priceKnown && pos.currentPrice > 0 ? pos.currentPrice : n?.price ?? closes.get(symbol)?.close ?? null;
+    const sector = l?.sector ?? n?.sector ?? "OTHER";
+    if (!pos && (!n || price == null)) {
+      quiet.set(sector, (quiet.get(sector) ?? 0) + 1);
+      continue;
+    }
+    const pe = live?.pe[symbol] ?? null;
+    const q = quality.get(symbol) ?? null;
+    const m = model?.names[symbol];
+    const zone: Zone | null = m ? { buyLow: m.buyLow, buyHigh: m.buyHigh, fails: m.fails, sellLow: m.sellLow, sellHigh: m.sellHigh } : n?.zone ?? null;
+    const peNow = pe?.eps != null && pe.eps > 0 && price != null && price / pe.eps <= 200 ? price / pe.eps : null;
+    const input = { symbol, price, edge: n?.edge ?? null, thin: n?.thin ?? true, zone };
+    rows.push({
+      symbol,
+      name: l?.name ?? symbol,
+      sector,
+      held: !!pos,
+      price,
+      pctile: n?.pctile ?? null,
+      thin: input.thin,
+      pe: peNow,
+      fairPe: pe?.fair ?? null,
+      peLo: pe?.lo ?? null,
+      peHi: pe?.hi ?? null,
+      june: pe?.june ?? [],
+      dividendYieldPct: n?.dividendYieldPct ?? q?.dividendYieldPct ?? null,
+      yieldJune: n?.yieldJune ?? [],
+      edge: input.edge,
+      roePct: q?.roePct ?? null,
+      grade: q?.grade ?? null,
+      ret12: n?.ret12 ?? null,
+      offHigh: n?.offHigh ?? null,
+      zone,
+      buy: buyPick(input),
+      sell: pos ? sellPick(input) : null,
+    });
+  }
+  const byBuy = (a: ResearchRow, b: ResearchRow) => BUY_ORDER[a.buy.verdict] - BUY_ORDER[b.buy.verdict] || (b.edge ?? -1) - (a.edge ?? -1);
+
+  const secLive = new Map((live?.sectors ?? []).map((x, k) => [x.sector, { pctile: x.pctile, rank: k + 1 }]));
+  const sectorRows: SectorResearch[] = [...ticked].map((sector) => {
+    const mine = rows.filter((r) => r.sector === sector).sort(byBuy);
+    const peNow = median(mine.map((r) => r.pe).filter((v): v is number => v != null && v > 0));
+    const peFair = median(mine.map((r) => r.fairPe).filter((v): v is number => v != null && v > 0));
+    return { sector, name: all.find((l) => l.sector === sector)?.sectorName ?? sector, pctile: secLive.get(sector)?.pctile ?? null, rank: secLive.get(sector)?.rank ?? null, peNow, peFair, rows: mine, quiet: quiet.get(sector) ?? 0 };
+  });
+  sectorRows.sort((a, b) => (b.pctile ?? -1) - (a.pctile ?? -1) || a.name.localeCompare(b.name));
+
+  return {
+    asOf: live?.asOf ?? null,
+    rateNow: live?.rate.now ?? null,
+    sectors: sectorRows,
+    buys: rows.filter((r) => ticked.has(r.sector) && (r.buy.verdict === "buy" || r.buy.verdict === "buy-at")).sort(byBuy),
+    held: rows.filter((r) => r.held).sort((a, b) => SELL_ORDER[a.sell?.verdict ?? "unknown"] - SELL_ORDER[b.sell?.verdict ?? "unknown"] || (a.edge ?? 2) - (b.edge ?? 2)),
+    watched: { sectors: ticked.size, shares: all.filter((l) => ticked.has(l.sector)).length },
+  };
 }
 export const getStrategy = cache(_getStrategy);

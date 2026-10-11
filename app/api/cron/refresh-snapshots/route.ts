@@ -6,6 +6,7 @@ import { buildKse100SectorWeights, SECTOR_WEIGHTS_KEY } from "@/lib/feeds/sector
 import { computeBenchmark, benchmarkKey, BENCHMARK_RANGES } from "@/lib/feeds/benchmark";
 import { getAutoSignalsCached } from "@/lib/feeds/regime";
 import { warmIndexSeries } from "@/lib/feeds/backtest";
+import { getMacroLive } from "@/lib/macro/live";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -78,6 +79,15 @@ export async function POST() {
     report.indexHistory = await warmIndexSeries();
   } catch (e) {
     report.indexHistory = { status: "error", note: String(e).slice(0, 200) };
+  }
+
+  // The strategy model's read of every share (lib/macro/live.ts): a copy over
+  // six hours old is read again here, so the strategy page never waits on it.
+  try {
+    const live = await getMacroLive();
+    report.macroLive = live ? { status: "ok", note: `${live.names.length} shares to ${live.asOf}` } : { status: "error", note: "no model on the server" };
+  } catch (e) {
+    report.macroLive = { status: "error", note: String(e).slice(0, 200) };
   }
 
   // Per-user warming: for every account, warm its page aggregates + its three

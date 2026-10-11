@@ -3,13 +3,15 @@ import { connectDb } from "@/lib/db";
 import { getAllUserIds } from "@/lib/data";
 import { cronAuthorised } from "@/lib/auth/cron";
 import { refreshCloses, rebuildUser, rebuiltThrough } from "@/lib/quant/daily";
+import { refreshMacroLive } from "@/lib/macro/live";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 export const maxDuration = 900;
 
 // Machine-only, on weekdays after the close (psx-daily-close.timer): the
-// exchange's end-of-day file into the price series, then each user's reading.
+// exchange's end-of-day file into the price series, then each user's reading,
+// then the strategy model's read of every share on the new close.
 // A user whose reading was already rebuilt on the latest close is skipped,
 // so the second run of the evening costs one request unless the first missed
 // the file. Body {force:true} rebuilds anyway; {from:"YYYY-MM-DD"}
@@ -36,9 +38,11 @@ export async function POST(req: Request) {
       results.push({ user: id.slice(-6), error: String(e instanceof Error ? e.message : e).slice(0, 200) });
     }
   }
+  const live = bars.appended > 0 || body?.force === true ? await refreshMacroLive().catch(() => null) : null;
   return NextResponse.json({
     ok: true,
     seconds: Math.round((Date.now() - t0) / 1000),
+    macroLive: live ? { asOf: live.asOf, shares: live.names.length, scored: live.names.filter((n) => n.score != null).length } : null,
     sheets,
     bars: { ...bars, days: bars.days.slice(-5), adjusted: bars.adjusted.slice(-20) },
     indices,

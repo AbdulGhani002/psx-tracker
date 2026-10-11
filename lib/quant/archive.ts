@@ -133,12 +133,17 @@ export function membership(bars: Map<string, EodBar[]>, top: number): Map<number
 
 // Equal-weight index chained from mean daily log returns. With `members` it
 // follows the year's universe; without, every name given.
-export function equalWeightIndex(bars: Map<string, EodBar[]>, members: Map<number, Set<string>> | null = null, minNames = 10): EodBar[] {
+// `simple`: the mean of the day's ordinary returns, an equal amount in every
+// name each day; otherwise the mean of log returns, which runs several points
+// a year under it (fine for ranking names within a day, not for the market's
+// own return).
+export function equalWeightIndex(bars: Map<string, EodBar[]>, members: Map<number, Set<string>> | null = null, minNames = 10, simple = false): EodBar[] {
   const acc = new Map<string, { s: number; n: number }>();
   for (const [sym, b] of bars) {
     for (let i = 1; i < b.length; i++) {
       if (members && !members.get(Number(b[i].date.slice(0, 4)))?.has(sym)) continue;
-      const r = Math.max(-0.3, Math.min(0.3, Math.log(b[i].close / b[i - 1].close)));
+      const lr = Math.max(-0.3, Math.min(0.3, Math.log(b[i].close / b[i - 1].close)));
+      const r = simple ? Math.exp(lr) - 1 : lr;
       const a = acc.get(b[i].date);
       if (a) {
         a.s += r;
@@ -152,7 +157,7 @@ export function equalWeightIndex(bars: Map<string, EodBar[]>, members: Map<numbe
   for (const d of dates) {
     const a = acc.get(d)!;
     if (a.n < minNames) continue;
-    level += a.s / a.n;
+    level += simple ? Math.log(1 + a.s / a.n) : a.s / a.n;
     out.push({ date: d, close: Math.exp(level), volume: 0, vwap: Math.exp(level) });
   }
   return out;
