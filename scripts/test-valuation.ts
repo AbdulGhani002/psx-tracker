@@ -3,7 +3,7 @@
 //   npx tsx scripts/test-valuation.ts
 
 import { hurdle, cappedGrowth, methodValues, blend, sotpValue, value, expectedReturn, rank, signalChanges, firedTriggers, metricsOf, roundLevel, WEIGHTS, type Assumption, type Signal } from "../lib/valuation/engine";
-import { parseResultFigures, periodOf } from "../lib/prices/results";
+import { parseResultFigures, periodOf, dividendOf } from "../lib/prices/results";
 import { draftFrom, draftDiffers, draftSignature, typeOfSector, type DraftInput } from "../lib/valuation/draft";
 import { settleFigures, basisOf, scaleOf, type PageRead } from "../lib/valuation/figures";
 
@@ -108,6 +108,8 @@ check("a results letter: the year and its end, EPS past the note, profit in rupe
 check("a dividend given as a percent of a Rs 10 share", parseResultFigures([[...letter[0].slice(0, 6), "a final cash dividend @ 30% has been recommended for the half year.", letter[0][7]]]).dps === 3);
 check("periods: half year, quarter, nine months; day first or month first", periodOf("for the half year ended 31st December 2025").periodEnd === "2025-12-31" && periodOf("Half Year ended December 31, 2025").period === "half year" && periodOf("for the quarter ended September 30, 2026").period === "quarter" && periodOf("nine months ended March 31, 2026").period === "nine months");
 check("a scanned filing has no text to read", !parseResultFigures([["", " "]]).text && parseResultFigures([["", " "]]).eps === null);
+check("dividends: the restated rupees after a percent of a Re 1 share, not the face value, not an investee's", dividendOf("The Board has recommended declaration of a final Cash Dividend for the year ended 30th June 2026 at 125 % of the face value of Re.1/- per share i.e. Rs.1.25. Fatima: The Board proposed a final cash dividend of PKR 12.50 per share i.e, 125%") === 1.25);
+check("dividends: rupees first, then the percent; the first declaration counts", dividendOf("Final cash dividend at Rs. 3.5 per share i.e. 35%, this is in addition to interim dividend of Rs. 2.0 per share i.e. 20%.") === 3.5 && dividendOf("a final cash dividend @ 30% for the half year; face value of Rs. 5 each") === 1.5);
 check("a loss per share in brackets", parseResultFigures([[...letter[0].slice(0, 5), "Loss / earnings per share (Rupees) (2.40) 1.10", "Earnings per share (Rupees) (2.40) 1.10", letter[0][7]]]).eps === -2.4);
 
 // --- drafts from the record ----------------------------------------------------------------------
@@ -172,6 +174,20 @@ check("an EPS with no profit and no year to compare is left out, and said", sett
 check("only group figures: used, and said", settleFigures([csap[2]], { ...ctxC, sharesNow: 77_632_491 }).checks.some((c) => c.includes("consolidated")));
 check("titles to bases; unit lines to scales", basisOf("Un-consolidated Statement of Profit or Loss") === "unconsolidated" && basisOf("Consolidated Statement of Financial Position") === "consolidated" && basisOf("Statement of Profit or Loss") === null && scaleOf("(Rupees in '000)") === 1e3 && scaleOf("Rupees in million") === 1e6 && scaleOf("(Rupees)") === 1 && scaleOf("") === null);
 check("nothing read: said", settleFigures([], ctxC).checks.includes("No profit or loss statement found."));
+const hin = [
+  page({ page: 2, title: "UNCONSOLIDATED CONDENSED INTERIM STATEMENT OF FINANCIAL POSITION AS AT JUNE 30, 2026", unitText: "Rupees", statement: "financial position", periodEnd: "2026-06-30", periodMonths: 6, totalAssets: 17_154_937_420, totalEquity: 17_154_937_420, shareCapital: 529_833_630 }),
+  page({ page: 3, title: "UNCONSOLIDATED CONDENSED INTERIM STATEMENT OF PROFIT OR LOSS FOR THE SIX MONTHS PERIOD ENDED JUNE 30, 2026", unitText: "", statement: "profit or loss", periodEnd: "2026-06-30", periodMonths: 6, netProfit: 1_677_455_733, eps: 31.66, epsPrior: 30.71 }),
+];
+const sh = settleFigures(hin, { sharesNow: 52_983_368, lastEps: 77.75, lastBvps: 230.2 });
+check("an equity equal to total assets is the wrong line: left out, and said; the profit still read", sh.equity === null && sh.checks.some((c) => c.includes("total-assets")) && sh.eps === 31.66 && sh.period === "half year" && !sh.checks.some((c) => c.includes("No unit")), sh);
+const ahcl = [page({ title: "UNCONSOLIDATED STATEMENT OF FINANCIAL POSITION AS AT JUNE 30, 2026", unitText: "Rupees", statement: "financial position", periodEnd: "2026-06-30", totalEquity: 102_208_874_636, totalAssets: 140_000_000_000 })];
+const ctxA = { sharesNow: 4_216_967_470, lastEps: 10.55, lastBvps: 16.08, lastEquity: 67_800_921_654, lastEquityAt: "2026-03-31" };
+check("an equity 50% off the server's of a quarter before is left out, and said", settleFigures(ahcl, ctxA).equity === null && settleFigures(ahcl, ctxA).checks.some((c) => c.includes("far from")));
+const rv = settleFigures([{ ...ahcl[0], totalEquity: 75_000_000_000, revaluationSurplus: 5_000_000_000 }], ctxA);
+check("the revaluation surplus is read with the equity", rv.equity === 75_000_000_000 && rv.revaluation === 5_000_000_000);
+const mureb = draftFrom({ ...base, equity: null, equityAt: null, filing: { period: "year", periodEnd: "2026-06-30", eps: null, profit: null, dps: null, text: true, equity: 20_766_918_000, revaluation: 5_145_555_000, date: "2026-09-18", title: "Financial results", url: "u" }, sharesNow: 27_663_631 });
+check("the book a share leaves the revaluation surplus out, and says so", mureb.bvps === 564.69 && mureb.note.includes("revaluation surplus"), { bvps: mureb.bvps, note: mureb.note });
+check("an equity near the server's is kept", settleFigures([{ ...ahcl[0], totalEquity: 75_000_000_000 }], ctxA).equity === 75_000_000_000);
 
 console.log("\n" + pass + " passed, " + fail + " failed");
 if (fail > 0) process.exit(1);

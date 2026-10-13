@@ -22,11 +22,13 @@ export type PageRead = {
   netProfitPrior: number | null;
   eps: number | null;
   epsPrior: number | null;
+  totalAssets?: number | null;
   totalEquity: number | null;
+  revaluationSurplus?: number | null;
   shareCapital: number | null;
 };
 
-export type Settled = Pick<ResultFigures, "period" | "periodEnd" | "eps" | "epsPrior" | "profit" | "equity" | "basis"> & { checks: string[] };
+export type Settled = Pick<ResultFigures, "period" | "periodEnd" | "eps" | "epsPrior" | "profit" | "equity" | "revaluation" | "basis"> & { checks: string[] };
 
 export const basisOf = (title: string): "unconsolidated" | "consolidated" | null =>
   /un-?\s*consolidated|stand-?\s*alone|separate/i.test(title) ? "unconsolidated" : /consolidated/i.test(title) ? "consolidated" : null;
@@ -44,9 +46,11 @@ function pick(pages: PageRead[], kind: PageRead["statement"], has: (p: PageRead)
   return c.find((p) => basisOf(p.title) === "unconsolidated") ?? c.find((p) => basisOf(p.title) == null) ?? c[0] ?? null;
 }
 
-export function settleFigures(pages: PageRead[], ctx: { sharesNow: number | null; lastEps: number | null; lastBvps: number | null }): Settled {
+export type SettleContext = { sharesNow: number | null; lastEps: number | null; lastBvps: number | null; lastEquity?: number | null; lastEquityAt?: string | null };
+
+export function settleFigures(pages: PageRead[], ctx: SettleContext): Settled {
   const checks: string[] = [];
-  const out: Settled = { period: null, periodEnd: null, eps: null, epsPrior: null, profit: null, equity: null, basis: null, checks };
+  const out: Settled = { period: null, periodEnd: null, eps: null, epsPrior: null, profit: null, equity: null, revaluation: null, basis: null, checks };
   const pl = pick(pages, "profit or loss", (p) => p.eps != null || p.netProfit != null);
   let scale: number | null = null;
   if (pl) {
@@ -76,13 +80,18 @@ export function settleFigures(pages: PageRead[], ctx: { sharesNow: number | null
         checks.push("EPS kept without a profit to check it against.");
       } else checks.push(pl.netProfit != null && shares ? `EPS ${pl.eps} left out.` : `EPS ${pl.eps} left out: no profit to check it against.`);
     }
-    if (!pl.unitText) checks.push("No unit printed on the profit page.");
+    if (!pl.unitText && scale == null) checks.push("No unit printed on the profit page.");
   } else checks.push("No profit or loss statement found.");
 
-  // Book value: the same basis as the profit where there is one; the scale
-  // the profit settled, else the printed unit; kept when the book a share is
-  // within a third and three times the last one known.
-  const fp = pick(pages.filter((p) => !out.basis || basisOf(p.title) === out.basis || basisOf(p.title) == null), "financial position", (p) => p.totalEquity != null && p.totalEquity > 0);
+  // Book value: the same basis as the profit where there is one; never a
+  // figure equal to total assets (that is the "total equity and liabilities"
+  // line); the scale the profit settled, else the printed unit; kept when the
+  // book a share is within a third and three times the last one known, and
+  // within 30% of the server's own when that is under nine months older.
+  const sameAsAssets = (p: PageRead) => p.totalAssets != null && p.totalEquity != null && Math.abs(p.totalEquity - p.totalAssets) <= Math.abs(p.totalAssets) * 0.001;
+  const fps = pages.filter((p) => !out.basis || basisOf(p.title) === out.basis || basisOf(p.title) == null);
+  if (fps.some((p) => p.statement === "financial position" && sameAsAssets(p))) checks.push("A total-assets line was read as equity: left out.");
+  const fp = pick(fps.filter((p) => !sameAsAssets(p)), "financial position", (p) => p.totalEquity != null && p.totalEquity > 0);
   if (fp && ctx.sharesNow) {
     const s = (fp.unitText && pl?.unitText && fp.unitText.replace(/\s/g, "") === pl.unitText.replace(/\s/g, "") ? scale : null) ?? scaleOf(fp.unitText) ?? scale;
     const tries = [...new Set([s, 1e3, 1, 1e6].filter((x): x is number => x != null))];
@@ -91,8 +100,16 @@ export function settleFigures(pages: PageRead[], ctx: { sharesNow: number | null
       return ctx.lastBvps != null && ctx.lastBvps > 0 ? b / ctx.lastBvps >= 1 / 3 && b / ctx.lastBvps <= 3 : x === s && b >= 1 && b <= 100000;
     };
     const x = tries.find(fits);
-    if (x != null) out.equity = fp.totalEquity! * x;
-    else checks.push(`Equity ${fp.totalEquity} left out: its scale is unclear.`);
+    const at = okDate(fp.periodEnd) ? fp.periodEnd : out.periodEnd;
+    const recent = ctx.lastEquity != null && ctx.lastEquity > 0 && ctx.lastEquityAt && at && at >= ctx.lastEquityAt && Date.parse(at) - Date.parse(ctx.lastEquityAt) < 270 * 86400000;
+    if (x == null) checks.push(`Equity ${fp.totalEquity} left out: its scale is unclear.`);
+    else if (recent && Math.abs((fp.totalEquity! * x) / ctx.lastEquity! - 1) > 0.3) checks.push(`Equity ${fp.totalEquity} left out: far from the ${ctx.lastEquityAt} figure.`);
+    else {
+      out.equity = fp.totalEquity! * x;
+      // The revaluation surplus inside it, which the book a share leaves out.
+      const rv = fp.revaluationSurplus;
+      if (rv != null && rv > 0 && rv < fp.totalEquity!) out.revaluation = rv * x;
+    }
   }
   return out;
 }

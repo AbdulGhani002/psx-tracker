@@ -109,7 +109,7 @@ async function main() {
             if (res.ok) {
               console.log(`${item.symbol}: reading ${newest.title} (${newest.date})`);
               const last = [...input.annual].filter((a) => a.eps != null).sort((a, b) => a.fiscalYear - b.fiscalYear).pop();
-              const ctx = { sharesNow: input.sharesNow, lastEps: last?.eps ?? null, lastBvps: input.equity && input.sharesNow ? input.equity / input.sharesNow : null };
+              const ctx = { sharesNow: input.sharesNow, lastEps: last?.eps ?? null, lastBvps: input.equity && input.sharesNow ? input.equity / input.sharesNow : null, lastEquity: input.equity, lastEquityAt: input.equityAt };
               got = { ...(await readFiling(new Uint8Array(await res.arrayBuffer()), ctx, console.log)), date: newest.date, title: newest.title, url: newest.pdfUrl! };
               read++;
             }

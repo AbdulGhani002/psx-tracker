@@ -18,6 +18,7 @@ export type ResultFigures = {
   // Read from its statements by the home machine's model (lib/valuation/read-filing.ts):
   epsPrior?: number | null; // the same period a year before
   equity?: number | null; // rupees, at periodEnd
+  revaluation?: number | null; // rupees: the revaluation surplus within equity
   basis?: "unconsolidated" | "consolidated" | null;
   source?: "text" | "model";
   checks?: string[];
@@ -81,12 +82,28 @@ export function parseResultFigures(pages: string[][]): ResultFigures {
   const unit = statementUnit(lines);
   const pat = figureAfter(lines, /profit\s*(\/\s*\(loss\)\s*)?(for the (year|period)\s*)?after\s+tax(ation)?/i, true);
   // "a final cash dividend of Rs. 5.00 per share i.e. 50%", or the percent alone.
-  let dps: number | null = null;
-  const d = text.match(/cash dividend[^.]{0,80}?rs\.?\s*([\d.]+)\s*(\/-)?\s*per share/i) ?? text.match(/rs\.?\s*([\d.]+)\s*(\/-)?\s*per share[^.]{0,40}cash dividend/i);
-  if (d) dps = Number(d[1]);
-  else {
-    const p = text.match(/cash dividend[^.]{0,80}?@?\s*([\d.]+)\s*%/i) ?? text.match(/([\d.]+)\s*%[^.]{0,30}cash dividend/i);
-    if (p) dps = (Number(p[1]) / 100) * 10;
-  }
+  const dps = dividendOf(text);
   return { period, periodEnd, eps, profit: pat != null ? pat * unit : null, dps: dps != null && Number.isFinite(dps) && dps > 0 ? dps : null, text: true };
+}
+
+// The cash dividend a letter declares, in rupees a share, from the first
+// mention that gives one (the company's own; a review further on often
+// quotes its investees'): "125% of the face value of Re.1/- per share i.e.
+// Rs.1.25" is 1.25; "Rs. 3.5 per share i.e. 35%" is 3.5; a percent alone is
+// of the face value printed, Rs 10 where none is.
+export function dividendOf(text: string): number | null {
+  const t = text.replace(/\s+/g, " ");
+  const face = Number(t.match(/face value of\s*(?:rs|re|pkr)\.?\s*(\d+(?:\.\d+)?)/i)?.[1] ?? 10);
+  for (const m of t.matchAll(/cash dividend/gi)) {
+    const w = t.slice(m.index! + m[0].length, m.index! + m[0].length + 200);
+    const restated = w.match(/\bi\.?\s*e\.?,?\s*(?:rs|re|pkr)\.?\s*(\d+(?:\.\d+)?)/i);
+    if (restated) return Number(restated[1]);
+    for (const r of w.matchAll(/(?:rs|re|pkr)\.?\s*(\d+(?:\.\d+)?)\s*(?:\/-)?\s*per share/gi)) {
+      if (/face value of\s*$/i.test(w.slice(0, r.index!))) continue;
+      return Number(r[1]);
+    }
+    const pct = w.match(/@?\s*(\d+(?:\.\d+)?)\s*%/);
+    if (pct) return (Number(pct[1]) / 100) * face;
+  }
+  return null;
 }

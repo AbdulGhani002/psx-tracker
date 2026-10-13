@@ -6,8 +6,9 @@
 //   level); a newer annual results filing counts as the latest year, a newer
 //   part-year one makes a trailing year;
 //   D1: the cash paid over the last year;
-//   BVPS: equity from the latest balance sheet (the filing's where newer)
-//   over today's shares; ROE from the two;
+//   BVPS: equity from the latest balance sheet (the filing's where newer),
+//   less any revaluation surplus the filing shows, over today's shares; ROE
+//   from the two;
 //   g: the EPS trend, at most 10%; the engine holds it further;
 //   the business type from the sector, the policy from the quality grade.
 // The owner's own judgements on the version before (governance and its
@@ -93,14 +94,18 @@ export function draftFrom(i: DraftInput): Draft {
   const yearAgo = new Date(Date.parse(i.today + "T00:00:00Z") - 365 * 86400000).toISOString().slice(0, 10);
   const paid = i.cashDividends.filter((d) => d.date > yearAgo && d.date <= i.today && d.cash > 0);
   const dps = paid.length ? paid.reduce((s, d) => s + d.cash, 0) : f?.dps ?? null;
-  // The filing's own book where it is newer than the one the server holds.
+  // The filing's own book where it is newer than the one the server holds,
+  // and the revaluation surplus it shows left out of the book a share where
+  // the filing's date is the book's.
   let equity = i.equity, equityAt = i.equityAt;
   if (f?.equity != null && f.equity > 0 && f.periodEnd && (!equityAt || f.periodEnd > equityAt)) {
     equity = f.equity;
     equityAt = f.periodEnd;
     notes.push(`Book from the filing of ${f.date}.`);
   }
-  const bvps = equity != null && equity > 0 && i.sharesNow ? equity / i.sharesNow : null;
+  const surplus = f?.revaluation != null && f.revaluation > 0 && f.periodEnd === equityAt && equity != null && f.revaluation < equity ? f.revaluation : null;
+  if (surplus != null) notes.push(`Book leaves out the revaluation surplus of Rs ${Math.round(surplus / 1e6).toLocaleString("en-US")}m.`);
+  const bvps = equity != null && equity > 0 && i.sharesNow ? (equity - (surplus ?? 0)) / i.sharesNow : null;
   const roe = eps != null && bvps != null && bvps > 0 ? (eps / bvps) * 100 : null;
   if (bvps == null) notes.push("No balance sheet read: P/B and earnings power wait for one.");
 
@@ -140,7 +145,7 @@ export function draftFrom(i: DraftInput): Draft {
       equityAt,
       sharesNow: i.sharesNow,
       grade: i.grade,
-      filing: f ? { date: f.date, title: f.title, url: f.url, period: f.period, periodEnd: f.periodEnd, eps: f.eps, epsPrior: f.epsPrior ?? null, profit: f.profit, equity: f.equity ?? null, dps: f.dps, basis: f.basis ?? null, source: f.source ?? "text", checks: f.checks ?? [], readable: f.text } : null,
+      filing: f ? { date: f.date, title: f.title, url: f.url, period: f.period, periodEnd: f.periodEnd, eps: f.eps, epsPrior: f.epsPrior ?? null, profit: f.profit, equity: f.equity ?? null, revaluation: f.revaluation ?? null, dps: f.dps, basis: f.basis ?? null, source: f.source ?? "text", checks: f.checks ?? [], readable: f.text } : null,
     },
   };
 }

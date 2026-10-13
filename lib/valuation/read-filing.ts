@@ -1,12 +1,18 @@
 // On the home machine only (scripts/dps-push.ts): a results filing read by the
 // model running there under Ollama. The cover letter's own text gives the
 // period and the dividend (lib/prices/results.ts). Each statement page goes
-// to the model, as its text where it has one and as the scanned image where
-// it has none, and the model copies what the page prints; the figures are
-// settled and checked in lib/valuation/figures.ts. With no model running, the
-// text alone is read, and a scanned filing gives nothing but its letter.
-//   OLLAMA_URL (http://127.0.0.1:11434), VALUATION_MODEL (qwen3.5:9b)
+// to the model, as its text where it has one and as a picture of the page
+// where it has none (scripts/render-pages.py renders it whole, the right way
+// up; without Python, the largest picture in it), and the model copies what
+// the page prints; the figures are settled and checked in
+// lib/valuation/figures.ts. With no model running, the text alone is read,
+// and a scanned filing gives nothing but its letter.
+//   OLLAMA_URL (http://127.0.0.1:11434), VALUATION_MODEL (qwen3.5:9b), PYTHON (python)
 
+import { spawnSync } from "node:child_process";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import sharp from "sharp";
 import { extractImages, getDocumentProxy } from "unpdf";
 import { extractLines } from "@/lib/pdf/pos-text";
@@ -30,10 +36,12 @@ const SCHEMA = {
     netProfitPrior: { type: ["number", "null"] },
     eps: { type: ["number", "null"] },
     epsPrior: { type: ["number", "null"] },
+    totalAssets: { type: ["number", "null"] },
     totalEquity: { type: ["number", "null"] },
+    revaluationSurplus: { type: ["number", "null"] },
     shareCapital: { type: ["number", "null"] },
   },
-  required: ["title", "unitText", "statement", "periodEnd", "periodMonths", "netProfit", "netProfitPrior", "eps", "epsPrior", "totalEquity", "shareCapital"],
+  required: ["title", "unitText", "statement", "periodEnd", "periodMonths", "netProfit", "netProfitPrior", "eps", "epsPrior", "totalAssets", "totalEquity", "revaluationSurplus", "shareCapital"],
 };
 
 const PROMPT = `This is one page of a Pakistani listed company's financial results. Copy what it prints; do not work anything out.
@@ -43,7 +51,10 @@ const PROMPT = `This is one page of a Pakistani listed company's financial resul
 - periodEnd: the end of the current period, yyyy-mm-dd; "" if none. periodMonths: its length (12 for a year); where a page has both quarter and cumulative columns, the cumulative.
 - netProfit and netProfitPrior: profit or loss after tax for the period, attributable to the owners where split, current period and the comparative period. Brackets mean negative.
 - eps and epsPrior: basic earnings per share, the total line (not "from continuing operations"), current and comparative.
-- totalEquity: total equity at the current date; shareCapital: issued, subscribed and paid-up capital at the current date.
+- totalAssets: total assets at the current date.
+- totalEquity: the company's own equity at the current date: its "Total equity" line, or where there is none, the subtotal of share capital and reserves. Never "total equity and liabilities", which equals total assets.
+- revaluationSurplus: the surplus on revaluation of property, plant and equipment (or of fixed assets) at the current date, where the page prints one.
+- shareCapital: issued, subscribed and paid-up capital at the current date.
 Use the cumulative columns where a page has both. Numbers as printed without commas. null for anything the page does not print.`;
 
 async function ask(content: string, image: string | null): Promise<Omit<PageRead, "page" | "source"> | null> {
@@ -80,6 +91,29 @@ export async function modelReady(): Promise<boolean> {
   }
 }
 
+// Whole pages as JPEGs, from PyMuPDF; null where Python or it is missing.
+function renderPages(bytes: Uint8Array, pages: number[]): Map<number, string> | null {
+  if (!pages.length) return new Map();
+  const dir = mkdtempSync(join(tmpdir(), "psx-filing-"));
+  try {
+    const file = join(dir, "filing.pdf");
+    writeFileSync(file, bytes);
+    const r = spawnSync(process.env.PYTHON || "python", ["-I", join(process.cwd(), "scripts", "render-pages.py"), file, pages.join(",")], { encoding: "utf8", maxBuffer: 256 * 1024 * 1024, timeout: 180_000 });
+    if (r.status !== 0) return null;
+    const out = new Map<number, string>();
+    for (const line of r.stdout.split("\n")) {
+      if (!line.trim()) continue;
+      const j = JSON.parse(line);
+      out.set(j.page, j.jpg);
+    }
+    return out;
+  } catch {
+    return null;
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
 // The largest picture on a page, as a JPEG the model can take.
 async function pageImage(pdf: any, n: number): Promise<string | null> {
   const imgs = await extractImages(pdf, n).catch(() => []);
@@ -92,23 +126,27 @@ async function pageImage(pdf: any, n: number): Promise<string | null> {
   return jpg.toString("base64");
 }
 
-export async function readFiling(bytes: Uint8Array, ctx: { sharesNow: number | null; lastEps: number | null; lastBvps: number | null }, log: (s: string) => void = () => {}): Promise<ResultFigures> {
+export async function readFiling(bytes: Uint8Array, ctx: Parameters<typeof settleFigures>[1], log: (s: string) => void = () => {}): Promise<ResultFigures> {
   const lines = await extractLines(bytes.slice());
   const letter = parseResultFigures(lines);
   if (!(await modelReady())) return { ...letter, source: "text", checks: [`The model (${MODEL}) is not running here: the text alone was read.`] };
 
   const pdf = await getDocumentProxy(bytes.slice());
+  const last = Math.min(pdf.numPages, MAX_PAGES);
+  const textOf = (n: number) => (lines[n - 1] ?? []).join("\n");
+  const scanned = Array.from({ length: last }, (_, k) => k + 1).filter((n) => textOf(n).replace(/\s/g, "").length <= 200);
+  const rendered = renderPages(bytes, scanned);
   const reads: PageRead[] = [];
   const t0 = Date.now();
-  for (let n = 1; n <= Math.min(pdf.numPages, MAX_PAGES); n++) {
-    const text = (lines[n - 1] ?? []).join("\n");
+  for (let n = 1; n <= last; n++) {
+    const text = textOf(n);
     let got: Omit<PageRead, "page" | "source"> | null = null;
     let source: PageRead["source"] = "text";
     if (text.replace(/\s/g, "").length > 200) {
       if (!STATEMENT.test(text)) continue;
       got = await ask(`${PROMPT}\n\nThe page's text:\n${text.slice(0, 12000)}`, null).catch(() => null);
     } else {
-      const image = await pageImage(pdf, n);
+      const image = rendered?.get(n) ?? (await pageImage(pdf, n));
       if (!image) continue;
       source = "image";
       got = await ask(PROMPT, image).catch(() => null);
@@ -128,6 +166,7 @@ export async function readFiling(bytes: Uint8Array, ctx: { sharesNow: number | n
     epsPrior: s.epsPrior ?? null,
     profit: s.profit ?? null,
     equity: s.equity ?? null,
+    revaluation: s.revaluation ?? null,
     basis: s.basis,
     dps: letter.dps,
     text: letter.text || reads.length > 0,

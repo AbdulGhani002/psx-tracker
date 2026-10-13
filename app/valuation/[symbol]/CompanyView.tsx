@@ -50,7 +50,7 @@ function FilingRead({ f }: { f: any }) {
     <p className="text-[12px] text-muted mt-1">
       Read from <a href={f.url} className="link-underline" target="_blank" rel="noreferrer">{f.title}</a> ({f.date}){f.source === "model" ? " by your PC's model" : ""}
       {got
-        ? `: ${f.period ?? "period"} to ${f.periodEnd ?? "?"}${f.basis ? `, ${f.basis}` : ""}, EPS ${f.eps ?? "—"}${f.epsPrior != null ? ` (${f.epsPrior} a year before)` : ""}${f.equity != null ? `, equity Rs ${Math.round(f.equity / 1e6).toLocaleString("en-US")}m` : ""}, dividend ${f.dps ?? "—"}.`
+        ? `: ${f.period ?? "period"} to ${f.periodEnd ?? "?"}${f.basis ? `, ${f.basis}` : ""}, EPS ${f.eps ?? "—"}${f.epsPrior != null ? ` (${f.epsPrior} a year before)` : ""}${f.equity != null ? `, equity Rs ${Math.round(f.equity / 1e6).toLocaleString("en-US")}m` : ""}${f.revaluation != null ? ` (revaluation Rs ${Math.round(f.revaluation / 1e6).toLocaleString("en-US")}m)` : ""}, dividend ${f.dps ?? "—"}.`
         : ": nothing could be read; check it yourself."}
       {f.checks?.length > 0 && <span className="block">{f.checks.join(" ")}</span>}
     </p>

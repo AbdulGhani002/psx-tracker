@@ -234,7 +234,7 @@ export async function draftPlan(): Promise<PlanItem[]> {
   const known = new Map<string, KnownFiling>();
   for (const d of read) {
     const f = d.evidence.filing;
-    if (!known.has(d.symbol)) known.set(d.symbol, { date: f.date, title: f.title ?? "", url: f.url, period: f.period ?? null, periodEnd: f.periodEnd ?? null, eps: f.eps ?? null, epsPrior: f.epsPrior ?? null, profit: f.profit ?? null, equity: f.equity ?? null, dps: f.dps ?? null, basis: f.basis ?? null, source: f.source ?? "text", checks: f.checks ?? [], text: !!f.readable });
+    if (!known.has(d.symbol)) known.set(d.symbol, { date: f.date, title: f.title ?? "", url: f.url, period: f.period ?? null, periodEnd: f.periodEnd ?? null, eps: f.eps ?? null, epsPrior: f.epsPrior ?? null, profit: f.profit ?? null, equity: f.equity ?? null, revaluation: f.revaluation ?? null, dps: f.dps ?? null, basis: f.basis ?? null, source: f.source ?? "text", checks: f.checks ?? [], text: !!f.readable });
   }
   for (const o of out) o.knownFiling = known.get(o.symbol) ?? null;
   return out;
