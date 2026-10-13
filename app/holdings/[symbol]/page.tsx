@@ -11,13 +11,11 @@ import { Button } from "@/components/ui/Button";
 import { CompoundingModelLazy as CompoundingModel } from "@/components/model/CompoundingModelLazy";
 import { HoldingSettings } from "./HoldingSettings";
 import { HoldingPlaybook } from "./HoldingPlaybook";
-import { ValuationDerivation } from "./ValuationDerivation";
 import { HoldingTransactions } from "./HoldingTransactions";
 import { DividendOverride } from "./DividendOverride";
 import { LookThroughPanel } from "./LookThroughPanel";
 import { BuyWhatIf } from "./BuyWhatIf";
 import { TrimWhatIf } from "./TrimWhatIf";
-import { DisclosedModelEditor } from "./DisclosedModelEditor";
 import { SellPlanPanel } from "./SellPlanPanel";
 import { EventRecordCard } from "./EventRecordCard";
 import { getEventRecord } from "@/lib/quant/event-record";
@@ -25,8 +23,6 @@ import { buildLots } from "@/lib/calculations/lots";
 import { currentTaxYear } from "@/lib/dates";
 import { getSellDiscipline, getDecisionsFor } from "@/lib/data-decisions";
 import { knownHoldingCompany } from "@/lib/holding-companies";
-import { FootballField } from "@/components/charts/FootballField";
-import { ZoneBar } from "@/components/charts/ZoneBar";
 import {
   getHoldingBySymbol,
   getTransactionsBySymbol,
@@ -34,8 +30,8 @@ import {
   getPortfolioSummary,
   getLookThroughFor,
   getMarketContext,
-  getIntrinsicValuations,
- getAppSettings,} from "@/lib/data";
+  getAppSettings,
+} from "@/lib/data";
 import { deriveFromTransactions } from "@/lib/calculations";
 import {
   fmtRs,
@@ -59,14 +55,13 @@ export default async function HoldingDetail(props: Props) {
   const params = await props.params;
   const symbol = params.symbol.toUpperCase();
   // Fire every independent fetch at once instead of eight serial round-trips.
-  const [holding, transactions, lookThrough, market, prices, summary, intrinsicAll, usdPkr, settings, usdRates] = await Promise.all([
+  const [holding, transactions, lookThrough, market, prices, summary, usdPkr, settings, usdRates] = await Promise.all([
     getHoldingBySymbol(symbol),
     getTransactionsBySymbol(symbol),
     getLookThroughFor(symbol).catch(() => null),
     getMarketContext(symbol).catch(() => null),
     getCurrentPrices([symbol]),
     getPortfolioSummary(),
-    getIntrinsicValuations().catch(() => null),
     getUsdPkr(),
     getAppSettings(),
     getUsdPkrSeries(),
@@ -76,7 +71,6 @@ export default async function HoldingDetail(props: Props) {
   const currentPrice = prices.get(symbol) ?? 0;
   const derived = deriveFromTransactions(transactions);
   const currentPercent = summary.positions.find((p) => p.symbol === symbol)?.currentPercent ?? 0;
-  const intrinsic = intrinsicAll?.items.find((i) => i.symbol === symbol) ?? null;
   const marketValue = derived.shares * currentPrice;
   const unrealizedPL = marketValue - derived.totalCost;
   const unrealizedPct = derived.totalCost > 0 ? unrealizedPL / derived.totalCost : 0;
@@ -213,56 +207,6 @@ export default async function HoldingDetail(props: Props) {
       >
         <HoldingTransactions transactions={transactions} />
       </Section>
-
-      {intrinsic && intrinsic.intrinsic != null && (
-        <Section
-          number="02"
-          title="Intrinsic value & buying zone"
-          display={
-            intrinsic.zone === "strong buy" || intrinsic.zone === "buy"
-              ? "In a buying zone."
-              : intrinsic.zone === "expensive"
-              ? "Above fair value."
-              : "Around fair value."
-          }
-          description="What this share is worth, and the price below which it becomes a buy. Models are chosen to fit the BUSINESS — a bank is valued on the return it earns on its book, not on discounted earnings — and the margin of safety is scaled to this stock's own volatility. The full working is below."
-          action={
-            <Link href={`/intrinsic#${symbol}`} className="font-mono text-[11px] uppercase tracking-stat text-muted hover:text-[var(--accent-deep)]">
-              Full analysis →
-            </Link>
-          }
-        >
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-5">
-            <Stat label="Live price" value={fmtRs(intrinsic.price, true)} />
-            <Stat label="Intrinsic value" value={fmtRs(intrinsic.intrinsic, true)} hint={intrinsic.low != null && intrinsic.high != null ? `range ${fmtRs(intrinsic.low, true)}–${fmtRs(intrinsic.high, true)}` : undefined} />
-            <Stat
-              label="Margin of safety"
-              value={intrinsic.marginOfSafetyPct == null ? "—" : `${intrinsic.marginOfSafetyPct >= 0 ? "+" : ""}${intrinsic.marginOfSafetyPct.toFixed(0)}%`}
-              tone={intrinsic.marginOfSafetyPct != null && intrinsic.marginOfSafetyPct >= 0 ? "positive" : "negative"}
-            />
-            <Stat label="Buy below" value={intrinsic.buyBelow == null ? "—" : fmtRs(intrinsic.buyBelow, true)} tone="positive" hint={intrinsic.strongBuyBelow != null ? `strong buy ≤ ${fmtRs(intrinsic.strongBuyBelow, true)}` : undefined} />
-          </div>
-          <ZoneBar price={intrinsic.price} strongBuyBelow={intrinsic.strongBuyBelow} buyBelow={intrinsic.buyBelow} fairUpTo={intrinsic.fairUpTo} intrinsic={intrinsic.intrinsic} zone={intrinsic.zone} />
-          <div className="grid md:grid-cols-2 gap-6 mt-6">
-            <div>
-              <div className="label-cap mb-2">Valuation methods</div>
-              <FootballField methods={intrinsic.methods} price={intrinsic.price} intrinsic={intrinsic.intrinsic} />
-            </div>
-            <div>
-              <div className="label-cap mb-2">Why</div>
-              <ul className="space-y-2 text-[13px] text-muted">
-                {intrinsic.drivers.map((d, i) => (
-                  <li key={i} className="flex gap-2">
-                    <span style={{ color: "var(--accent-deep)" }}>—</span>
-                    <span>{d}</span>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          </div>
-          <ValuationDerivation intrinsic={intrinsic} />
-        </Section>
-      )}
 
       <Section
         number="02b"
@@ -404,7 +348,6 @@ export default async function HoldingDetail(props: Props) {
           fired={(disc?.firedRaw ?? []).map((t) => ({ type: t.type, message: t.message, severity: t.severity }))}
           spreadPct={disc?.spreadPct ?? null}
           netRiskFreeLabel={discipline?.netRiskFree.label ?? "risk-free"}
-          engineFv={{ low: intrinsic?.low ?? null, base: intrinsic?.intrinsic ?? null, high: intrinsic?.high ?? null }}
           initialPlan={{
             classification: h.plan?.classification ?? "",
             fvLow: h.plan?.fvLow ?? 0,
@@ -459,24 +402,6 @@ export default async function HoldingDetail(props: Props) {
             </div>
           </div>
         )}
-      </Section>
-
-      <Section
-        number="09"
-        title="Company's own valuation model"
-        display="The audited anchor."
-        description="If the annual report discloses the assumptions behind a fair value (a Level-3 model with its auditor's sign-off), transcribe them here with the citation. When set, the intrinsic blend weights it above every model of ours."
-      >
-        <DisclosedModelEditor
-          symbol={symbol}
-          initial={{
-            requiredReturnPct: h.disclosedValuation?.requiredReturnPct ?? 0,
-            growthPct: h.disclosedValuation?.growthPct ?? 0,
-            baseDps: h.disclosedValuation?.baseDps ?? 0,
-            source: h.disclosedValuation?.source ?? "",
-            asOf: h.disclosedValuation?.asOf ?? "",
-          }}
-        />
       </Section>
 
       {peers.length > 1 && (

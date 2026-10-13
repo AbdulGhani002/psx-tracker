@@ -98,7 +98,7 @@ export function DividendOverride({ symbol, initial, bookValuePerShare = 0 }: { s
           onChange={setBook}
           min={0}
           step={1}
-          hint="from the balance sheet (equity ÷ shares) — unlocks P/B + ROE on Valuation"
+          hint="from the balance sheet (equity ÷ shares) — unlocks P/B and ROE"
         />
       </div>
       <div className="flex items-center gap-3 mt-6 pt-4 border-t border-rule">

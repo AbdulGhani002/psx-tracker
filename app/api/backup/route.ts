@@ -11,7 +11,7 @@ import {
   TargetAllocationModel,
   DecisionLogModel,
   CashEntryModel,
-  WatchlistModel,
+  BuyListModel,
   MutualFundModel,
   SavingsAccountModel,
   AppSettingsModel,
@@ -28,7 +28,7 @@ export const dynamic = "force-dynamic";
 const COLLECTIONS: Array<{ name: string; model: any }> = [
   { name: "AppSettings", model: AppSettingsModel },
   { name: "TargetAllocation", model: TargetAllocationModel },
-  { name: "Watchlist", model: WatchlistModel },
+  { name: "BuyList", model: BuyListModel },
   { name: "Holding", model: HoldingModel },
   { name: "Transaction", model: TransactionModel },
   { name: "CashEntry", model: CashEntryModel },

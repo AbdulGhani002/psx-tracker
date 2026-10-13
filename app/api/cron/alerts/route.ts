@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { connectDb } from "@/lib/db";
 import { AlertLogModel, RateSnapshotModel } from "@/lib/models";
 import { appOrigin } from "@/lib/auth/mailer";
-import { getAppSettings, getPortfolioSummary, getAllHoldings, getUpcomingExDates, getAllUserIds, getIntrinsicValuations, getShariahStatus, getFeedSnapshot, saveFeedSnapshot, getNetWorth, getEffectiveInflationPct, getFixedIncomeValued } from "@/lib/data";
+import { getAppSettings, getPortfolioSummary, getAllHoldings, getUpcomingExDates, getAllUserIds, getShariahStatus, getFeedSnapshot, saveFeedSnapshot, getNetWorth, getEffectiveInflationPct, getFixedIncomeValued } from "@/lib/data";
 import { getUsdPkr } from "@/lib/fx";
 import { getPriceFreshness } from "@/lib/prices";
 import { getFlows, getEarningsCalendar } from "@/lib/analytics";
@@ -11,10 +11,10 @@ import { getDecisionInbox, getSellDiscipline } from "@/lib/data-decisions";
 import { runAsUser } from "@/lib/auth/current-user";
 import { uid } from "@/lib/auth/uid";
 import { sendTelegram } from "@/lib/notify/telegram";
-import { getWatchlist, watchedSymbols } from "@/lib/watchlist";
 import { getStrategy, getRatesPrefill } from "@/lib/strategy/data";
-import { kseStepMessage, maturityMessage, researchMessage } from "@/lib/strategy/alerts";
-import { valuationAlerts } from "@/lib/valuation/run";
+import { kseStepMessage, maturityMessage } from "@/lib/strategy/alerts";
+import { buyListAlerts } from "@/lib/buy-list/data";
+import { getIndexForecasts, weekMessage, weekMessageDue } from "@/lib/index-week/data";
 import { cronAuthorised } from "@/lib/auth/cron";
 
 export const dynamic = "force-dynamic";
@@ -26,7 +26,7 @@ type Candidate = { key: string; message: string };
 // Which alerts this user wants. Every candidate carries a key whose prefix
 // says what it is, so one filter at the end decides what goes out instead of
 // nine scattered conditions.
-const PRICE_KEYS = ["zone", "drift", "near-ceiling", "near-buy", "fipi", "kmi-drop", "sellsig", "research-buy", "research-sell", "val-signal", "val-trigger", "val-tbill"];
+const PRICE_KEYS = ["drift", "near-ceiling", "near-buy", "fipi", "kmi-drop", "sellsig", "buy-zone", "index-week"];
 
 function wanted(key: string, s: any): boolean {
   const prefix = key.split(":")[0];
@@ -38,7 +38,7 @@ function wanted(key: string, s: any): boolean {
 }
 
 // Scheduled timer hits this. Runs the alert check for EVERY user (each with
-// their own Telegram config, watchlist, holdings) and pushes deduped alerts.
+// their own Telegram config, buy list, holdings) and pushes deduped alerts.
 export async function POST(req: Request) {
   // Machine-only: a logged-in session must not reach this. See lib/auth/cron.ts.
   if (!(await cronAuthorised())) return NextResponse.json({ error: "forbidden" }, { status: 403 });
@@ -57,9 +57,8 @@ export async function POST(req: Request) {
   return NextResponse.json({ ok: true, users: userIds.length, sent });
 }
 
-// Checks watchlist target hits + rebalance drift + upcoming ex-dates for the
-// CURRENT user, pushing deduped Telegram alerts (each key fires at most once
-// per day, per user).
+// Checks buy-list tiers + rebalance drift + upcoming ex-dates and the rest for
+// the CURRENT user, pushing deduped Telegram alerts (each key fires once).
 async function runAlertsForCurrentUser(forceDigest = false) {
   const settings: any = await getAppSettings();
   const token = settings.telegramBotToken ?? "";
@@ -111,29 +110,13 @@ async function runAlertsForCurrentUser(forceDigest = false) {
     /* best-effort */
   }
 
-  // 4. Buying-zone entries: a held or watchlisted stock whose blended intrinsic
-  //    valuation says it's now in a buy zone. Keyed by month so a stock that
-  //    stays cheap doesn't ping every single day.
+  // 4. The buy list (lib/buy-list): a share whose day's low got to one of
+  //    its tiers on a closing file kept since the last run. Each tier once,
+  //    until it arms again.
   try {
-    const month = today.slice(0, 7);
-    const mine = new Set([...watchedSymbols(await getWatchlist()), ...summary.positions.filter((p) => p.shares > 0).map((p) => p.symbol)]);
-    const iv = await getIntrinsicValuations();
-    // A "buy zone" verdict is price ÷ intrinsic — if the price is a week-old
-    // fallback snapshot, the verdict is stale arithmetic, not a signal. Skip.
-    const freshness = await getPriceFreshness([...mine]);
-    for (const it of iv.items) {
-      if (!mine.has(it.symbol)) continue;
-      const f = freshness.get(it.symbol);
-      if (f && f.ageDays >= 7) continue;
-      if (it.zone === "strong buy" || it.zone === "buy") {
-        candidates.push({
-          key: `zone:${it.symbol}:${it.zone}:${month}`,
-          message: `🟢 <b>${it.symbol}</b> is in a ${it.zone.toUpperCase()} zone — Rs ${Number(it.price).toFixed(2)} vs intrinsic Rs ${Number(it.intrinsic).toFixed(0)}`,
-        });
-      }
-    }
+    for (const c of await buyListAlerts(await uid())) candidates.push(c);
   } catch {
-    /* valuations unavailable — skip */
+    /* no buy-list alert this run */
   }
 
   // 4.5 Plan proximity: your OWN pre-committed levels, approaching. The price
@@ -282,42 +265,22 @@ async function runAlertsForCurrentUser(forceDigest = false) {
         await AlertLogModel.create({ userId: me, dedupeKey: "kse-zone:armed", kind: "kse-zone", message: "" }).catch(() => {});
       } else if (newly.length > 0) {
         for (const t of newly.slice(0, -1)) await quiet(t);
-        candidates.push({ key: keyOf(newly[newly.length - 1]), message: `${kseStepMessage(s.plan, k, newly.map((t) => t.n), s.research.buys.slice(0, 5).map((r) => r.symbol))}\n   ${appOrigin()}/strategy` });
+        candidates.push({ key: keyOf(newly[newly.length - 1]), message: `${kseStepMessage(s.plan, k, newly.map((t) => t.n))}\n   ${appOrigin()}/strategy` });
       }
     }
   } catch {
     /* no zone alert this run */
   }
 
-  // The research (lib/strategy/picks.ts): a share of a ticked sector at its
-  // buy price (the model's top two-fifths, not dear), the five best ranked;
-  // a held share turning to sell, or reaching its take-profit price. Each
-  // again a week later at most, and only on a close under five days old.
+  // The model's week (lib/index-week): once the week's last close is in, the
+  // indexes' levels for the week ahead and how this week's range did.
   try {
-    const r = s?.research;
-    if (r?.asOf && Date.now() - Date.parse(r.asOf + "T00:00:00Z") < 5 * 86400000) {
-      const week = isoWeekKey(new Date());
-      for (const x of r.buys.filter((b) => b.buy.verdict === "buy" && !b.held).slice(0, 5)) {
-        candidates.push({ key: `research-buy:${x.symbol}:${week}`, message: researchMessage(x, "buy") });
-      }
-      for (const x of r.held) {
-        const v = x.sell?.verdict;
-        if (v === "sell" || (v === "take-profit" && x.price != null && x.sell!.sellAt != null && x.price >= x.sell!.sellAt)) {
-          candidates.push({ key: `research-sell:${x.symbol}:${v}:${week}`, message: researchMessage(x, v) });
-        }
-      }
-    }
+    const f = await getIndexForecasts();
+    const key = weekMessageDue(f);
+    const msg = f && key ? weekMessage(f, appOrigin()) : null;
+    if (key && msg) candidates.push({ key, message: msg });
   } catch {
-    /* no research alert this run */
-  }
-
-  // Valuations (lib/valuation/run.ts): a signal that moved on the latest close,
-  // a trigger that fired on it, the T-bill moving half a point or more, and
-  // drafts waiting for review.
-  try {
-    for (const c of await valuationAlerts(await uid())) candidates.push(c);
-  } catch {
-    /* no valuation alert this run */
+    /* no model message this run */
   }
 
   // A T-bill or sukuk maturing: a week before and the day before, with the

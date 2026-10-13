@@ -1,7 +1,7 @@
 // Single source of truth for the app version + changelog.
 // Bump APP_VERSION and prepend a CHANGELOG entry on every release.
 
-export const APP_VERSION = "11.20.0";
+export const APP_VERSION = "11.21.0";
 
 export const BUILD_DATE =
   process.env.NEXT_PUBLIC_BUILD_DATE ?? "";
@@ -17,6 +17,17 @@ export type ChangelogEntry = {
 
 // Reverse-chronological. Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: "11.21.0",
+    date: "2026-10-13",
+    title: "Buy list; the model shows the indexes only",
+    changes: [
+      "Buy list: add a share with up to six buy tiers. Telegram tells you after the close when its low reaches one.",
+      "Model: the KSE-100, KMI-30 and KSE-30 for the next week and month: likely range, buy and sell zones, and how often they held. A message every Friday.",
+      "Removed: Valuation, the sector watchlist, Strategy's Research and Model tabs, per-share calls and their alerts, the intrinsic value box, the daily per-share charts.",
+      "The server asks the exchange itself first and uses your PC's copy only when it is refused.",
+    ],
+  },
   {
     version: "11.20.0",
     date: "2026-10-13",

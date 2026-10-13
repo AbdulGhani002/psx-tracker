@@ -19,15 +19,10 @@
 //
 // The stored days are the record: a series pushed again from the archive, or
 // a day fetched late, is brought up to date on the next run from them. The
-// indices have no line in the file and are left as they are. Each action
-// found on the way is kept as an event (lib/models/ShareEvent): a cash
-// dividend with its yield, a bonus or a split, so the dividend record grows
-// by itself.
+// indices have no line in the file and are left as they are.
 
 import { connectDb } from "@/lib/db";
 import { FeedSnapshotModel } from "@/lib/models/FeedSnapshot";
-import { ShareEventModel } from "@/lib/models/ShareEvent";
-import { classifyAction } from "./events";
 import type { EodBar } from "@/lib/timeseries/psx-eod";
 import { weekdaysBetween, type DayRow } from "@/lib/timeseries/psx-history";
 import { fetchClosingSheet } from "@/lib/timeseries/dps-sheet";
@@ -172,13 +167,13 @@ async function lastBarsDate(): Promise<string | null> {
   return heads.length ? heads.map((h) => h.date).sort().pop()! : null;
 }
 
-export type ApplyResult = { days: string[]; series: number; appended: number; adjusted: string[]; gaps: string[]; latest: string | null; events: number };
+export type ApplyResult = { days: string[]; series: number; appended: number; adjusted: string[]; gaps: string[]; latest: string | null };
 
 // Brings every stored stock series up to the latest kept day.
 export async function applySheetsToBars(): Promise<ApplyResult> {
   await connectDb();
   const heads = await seriesHeads();
-  const out: ApplyResult = { days: [], series: 0, appended: 0, adjusted: [], gaps: [], latest: null, events: 0 };
+  const out: ApplyResult = { days: [], series: 0, appended: 0, adjusted: [], gaps: [], latest: null };
   if (heads.length === 0) return out;
   const oldest = heads.map((h) => h.date).sort()[0];
   const sheetDocs = (await FeedSnapshotModel.find({ key: { $gt: SHEET_PREFIX + oldest, $lt: SHEET_PREFIX + "~" } }).sort({ key: 1 }).lean()) as any[];
@@ -225,19 +220,9 @@ export async function applySheetsToBars(): Promise<ApplyResult> {
     for (const s of bySheet) {
       const row = s.row.get(h.symbol);
       if (!row) continue;
-      const before = bars[bars.length - 1].close;
       const r = appendSheetDay(bars, s.date, row, s.gap || unknownDaysBetween(bars[bars.length - 1].date, s.date, known) > 0);
       if (r !== "skipped") added++;
-      if (r === "adjusted") {
-        out.adjusted.push(`${h.symbol} ${s.date}`);
-        const a = classifyAction(before, row[6]);
-        await ShareEventModel.updateOne(
-          { symbol: h.symbol, date: s.date },
-          { $set: { kind: a.kind, cash: Math.round(a.cash * 100) / 100, yieldPct: a.kind === "cash" && before > 0 ? Math.round((a.cash / before) * 10000) / 100 : 0, ratioPct: Math.round(a.ratioPct * 10) / 10, source: "sheet" } },
-          { upsert: true }
-        ).catch(() => {});
-        out.events++;
-      }
+      if (r === "adjusted") out.adjusted.push(`${h.symbol} ${s.date}`);
     }
     if (added === 0) continue;
     await FeedSnapshotModel.updateOne(

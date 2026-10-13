@@ -1,12 +1,8 @@
-import { uid } from "@/lib/auth/uid";
-import { loadQuantSnapshot } from "@/lib/quant/store";
-import type { StoredReport } from "@/lib/quant/report";
+import { getIndexForecasts } from "@/lib/index-week/data";
 import { AnalysisView } from "./AnalysisView";
 
 export const dynamic = "force-dynamic";
 
 export default async function AnalysisPage() {
-  const userId = await uid();
-  const report = await loadQuantSnapshot<StoredReport>(`quant:report:${userId}`).catch(() => null);
-  return <AnalysisView report={report} />;
+  return <AnalysisView f={await getIndexForecasts().catch(() => null)} />;
 }

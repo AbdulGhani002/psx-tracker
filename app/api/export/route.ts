@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getIntrinsicValuations, getDividendForecast, getPortfolioSummary, getFbrPack } from "@/lib/data";
+import { getDividendForecast, getPortfolioSummary, getFbrPack } from "@/lib/data";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -19,9 +19,9 @@ function csv(rows: (string | number | null)[][]): string {
 
 const n = (v: number | null | undefined, d = 2) => (v == null || !Number.isFinite(v) ? "" : Number(v).toFixed(d));
 
-// GET /api/export?sheet=valuation|holdings|forecast -> CSV (opens in Excel)
+// GET /api/export?sheet=holdings|forecast|fbr -> CSV (opens in Excel)
 export async function GET(req: NextRequest) {
-  const sheet = req.nextUrl.searchParams.get("sheet") ?? "valuation";
+  const sheet = req.nextUrl.searchParams.get("sheet") ?? "holdings";
   let rows: (string | number | null)[][] = [];
   let name = sheet;
 
@@ -61,12 +61,7 @@ export async function GET(req: NextRequest) {
       rows.push([p.symbol, p.cadence, n(p.latestEps), n(p.appliedPayoutRatioPct, 0), n(p.declaredAnnualDps), n(p.forwardDpsAnnual), n(p.forwardYieldPct, 1), p.dividendCover == null ? "" : n(p.dividendCover, 1), n(p.expectedAnnualIncome, 0), p.sustainability, p.confidence]);
     }
   } else {
-    const { items } = await getIntrinsicValuations();
-    name = "valuation";
-    rows = [["Symbol", "Price", "Intrinsic", "Low", "High", "Margin of safety %", "Buy below", "Zone", "Confidence"]];
-    for (const v of items) {
-      rows.push([v.symbol, n(v.price), n(v.intrinsic), n(v.low), n(v.high), n(v.marginOfSafetyPct, 0), n(v.buyBelow), v.zone, v.confidence]);
-    }
+    return NextResponse.json({ error: "unknown sheet" }, { status: 400 });
   }
 
   const stamp = new Date().toISOString().slice(0, 10);

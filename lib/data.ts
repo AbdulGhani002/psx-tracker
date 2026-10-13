@@ -32,7 +32,6 @@ import { planDeployment, type DeployCandidate, type DeployPlan } from "./calcula
 import { summarisePortfolio, computeCashBalance, summarisePmexAccount, type PortfolioSummary, type CashSummary, type PmexAccountSummary, type PmexMovement } from "./calculations";
 import { forecastDividends, type DividendForecast } from "./calculations/dividend-forecast";
 import { computeSotp, deriveSharesOutstanding, type SotpResult } from "./calculations/sotp";
-import { computeIntrinsic, intrinsicSensitivity, normalizedEps, robustGrowthPct, sectorFairPE, type IntrinsicInputs, type IntrinsicResult, type Sensitivity } from "./calculations/intrinsic";
 import { analyzeConcentration, analyzeCorrelation, type ConcentrationResult, type CorrelationResult } from "./calculations/risk-analysis";
 import { fetchManyEod } from "./timeseries/psx-eod";
 import { fetchMarketWatch, indexLabel, isInIndex } from "./prices/marketwatch";
@@ -240,201 +239,6 @@ export async function getDividendForecast(): Promise<DividendForecast> {
   return forecastDividends(transactions, holdings, { fundamentals, prices: priceMap });
 }
 
-// Valuation across all held stocks. EPS from cached fundamentals, forward
-// dividend + growth from the forecast, book value from the (editable) holding
-// field, required return from the live SBP rate + your equity-premium setting.
-// (the old single-method valuation engine lived here — superseded by
-// computeIntrinsic/getIntrinsicValuations, which is now the ONLY fair value.)
-export type IntrinsicView = IntrinsicResult & {
-  name: string;
-  shares: number;
-  marketValue: number;
-  annualVolPct: number | null;
-  epsLatest: number | null;
-  epsNormalized: number | null;
-  sensitivity: Sensitivity[];
-  history: { date: string; close: number }[]; // downsampled EOD for the zone chart
-  inputs: IntrinsicInputs; // raw inputs so the page can re-run the model live
-};
-
-export type IntrinsicPage = {
-  items: IntrinsicView[];
-  requiredReturnPct: number;
-  sbpRatePct: number;
-  equityRiskPremiumPct: number;
-  fairPE: number;
-};
-
-// Annualised volatility (%) from a daily close series — the stock's own risk,
-// used to scale how big a margin of safety we demand.
-function annualisedVol(series: { close: number }[]): number | null {
-  const closes = series.map((p) => p.close).filter((c) => c > 0);
-  if (closes.length < 30) return null;
-  const recent = closes.slice(-250); // ~1 trading year
-  const rets: number[] = [];
-  for (let i = 1; i < recent.length; i++) rets.push(recent[i] / recent[i - 1] - 1);
-  if (rets.length < 20) return null;
-  const mean = rets.reduce((s, r) => s + r, 0) / rets.length;
-  const variance = rets.reduce((s, r) => s + (r - mean) ** 2, 0) / rets.length;
-  return Math.sqrt(variance) * Math.sqrt(252) * 100;
-}
-
-// Keep the chart light: take ~1 year and stride down to <=140 points.
-function downsample(series: { date: string; close: number }[], target = 140): { date: string; close: number }[] {
-  const year = series.slice(-252);
-  if (year.length <= target) return year;
-  const stride = Math.ceil(year.length / target);
-  const out = year.filter((_, i) => i % stride === 0);
-  if (out[out.length - 1] !== year[year.length - 1]) out.push(year[year.length - 1]);
-  return out;
-}
-
-// Intrinsic value, valuation methods, buying zones, sensitivity and a price
-// history for every holding. Heavy (EOD per symbol) → cached + cron-warmed.
-async function _getIntrinsicValuations(): Promise<IntrinsicPage> {
-  return cachedSnapshot("page:intrinsic", 90 * 60 * 1000, computeIntrinsicValuations);
-}
-
-async function computeIntrinsicValuations(): Promise<IntrinsicPage> {
-  const [holdings, settings, sbp] = await Promise.all([getAllHoldings(), getAppSettings(), getSbpRateSteps()]);
-  const held = holdings.filter((h) => h.currentShares > 0 && !h.parked);
-  const fairPE = (settings as any).defaultFairPE ?? 8;
-  const equityRiskPremiumPct = (settings as any).equityRiskPremiumPct ?? 6;
-  const sbpRatePct = policyRateOn(new Date().toISOString().slice(0, 10), sbp.steps) ?? 11;
-  const requiredReturnPct = sbpRatePct + equityRiskPremiumPct;
-  if (!held.length) return { items: [], requiredReturnPct, sbpRatePct, equityRiskPremiumPct, fairPE };
-
-  const syms = held.map((h) => h.symbol);
-  const [prices, funds, forecast, eod] = await Promise.all([
-    getCurrentPrices(syms),
-    getFundamentals(syms),
-    getDividendForecast(),
-    fetchManyEod(syms).catch(() => new Map()),
-  ]);
-  const profBySym = new Map(forecast.profiles.map((p) => [p.symbol, p]));
-
-  // Each share's own beta — so the required return is per-company, not one flat
-  // hurdle for a utility and a cyclical alike. Cached + shared across the loop.
-  const betaMap = await getBetaMap();
-
-  // Look-through NAV for holding companies (top-level only — fast).
-  const lookThroughs = new Map<string, LookThrough>();
-  await Promise.all(
-    held
-      .filter((h) => (h as any).lookThrough?.enabled)
-      .map(async (h) => {
-        const lt = await getLookThroughFor(h.symbol, { skipChildren: true }).catch(() => null);
-        if (lt && lt.navPerShare > 0) lookThroughs.set(h.symbol, lt);
-      })
-  );
-
-  const items: IntrinsicView[] = held
-    .map((h) => {
-      const price = prices.get(h.symbol) ?? 0;
-      const eps = funds[h.symbol]?.latestEps ?? null;
-      const prof = profBySym.get(h.symbol);
-      const series = (eod.get(h.symbol) as { date: string; close: number }[] | undefined) ?? [];
-      const annualVolPct = annualisedVol(series);
-
-      // Through-cycle earning power + multi-year growth from the EPS history, so
-      // one freak year can't distort the value (this was the MEBL problem).
-      const epsByYear = (funds[h.symbol]?.epsByYear ?? {}) as Record<number, number>;
-      const epsAsc = Object.keys(epsByYear)
-        .map(Number)
-        .sort((a, b) => a - b)
-        .map((y) => Number(epsByYear[y]))
-        .filter((e) => Number.isFinite(e));
-      const sector = (h as any).sector ?? "";
-      const fdata = funds[h.symbol];
-      const marginTrend = fdata?.marginTrendPct ?? null;
-
-      // Earning power = a blend of CURRENT (TTM) earnings and the through-cycle
-      // 3-yr average. The 3-yr average alone lags reality — it missed LUCK's
-      // earnings collapse and PTL's recovery. PSX's trailing P/E gives the TTM
-      // EPS (price ÷ P/E); we lean on it (60%) but floor it to the through-cycle
-      // number (40%, clamped to 0.4–2× of it) so a one-off spike can't dominate.
-      const throughCycle = normalizedEps(epsAsc) ?? eps;
-      const ttmEps = fdata?.peTtm != null && fdata.peTtm > 0 && price > 0 ? price / fdata.peTtm : null;
-      let epsNorm = throughCycle;
-      if (ttmEps != null && throughCycle != null && throughCycle > 0) {
-        const cappedTtm = Math.max(0.4 * throughCycle, Math.min(2.0 * throughCycle, ttmEps));
-        epsNorm = 0.6 * cappedTtm + 0.4 * throughCycle;
-      }
-      const rawGrowth = epsAsc.length >= 2 ? robustGrowthPct(epsAsc) : prof?.dividendGrowthPct ?? funds[h.symbol]?.epsGrowthPct ?? 0;
-      // Fade the trailing growth: windfall years (e.g. banks at 22% rates) don't
-      // persist, so we credit ~60% of it, capped — standard "growth fades" practice.
-      const growth = Math.max(-8, Math.min(15, rawGrowth * 0.6));
-      // Sector-aware fair P/E: a brewery monopoly, a bank and a power utility get
-      // very different multiples. Uses this stock's PSX sector + growth + margin
-      // trend + the rate.
-      const holdingFairPE = sectorFairPE(sector, growth, sbpRatePct, marginTrend ?? 0);
-
-      const inputs: IntrinsicInputs = {
-        symbol: h.symbol,
-        price,
-        eps,
-        normalizedEps: epsNorm,
-        epsGrowthPct: growth,
-        forwardDps: prof?.forwardDpsAnnual ?? 0,
-        dividendGrowthPct: growth,
-        sbpRatePct,
-        equityRiskPremiumPct,
-        fairPE: holdingFairPE,
-        aboveEarnings: prof?.aboveEarnings ?? false,
-        annualVolPct,
-        navPerShare: lookThroughs.get(h.symbol)?.navPerShare ?? null,
-        // The company's own audited fair-value assumptions, if we've recorded
-        // them from its accounts. Only pass a model that is actually filled in —
-        // a zeroed subdoc must stay null so the method reads "not applicable"
-        // rather than valuing the share at zero.
-        betaRaw: betaMap.get(h.symbol.toUpperCase()) ?? null,
-        disclosed: (() => {
-          const d = (h as any).disclosedValuation;
-          if (!d || !(d.baseDps > 0) || !(d.requiredReturnPct > 0)) return null;
-          return {
-            requiredReturnPct: d.requiredReturnPct,
-            growthPct: d.growthPct ?? 0,
-            baseDps: d.baseDps,
-            source: d.source ?? "",
-            asOf: d.asOf ?? "",
-          };
-        })(),
-        sector,
-        netMarginPct: fdata?.latestNetMarginPct ?? null,
-        marginTrendPct: marginTrend,
-        revenueGrowthPct: fdata?.revenueGrowthPct ?? null,
-        peTtm: fdata?.peTtm ?? null,
-        // Book value was being STORED and never read. For a bank it is the
-        // anchor the whole valuation hangs off, so without it the engine was
-        // reaching for earnings models that do not apply to one.
-        bookValuePerShare: (h as any).bookValuePerShare > 0 ? (h as any).bookValuePerShare : null,
-        // What the company actually pays out, derived from the forward dividend
-        // against through-cycle earning power. Retention is what funds a bank's
-        // book growth, so a guessed payout would guess the growth with it.
-        payoutRatio:
-          prof?.forwardDpsAnnual != null && epsNorm != null && epsNorm > 0
-            ? Math.max(0, Math.min(1, prof.forwardDpsAnnual / epsNorm))
-            : null,
-      };
-      const result = computeIntrinsic(inputs);
-      return {
-        ...result,
-        name: h.name,
-        shares: h.currentShares,
-        marketValue: price * h.currentShares,
-        annualVolPct,
-        epsLatest: eps,
-        epsNormalized: epsNorm,
-        sensitivity: intrinsicSensitivity(inputs),
-        history: downsample(series),
-        inputs,
-      };
-    })
-    .sort((a, b) => b.marketValue - a.marketValue);
-
-  return { items, requiredReturnPct, sbpRatePct, equityRiskPremiumPct, fairPE };
-}
-
 export type RiskAnalysis = {
   concentration: ConcentrationResult;
   correlation: CorrelationResult;
@@ -538,7 +342,6 @@ export async function cachedSnapshot<T>(key: string, ttlMs: number, compute: () 
 // runAsUser(...) scope on the cron, so the getters cache under per-user keys.
 export async function warmPageCaches(): Promise<Record<string, string>> {
   const jobs: Array<[string, () => Promise<unknown>]> = [
-    ["intrinsic", getIntrinsicValuations],
     ["riskMetrics", getRiskMetrics],
     ["riskAnalysis", getRiskAnalysis],
     ["todaysMovers", getTodaysMovers],
@@ -1821,7 +1624,6 @@ export async function getSparklines(symbols: string[]): Promise<Record<string, n
   }
 }
 
-export const getIntrinsicValuations = cache(_getIntrinsicValuations);
 
 export const getAllHoldings = cache(_getAllHoldings);
 // These three were each running TWICE per request: the page calls them and

@@ -4,9 +4,10 @@ import { FeedSnapshotModel } from "@/lib/models/FeedSnapshot";
 // Every request to the exchange's site (dps.psx.com.pk) goes through here, on
 // the server and on the home machine alike, so the site is asked as little
 // and as gently as possible:
-//   a page the home machine fetched and pushed (scripts/dps-push.ts, through
-//   /api/cron/dps-relay) within the last 26 hours is used instead of asking
-//   again (on the server, where the database is);
+//   the server asks the site itself first; only when the site refuses it, or
+//   while the gate rests, is a page the home machine fetched and pushed
+//   (scripts/dps-push.ts, through /api/cron/dps-relay) within the last 26
+//   hours used instead (on the server, where the database is);
 //   requests go one at a time, 3 to 9 seconds apart, chosen at random each
 //   time;
 //   once the site refuses (the connection closed on us, 403, 429), nothing is
@@ -105,19 +106,38 @@ export async function keepRelayedPages(pages: Record<string, { html: string; fet
   return n;
 }
 
-// One request to the site, in turn. A refusal rests the gate; a page that is
-// not there (404) or a slow answer does not. `relay: false` for what the home
-// machine never pushes (posts, files).
+// One request to the site, in turn: the site itself first, and the home
+// machine's copy of the page when the site refuses, fails or the gate rests.
+// A refusal rests the gate; a page that is not there (404) or a slow answer
+// does not. `relay: false` for what the home machine never pushes (posts,
+// files).
 export async function dpsFetch(url: string, init: RequestInit = {}, o: { relay?: boolean; timeoutMs?: number } = {}): Promise<Response> {
   const full = url.startsWith("http") ? url : DPS_ORIGIN + url;
   const path = full.startsWith(DPS_ORIGIN) ? full.slice(DPS_ORIGIN.length) : full;
   const method = (init.method ?? "GET").toUpperCase();
-  if (o.relay !== false && method === "GET") {
+  const relayed = async (): Promise<Response | null> => {
+    if (o.relay === false || method !== "GET") return null;
     const html = await relayedPage(path);
-    if (html != null) return new Response(html, { status: 200, headers: { "content-type": "text/html; charset=utf-8", "x-dps-relay": "1" } });
-  }
+    return html != null ? new Response(html, { status: 200, headers: { "content-type": "text/html; charset=utf-8", "x-dps-relay": "1" } }) : null;
+  };
   await readRest();
-  if (Date.now() < restUntil) throw new DpsRefused(restUntil);
+  if (Date.now() < restUntil) {
+    const r = await relayed();
+    if (r) return r;
+    throw new DpsRefused(restUntil);
+  }
+  try {
+    const res = await direct(full, path, init, o.timeoutMs);
+    if (res.status === 403 || res.status === 429) return (await relayed()) ?? res;
+    return res;
+  } catch (e) {
+    const r = await relayed();
+    if (r) return r;
+    throw e;
+  }
+}
+
+function direct(full: string, path: string, init: RequestInit, timeoutMs?: number): Promise<Response> {
   const run = chain.then(async () => {
     const wait = lastAt + between(GAP_MS) - Date.now();
     if (wait > 0) await new Promise((r) => setTimeout(r, wait));
@@ -128,7 +148,7 @@ export async function dpsFetch(url: string, init: RequestInit = {}, o: { relay?:
         ...rest0,
         headers: { ...(init.headers as Record<string, string> | undefined), "user-agent": DPS_UA },
         cache: "no-store",
-        signal: AbortSignal.timeout(o.timeoutMs ?? 20000),
+        signal: AbortSignal.timeout(timeoutMs ?? 20000),
       });
       if (res.status === 403 || res.status === 429) await rest(`HTTP ${res.status} on ${path}`);
       return res;

@@ -29,11 +29,10 @@ const PAGES: Item[] = [
   { id: "p-payouts", label: "Payouts", hint: "dividends, tax, zakat, yields", group: "Pages", href: "/portfolio?tab=payouts" },
   { id: "p-cash", label: "Cash", hint: "deposits, withdrawals, funds, savings, T-bills, sukuks", group: "Pages", href: "/portfolio?tab=cash" },
   { id: "p-cgt", label: "CGT", hint: "capital gains tax by tax year", group: "Pages", href: "/portfolio?tab=cgt" },
-  { id: "p-watchlist", label: "Watchlist", hint: "tick the shares and sectors you would buy", group: "Pages", href: "/watchlist" },
+  { id: "p-buy-list", label: "Buy list", hint: "shares and the prices you'd buy at, in tiers", group: "Pages", href: "/buy-list" },
   { id: "p-strategy", label: "Strategy", hint: "market phase, buying in steps, dry powder, monthly rates", group: "Pages", href: "/strategy" },
-  { id: "p-valuation", label: "Valuation", hint: "fair value, buy zones, assumptions, triggers", group: "Pages", href: "/valuation" },
   { id: "p-rebalance", label: "Rebalance", hint: "target allocation, deployment", group: "Pages", href: "/rebalance" },
-  { id: "p-analysis", label: "Model", hint: "the model's market read, verdicts and zones", group: "Pages", href: "/analysis" },
+  { id: "p-analysis", label: "Model", hint: "KSE-100, KMI-30 and KSE-30 levels for the week and month ahead", group: "Pages", href: "/analysis" },
   { id: "p-changelog", label: "Changelog", hint: "what changed, and why", group: "Pages", href: "/changelog" },
   { id: "p-settings", label: "Settings", hint: "portfolios, tax, alerts, backup", group: "Pages", href: "/settings" },
 ];

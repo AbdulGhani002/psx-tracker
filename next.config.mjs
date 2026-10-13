@@ -1,7 +1,5 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  // 13 Oct 2026: /valuation is a page again (lib/valuation: fair values from
-  // the owner's approved inputs), so it no longer redirects.
   async redirects() {
     return [
       // 14 Aug: the app was cut back to what Abdul actually uses — holdings,
@@ -16,6 +14,12 @@ const nextConfig = {
       // for sector-median PE. Only the screens are gone.
       // 11 Oct 2026: the swing trades page went; buying and selling are on
       // the strategy page.
+      // 13 Oct 2026: the valuation page, the sector watchlist and the model's
+      // full report went; the buy list keeps the shares and their prices.
+      { source: "/valuation", destination: "/buy-list", permanent: false },
+      { source: "/valuation/:symbol", destination: "/buy-list", permanent: false },
+      { source: "/watchlist", destination: "/buy-list", permanent: false },
+      { source: "/analysis/details", destination: "/analysis", permanent: false },
       { source: "/swing", destination: "/strategy", permanent: true },
       { source: "/log", destination: "/transactions", permanent: true },
       { source: "/model", destination: "/wealth", permanent: true },

@@ -80,15 +80,6 @@ const patchSchema = z.object({
     })
     .optional(),
   // The company's own audited fair-value assumptions, transcribed with citation.
-  disclosedValuation: z
-    .object({
-      requiredReturnPct: z.number().min(0).max(60).default(0),
-      growthPct: z.number().min(0).max(30).default(0),
-      baseDps: z.number().min(0).default(0),
-      source: z.string().max(300).default(""),
-      asOf: z.string().default(""),
-    })
-    .optional(),
   lookThrough: z
     .object({
       enabled: z.boolean().optional(),

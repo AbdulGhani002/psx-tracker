@@ -10,7 +10,6 @@ export { ScenarioProjectionModel, type ScenarioProjection } from "./ScenarioProj
 export { TargetAllocationModel, type TargetAllocation } from "./TargetAllocation";
 export { DecisionLogModel, type DecisionLog } from "./DecisionLog";
 export { CashEntryModel, type CashEntry, type CashEntryType, CASH_ENTRY_TYPES } from "./CashEntry";
-export { WatchlistModel, type Watchlist } from "./Watchlist";
 export { SbpRateModel, type SbpRate } from "./SbpRate";
 export { MutualFundModel, type MutualFund } from "./MutualFund";
 export { SavingsAccountModel, type SavingsAccount } from "./SavingsAccount";
@@ -27,8 +26,5 @@ export { PortfolioModel, type Portfolio } from "./Portfolio";
 export { AnnouncementModel, type Announcement } from "./Announcement";
 export { FixedIncomeModel, type FixedIncome } from "./FixedIncome";
 export { RateSnapshotModel, type RateSnapshot } from "./RateSnapshot";
-export { ShareSignalModel, type ShareSignal } from "./ShareSignal";
-export { ShareEventModel, type ShareEvent } from "./ShareEvent";
-export { ValuationAssumptionModel, type ValuationAssumption } from "./ValuationAssumption";
-export { ValuationRunModel, type ValuationRun } from "./ValuationRun";
-export { ValuationTriggerModel, type ValuationTrigger } from "./ValuationTrigger";
+export { BuyListModel, type BuyList } from "./BuyList";
+export { IndexForecastModel, type IndexForecast } from "./IndexForecast";

@@ -14,8 +14,6 @@ import { sendTelegramDocument, sendTelegram } from "@/lib/notify/telegram";
 import { sendEmail } from "@/lib/auth/mailer";
 import { getPlaybook } from "@/lib/plan";
 import { assembleWeeklyReport, buildWeeklyTex, weeklySummaryText, weeklyEmailHtml, weekOf } from "@/lib/statement/weekly";
-import { buildQuantReport, type QuantReport } from "@/lib/quant/report";
-import { quantEmailHtml, quantEmailAttachments } from "@/lib/quant/email";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -95,15 +93,6 @@ export async function POST(req: Request) {
       const filename = `weekly-plan-${data.weekKey}.pdf`;
       const caption = weeklySummaryText(data).slice(0, 1000);
 
-      // The charts and the model's long text. A failure here must not cost
-      // the plan its delivery.
-      let quant: QuantReport | null = null;
-      try {
-        quant = await buildQuantReport();
-      } catch (e) {
-        errors.push(`charts: ${String(e).slice(0, 160)}`);
-      }
-
       if (token && chatId && !emailOnly) {
         try {
           // No PDF is not a reason to stay silent about the week's action.
@@ -120,13 +109,7 @@ export async function POST(req: Request) {
       if (email) {
         try {
           const attachments: Array<{ filename: string; content: Buffer; contentId?: string }> = pdf ? [{ filename, content: pdf }] : [];
-          if (quant) attachments.push(...quantEmailAttachments(quant));
-          const ok = await sendEmail(
-            email,
-            `Weekly plan and charts — ${data.weekLabel}`,
-            weeklyEmailHtml(data) + (quant ? quantEmailHtml(quant) : ""),
-            attachments
-          );
+          const ok = await sendEmail(email, `Weekly plan — ${data.weekLabel}`, weeklyEmailHtml(data), attachments);
           if (ok) {
             emailSent++;
             delivered = true;

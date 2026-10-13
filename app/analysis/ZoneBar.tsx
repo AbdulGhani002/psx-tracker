@@ -1,5 +1,5 @@
-// A price line with the model's buy zone in green, its sell zone in red, the
-// stop as a red tick and today's price as a dot. Everything is placed as a
+// A price line with a buy zone in green, a sell zone in red, an optional stop
+// as a red tick and today's price as a dot. Everything is placed as a
 // percentage of a range that holds every level, so it reads the same at any
 // width; the numbers sit in a row under the line, never on it, so they cannot
 // collide on a phone.
@@ -60,22 +60,5 @@ export function ZoneBar({ price, buyLow, buyHigh, sellLow, sellHigh, stop, compa
         </span>
       </div>
     </div>
-  );
-}
-
-// The model's rank as ten pips: how many tenths of the market sit below it.
-export function ScoreMeter({ pctile }: { pctile: number | null }) {
-  if (pctile == null) return <span className="text-muted">–</span>;
-  const score = Math.max(1, Math.min(10, Math.ceil(pctile * 10)));
-  const tone = score >= 8 ? "var(--positive)" : score <= 3 ? "var(--negative)" : "var(--amber)";
-  return (
-    <span className="inline-flex items-center gap-1.5" title={`Model score ${score} of 10: better than ${Math.round(pctile * 100)}% of the market`}>
-      <span className="inline-flex gap-[2px]" aria-hidden>
-        {Array.from({ length: 10 }, (_, i) => (
-          <span key={i} className="w-[5px] h-3 rounded-[1.5px]" style={{ background: i < score ? tone : "var(--surface-3)" }} />
-        ))}
-      </span>
-      <span className="font-semibold mono-num" style={{ color: tone }}>{score}/10</span>
-    </span>
   );
 }

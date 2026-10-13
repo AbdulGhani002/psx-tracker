@@ -4,7 +4,7 @@
 //   npx tsx scripts/test-strategy.ts
 
 import { strategyPlan, phaseOf, type StrategyInput, type Rates } from "../lib/strategy/plan";
-import { kseStepMessage, maturityMessage, researchMessage } from "../lib/strategy/alerts";
+import { kseStepMessage, maturityMessage } from "../lib/strategy/alerts";
 
 let pass = 0, fail = 0;
 function check(name: string, cond: boolean, got?: unknown) {
@@ -65,7 +65,7 @@ check("without rates: no verdict, no parking, the steps say to enter them", noRa
 const p0 = strategyPlan(base);
 const m3 = kseStepMessage(p0, { level: 156_000, high: 200_000 }, [3]);
 check("zone message: the level, the fall, the zone and why", m3.includes("KSE-100 156,000</b>, 22% below its high: in buy zone 3 of 4, 160,000 (20% under the high)."), m3.split("\n")[0]);
-check("zone message: that zone's money, the buy list, the next zone", m3.includes(`Plan: invest Rs ${Math.round(p0.tranches[2].amount).toLocaleString("en-US")}.`) && m3.includes("Buy list: ") && m3.includes("Next zone: 140,000"), m3);
+check("zone message: that zone's money and the next zone, no single shares", m3.includes(`Plan: invest Rs ${Math.round(p0.tranches[2].amount).toLocaleString("en-US")}.`) && !m3.includes("Buy list") && m3.includes("Next zone: 140,000"), m3);
 const m23 = kseStepMessage(p0, { level: 156_000, high: 200_000 }, [2, 3]);
 check("two zones at once: both named, both zones' money", m23.includes("in buy zones 2 to 3 of 4") && m23.includes(`invest Rs ${Math.round(p0.tranches[1].amount + p0.tranches[2].amount).toLocaleString("en-US")}`));
 const full = strategyPlan({ ...base, book: { stocks: 1_000_000, equityFunds: 0, cashLike: 0, fixedIncome: 0 } });
@@ -76,12 +76,6 @@ check("maturity: when, what comes back, the rates to buy again at", mat.includes
 const tomorrow = maturityMessage({ name: "Sukuk <A&B>", face: 500_000, maturityDate: "2026-10-12", daysLeft: 1 }, rates, false);
 check("maturity tomorrow; rates flagged when not this month's; the name escaped", tomorrow.includes("Sukuk &lt;A&amp;B&gt;</b> matures tomorrow") && tomorrow.includes("Rates (not this month's): "), tomorrow);
 check("maturity without rates: no rates line", !maturityMessage({ name: "3M T-bill", face: 100_000, maturityDate: "2026-10-15", daysLeft: 4 }, null, false).includes("Rates"));
-
-const bahl = { symbol: "BAHL", price: 164.5, pctile: 0.83, pe: 5.9, fairPe: 6.4, zone: { buyLow: 160, buyHigh: 165 } };
-check("a share at its buy price: the zone, the model's score and its P/E against its usual", researchMessage(bahl, "buy") === "🟢 <b>BAHL</b> Rs 165: buy, zone 160–165 (model 9/10, P/E 5.9, usual 6.4).", researchMessage(bahl, "buy"));
-check("with its expected edge", researchMessage({ ...bahl, edge: 0.0183 }, "buy") === "🟢 <b>BAHL</b> Rs 165: buy, zone 160–165 (model 9/10, +1.8% in 3m vs market, P/E 5.9, usual 6.4).", researchMessage({ ...bahl, edge: 0.0183 }, "buy"));
-check("a held share to sell or take profit; a price under 100 keeps its paisa", researchMessage({ ...bahl, symbol: "PTL", price: 61.2, pctile: 0.12, fairPe: null }, "sell") === "🔴 <b>PTL</b> Rs 61.20: sell (model 2/10, P/E 5.9)." && researchMessage({ ...bahl, pctile: null, pe: null }, "take-profit") === "🟠 <b>BAHL</b> Rs 165: take profit.");
-check("the zone alert names the research's buy list when given", kseStepMessage(p0, { level: 156_000, high: 200_000 }, [3], ["BAHL", "FCCL"]).includes("Buy list: BAHL, FCCL"));
 
 console.log("\n" + pass + " passed, " + fail + " failed");
 if (fail > 0) process.exit(1);

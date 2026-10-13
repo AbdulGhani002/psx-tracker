@@ -1,22 +1,19 @@
 import { NextResponse } from "next/server";
 import { connectDb } from "@/lib/db";
-import { getAllUserIds } from "@/lib/data";
 import { cronAuthorised } from "@/lib/auth/cron";
-import { refreshCloses, rebuildUser, rebuiltThrough } from "@/lib/quant/daily";
-import { refreshMacroLive } from "@/lib/macro/live";
-import { runValuationsAll } from "@/lib/valuation/run";
+import { refreshCloses } from "@/lib/quant/daily";
+import { refreshIndexForecasts } from "@/lib/index-week/data";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 export const maxDuration = 900;
 
 // Machine-only, on weekdays after the close (psx-daily-close.timer): the
-// exchange's end-of-day file into the price series, then each user's reading,
-// then the strategy model's read of every share on the new close.
-// A user whose reading was already rebuilt on the latest close is skipped,
-// so the second run of the evening costs one request unless the first missed
-// the file. Body {force:true} rebuilds anyway; {from:"YYYY-MM-DD"}
-// fetches every weekday's file from that date that is not yet kept.
+// exchange's end-of-day file into the price series and the index series,
+// then the indexes' levels for the week and the month ahead (lib/index-week).
+// The buy list is moved on by the alerts job, from the same kept files.
+// Body {from:"YYYY-MM-DD"} fetches every weekday's file from that date that is
+// not yet kept; {force:true} works the levels out again anyway.
 export async function POST(req: Request) {
   if (!(await cronAuthorised())) return NextResponse.json({ error: "forbidden" }, { status: 403 });
   await connectDb();
@@ -24,31 +21,14 @@ export async function POST(req: Request) {
   const t0 = Date.now();
   const from = typeof body?.from === "string" && /^\d{4}-\d{2}-\d{2}$/.test(body.from) ? body.from : undefined;
   const { sheets, bars, indices } = await refreshCloses({ from });
-  const latest = bars.latest ?? sheets.latest;
-  const users = await getAllUserIds();
-  const results: Array<Record<string, unknown>> = [];
-  for (const id of users) {
-    const done = await rebuiltThrough(id);
-    if (body?.force !== true && done && latest && done >= latest) {
-      results.push({ user: id.slice(-6), skipped: `already rebuilt on ${done}` });
-      continue;
-    }
-    try {
-      results.push({ user: id.slice(-6), ...(await rebuildUser(id, latest)) });
-    } catch (e) {
-      results.push({ user: id.slice(-6), error: String(e instanceof Error ? e.message : e).slice(0, 200) });
-    }
-  }
-  const live = bars.appended > 0 || body?.force === true ? await refreshMacroLive().catch(() => null) : null;
-  const valuations = bars.appended > 0 || body?.force === true ? await runValuationsAll().catch(() => []) : [];
+  const changed = bars.appended > 0 || sheets.fetched.length > 0 || indices.some((i) => i.added > 0) || body?.force === true;
+  const forecasts = changed ? await refreshIndexForecasts().catch((e) => ({ error: String(e).slice(0, 200) })) : null;
   return NextResponse.json({
     ok: true,
     seconds: Math.round((Date.now() - t0) / 1000),
-    macroLive: live ? { asOf: live.asOf, shares: live.names.length, scored: live.names.filter((n) => n.score != null).length } : null,
-    valuations: valuations.map((v) => ({ user: v.user, date: v.date, valued: v.valued, changes: v.changes.length })),
     sheets,
     bars: { ...bars, days: bars.days.slice(-5), adjusted: bars.adjusted.slice(-20) },
     indices,
-    users: results,
+    forecasts: forecasts && "indexes" in forecasts ? { asOf: forecasts.asOf, indexes: forecasts.indexes.map((i) => `${i.code} ${i.date}`) } : forecasts,
   });
 }

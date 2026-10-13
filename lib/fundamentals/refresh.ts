@@ -1,31 +1,26 @@
 import "server-only";
 import { connectDb } from "@/lib/db";
-import { HoldingModel, FundamentalModel, WatchlistModel } from "@/lib/models";
+import { HoldingModel, FundamentalModel, BuyListModel } from "@/lib/models";
 import { fetchCompanyPage, parseFinancials } from "@/lib/prices/fundamentals";
 import { parseFilings } from "@/lib/prices/filings";
 import { fetchPayouts } from "@/lib/prices/payouts";
 import { fetchBalanceSheet, FILED_REPORT } from "@/lib/prices/balance-sheet";
 import { kse100Symbols } from "@/lib/quant/universe";
 import { refreshQualityInputs } from "@/lib/fundamentals/board";
-import { latestCloses } from "@/lib/quant/sheet-bars";
-import { listings } from "@/lib/watchlist";
 
 // Reading a company's page on the exchange for the quality and price figures
 // (lib/fundamentals/quality.ts): the nightly run (/api/cron/refresh-quality)
-// and the watchlist's Save, which reads the never-read shares of a newly
-// ticked sector at once.
+// and the pages the home machine hands over.
 
-// The KSE-100, every name held and every share of a sector someone watches.
+// The KSE-100, every name held and every share on someone's buy list.
 export async function qualityUniverse(): Promise<string[]> {
   await connectDb();
   const [held, uni, lists] = await Promise.all([
     HoldingModel.find({}, { symbol: 1 }).lean(),
     kse100Symbols().catch(() => ({ symbols: [] as string[] })),
-    WatchlistModel.find({}, { sectors: 1 }).lean(),
+    BuyListModel.find({}, { symbol: 1 }).lean(),
   ]);
-  const sectors = new Set((lists as any[]).flatMap((w) => w.sectors ?? []));
-  const watched = listings().filter((l) => sectors.has(l.sector)).map((l) => l.symbol);
-  return [...new Set([...(held as any[]).map((h) => h.symbol as string), ...uni.symbols, ...watched])];
+  return [...new Set([...(held as any[]).map((h) => h.symbol as string), ...uni.symbols, ...(lists as any[]).map((b) => b.symbol as string)])];
 }
 
 // When each name's page was last read (0 for never).
@@ -117,20 +112,3 @@ export async function readCompanies(symbols: string[], o: { lite?: boolean; rere
   return report;
 }
 
-// The watched shares that traded this week and whose page has never been
-// read, read page-only in the background (one run at a time in this
-// process). Returns how many it took.
-let reading: Promise<unknown> | null = null;
-export async function readNewlyWatched(max = 80): Promise<number> {
-  if (reading) return 0;
-  const [all, closes] = await Promise.all([qualityUniverse(), latestCloses().catch(() => new Map())]);
-  const seen = await lastRead(all);
-  const fresh = all.filter((s) => !seen.get(s) && closes.has(s)).slice(0, max);
-  if (fresh.length === 0) return 0;
-  reading = readCompanies(fresh, { lite: true })
-    .catch(() => null)
-    .finally(() => {
-      reading = null;
-    });
-  return fresh.length;
-}

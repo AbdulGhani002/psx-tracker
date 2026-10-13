@@ -75,7 +75,7 @@ export function BackupManager() {
           <div className="label-cap mb-2">Download</div>
           <p className="text-[13px] text-muted mb-3 max-w-[60ch]">
             Saves every collection (holdings, transactions including trash, dividends, cash,
-            funds, savings, commodities, settings, watchlist) to one JSON file. Keep it somewhere safe.
+            funds, savings, commodities, settings, buy list) to one JSON file. Keep it somewhere safe.
           </p>
           {/* A plain link works: the endpoint sends a download header and the
               browser reuses your login. */}

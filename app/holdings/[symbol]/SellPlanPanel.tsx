@@ -27,7 +27,6 @@ type Props = {
   fired: Array<{ type: string; message: string; severity: string }>;
   spreadPct: number | null;
   netRiskFreeLabel: string;
-  engineFv: { low: number | null; base: number | null; high: number | null }; // the app's own blend, offered as a starting point
   initialPlan: Plan;
   initialRebuy: Rebuy;
 };
@@ -141,8 +140,7 @@ export function SellPlanPanel(p: Props) {
           </label>
           <NumberInput label="FV low (Rs)" value={plan.fvLow} onChange={(v) => set("fvLow", v)} min={0} step={0.5} />
           <NumberInput label="FV base (Rs)" value={plan.fvBase} onChange={(v) => set("fvBase", v)} min={0} step={0.5} />
-          <NumberInput label="FV high — your CEILING (Rs)" value={plan.fvHigh} onChange={(v) => set("fvHigh", v)} min={0} step={0.5}
-            hint={p.engineFv.high != null ? `The app's blend says low ${p.engineFv.low?.toFixed(0) ?? "—"} / base ${p.engineFv.base?.toFixed(0) ?? "—"} / high ${p.engineFv.high.toFixed(0)} — a starting point, not your answer.` : undefined} />
+          <NumberInput label="FV high — your CEILING (Rs)" value={plan.fvHigh} onChange={(v) => set("fvHigh", v)} min={0} step={0.5} />
           <label className="block md:col-span-2">
             <span className="label-cap block mb-1">Method (yours, named)</span>
             <input value={plan.fvMethod} onChange={(e) => set("fvMethod", e.target.value)} className={inputCls} placeholder='e.g. "EV/EBITDA + residual income + normalised EPS"' />
