@@ -15,16 +15,17 @@ cd "$(dirname "$0")/.."
 [ "${1:-}" = "--now" ] || sleep $((RANDOM % 900))
 TMPDIR_W=$(cygpath -m "${TEMP:-/tmp}" 2>/dev/null || echo "${TEMP:-/tmp}")
 OUT="$TMPDIR_W/psx-dps-bundle.json"
+PLAN="$TMPDIR_W/psx-dps-plan.json"
 
 echo "=== $(date '+%Y-%m-%d %H:%M') what the server wants"
-PLAN=$(ssh -o BatchMode=yes -o ConnectTimeout=20 apex-vps 'set -a; . /root/psx-tracker-v2/.env.local; set +a; curl -s -m 60 -u "$AUTH_USERNAME:$AUTH_PASSWORD" -X POST -H "content-type: application/json" -d "{\"plan\":true}" http://127.0.0.1:8012/api/cron/dps-relay')
-echo "$PLAN" | cut -c1-400
+ssh -o BatchMode=yes -o ConnectTimeout=20 apex-vps 'set -a; . /root/psx-tracker-v2/.env.local; set +a; curl -s -m 120 -u "$AUTH_USERNAME:$AUTH_PASSWORD" -X POST -H "content-type: application/json" -d "{\"plan\":true}" http://127.0.0.1:8012/api/cron/dps-relay' > "$PLAN"
+head -c 400 "$PLAN"; echo
 
 echo "=== fetching here"
-npx tsx scripts/dps-push.ts --plan "$PLAN" --out "$OUT" --archive C:/CC/Data/psx-history
+npx tsx scripts/dps-push.ts --plan-file "$PLAN" --out "$OUT" --archive C:/CC/Data/psx-history
 
 echo "=== handing over"
 gzip -c "$OUT" | ssh -o BatchMode=yes -o ConnectTimeout=20 -o ServerAliveInterval=30 apex-vps 'gunzip > /root/dps-bundle.json && set -a && . /root/psx-tracker-v2/.env.local && set +a && curl -s -m 900 -u "$AUTH_USERNAME:$AUTH_PASSWORD" -X POST -H "content-type: application/json" --data-binary @/root/dps-bundle.json http://127.0.0.1:8012/api/cron/dps-relay; rm -f /root/dps-bundle.json'
-rm -f "$OUT"
+rm -f "$OUT" "$PLAN"
 echo
 echo "=== done"

@@ -9,6 +9,7 @@ import { SHEET_PREFIX, pktToday } from "@/lib/quant/sheet-bars";
 import { refreshCloses, rebuildUser, rebuiltThrough } from "@/lib/quant/daily";
 import { INDEX_SERIES } from "@/lib/quant/index-bars";
 import { refreshMacroLive } from "@/lib/macro/live";
+import { draftPlan, storeDrafts, runValuationsAll } from "@/lib/valuation/run";
 import type { DayRow } from "@/lib/timeseries/psx-history";
 
 export const dynamic = "force-dynamic";
@@ -19,13 +20,17 @@ export const maxDuration = 900;
 // from the server's address; the home machine is served as before, so it
 // fetches for the server (scripts/dps-push.ts) and hands over here.
 //   {plan:true, max?}: what to fetch: the weekdays after the last closing file
-//   kept, the index pages, and the company pages most wanted (every held one,
-//   then the watched shares never read, then those read longest ago).
-//   {sheets, pages}: the closing files, kept as the server keeps its own, and
-//   the pages, read by the server's fetchers in place of the site
-//   (lib/prices/dps.ts); then the evening chain on them: prices, the
-//   dividend record, each user's reading, the strategy model, and the company
-//   figures of the pages handed over. {run:false} only keeps them.
+//   kept, the index pages, and the company pages most wanted (every held one
+//   and every one valued, then the watched shares never read, then those read
+//   longest ago); and, for every share a user holds or values, what its
+//   valuation draft is worked out from (lib/valuation/draft.ts): the home
+//   machine reads any new results filing itself.
+//   {sheets, pages, drafts}: the closing files, kept as the server keeps its
+//   own; the pages, read by the server's fetchers in place of the site
+//   (lib/prices/dps.ts); the drafts, kept for the owners to review; then the
+//   evening chain on them: prices, the dividend record, each user's reading,
+//   the strategy model, the company figures of the pages handed over, and
+//   the valuations. {run:false} only keeps them.
 export async function POST(req: Request) {
   if (!(await cronAuthorised())) return NextResponse.json({ error: "forbidden" }, { status: 403 });
   await connectDb();
@@ -38,12 +43,16 @@ export async function POST(req: Request) {
     const all = await qualityUniverse();
     const read = await lastRead(all);
     const held = ((await HoldingModel.find({ currentShares: { $gt: 0 } }, { symbol: 1 }).lean()) as any[]).map((h) => String(h.symbol));
-    const rest = all.filter((s) => !held.includes(s)).sort((a, b) => (read.get(a) ?? 0) - (read.get(b) ?? 0));
+    const valuation = await draftPlan().catch(() => []);
+    const valued = [...new Set(valuation.map((v) => v.symbol))];
+    const first = [...new Set([...held, ...valued])];
+    const rest = all.filter((s) => !first.includes(s)).sort((a, b) => (read.get(a) ?? 0) - (read.get(b) ?? 0));
     return NextResponse.json({
       today: pktToday(),
       latestKept: latest ? String(latest.key).slice(SHEET_PREFIX.length) : null,
       indices: ["/indices", ...INDEX_SERIES.map((c) => `/indices/${c}`)],
-      symbols: [...new Set([...held, ...rest])].slice(0, Math.max(max, held.length)),
+      symbols: [...first, ...rest].slice(0, Math.max(max, first.length)),
+      valuation,
       resting: await dpsResting(),
     });
   }
@@ -61,7 +70,8 @@ export async function POST(req: Request) {
   }
   const pages = (body?.pages && typeof body.pages === "object" ? body.pages : {}) as Record<string, { html: string; fetchedAt: string }>;
   const keptPages = await keepRelayedPages(pages);
-  const out: Record<string, unknown> = { sheets: keptSheets, pages: keptPages };
+  const keptDrafts = Array.isArray(body?.drafts) ? await storeDrafts(body.drafts).catch(() => 0) : 0;
+  const out: Record<string, unknown> = { sheets: keptSheets, pages: keptPages, drafts: keptDrafts };
   if (body?.run === false) return NextResponse.json({ ok: true, ...out });
 
   // The evening chain, on what was handed over.
@@ -81,6 +91,7 @@ export async function POST(req: Request) {
   const companies = Object.keys(pages).filter((p) => p.startsWith("/company/")).map((p) => decodeURIComponent(p.slice("/company/".length)));
   const report = companies.length ? await readCompanies(companies, { lite: true }) : {};
   const readOk = Object.values(report).filter((v) => /years/.test(v)).length;
+  const valuations = await runValuationsAll().catch(() => []);
   return NextResponse.json({
     ok: true,
     seconds: Math.round((Date.now() - t0) / 1000),
@@ -90,5 +101,6 @@ export async function POST(req: Request) {
     users,
     macroLive: live ? { asOf: live.asOf, shares: live.names.length } : null,
     companies: { read: readOk, of: companies.length },
+    valuations: valuations.map((v) => ({ user: v.user, date: v.date, valued: v.valued, changes: v.changes.length, fired: v.fired.length })),
   });
 }

@@ -4,6 +4,7 @@ import { getAllUserIds } from "@/lib/data";
 import { cronAuthorised } from "@/lib/auth/cron";
 import { refreshCloses, rebuildUser, rebuiltThrough } from "@/lib/quant/daily";
 import { refreshMacroLive } from "@/lib/macro/live";
+import { runValuationsAll } from "@/lib/valuation/run";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -39,10 +40,12 @@ export async function POST(req: Request) {
     }
   }
   const live = bars.appended > 0 || body?.force === true ? await refreshMacroLive().catch(() => null) : null;
+  const valuations = bars.appended > 0 || body?.force === true ? await runValuationsAll().catch(() => []) : [];
   return NextResponse.json({
     ok: true,
     seconds: Math.round((Date.now() - t0) / 1000),
     macroLive: live ? { asOf: live.asOf, shares: live.names.length, scored: live.names.filter((n) => n.score != null).length } : null,
+    valuations: valuations.map((v) => ({ user: v.user, date: v.date, valued: v.valued, changes: v.changes.length })),
     sheets,
     bars: { ...bars, days: bars.days.slice(-5), adjusted: bars.adjusted.slice(-20) },
     indices,

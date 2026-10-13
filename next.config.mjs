@@ -1,8 +1,7 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  // The old /valuation page ran a second, cruder fair-value engine that could
-  // disagree with /intrinsic — one stock, two "fair values". Removed; keep old
-  // links working.
+  // 13 Oct 2026: /valuation is a page again (lib/valuation: fair values from
+  // the owner's approved inputs), so it no longer redirects.
   async redirects() {
     return [
       // 14 Aug: the app was cut back to what Abdul actually uses — holdings,
@@ -24,7 +23,6 @@ const nextConfig = {
       { source: "/patterns", destination: "/holdings", permanent: true },
       { source: "/backtest", destination: "/holdings", permanent: true },
       { source: "/glossary", destination: "/", permanent: true },
-      { source: "/valuation", destination: "/holdings", permanent: true },
       { source: "/intrinsic", destination: "/holdings", permanent: true },
       { source: "/ratings", destination: "/holdings", permanent: true },
       { source: "/screener", destination: "/holdings", permanent: true },

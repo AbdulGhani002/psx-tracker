@@ -31,6 +31,7 @@ const PAGES: Item[] = [
   { id: "p-cgt", label: "CGT", hint: "capital gains tax by tax year", group: "Pages", href: "/portfolio?tab=cgt" },
   { id: "p-watchlist", label: "Watchlist", hint: "tick the shares and sectors you would buy", group: "Pages", href: "/watchlist" },
   { id: "p-strategy", label: "Strategy", hint: "market phase, buying in steps, dry powder, monthly rates", group: "Pages", href: "/strategy" },
+  { id: "p-valuation", label: "Valuation", hint: "fair value, buy zones, assumptions, triggers", group: "Pages", href: "/valuation" },
   { id: "p-rebalance", label: "Rebalance", hint: "target allocation, deployment", group: "Pages", href: "/rebalance" },
   { id: "p-analysis", label: "Model", hint: "the model's market read, verdicts and zones", group: "Pages", href: "/analysis" },
   { id: "p-changelog", label: "Changelog", hint: "what changed, and why", group: "Pages", href: "/changelog" },

@@ -29,3 +29,6 @@ export { FixedIncomeModel, type FixedIncome } from "./FixedIncome";
 export { RateSnapshotModel, type RateSnapshot } from "./RateSnapshot";
 export { ShareSignalModel, type ShareSignal } from "./ShareSignal";
 export { ShareEventModel, type ShareEvent } from "./ShareEvent";
+export { ValuationAssumptionModel, type ValuationAssumption } from "./ValuationAssumption";
+export { ValuationRunModel, type ValuationRun } from "./ValuationRun";
+export { ValuationTriggerModel, type ValuationTrigger } from "./ValuationTrigger";

@@ -14,6 +14,7 @@ import { sendTelegram } from "@/lib/notify/telegram";
 import { getWatchlist, watchedSymbols } from "@/lib/watchlist";
 import { getStrategy, getRatesPrefill } from "@/lib/strategy/data";
 import { kseStepMessage, maturityMessage, researchMessage } from "@/lib/strategy/alerts";
+import { valuationAlerts } from "@/lib/valuation/run";
 import { cronAuthorised } from "@/lib/auth/cron";
 
 export const dynamic = "force-dynamic";
@@ -25,7 +26,7 @@ type Candidate = { key: string; message: string };
 // Which alerts this user wants. Every candidate carries a key whose prefix
 // says what it is, so one filter at the end decides what goes out instead of
 // nine scattered conditions.
-const PRICE_KEYS = ["zone", "drift", "near-ceiling", "near-buy", "fipi", "kmi-drop", "sellsig", "research-buy", "research-sell"];
+const PRICE_KEYS = ["zone", "drift", "near-ceiling", "near-buy", "fipi", "kmi-drop", "sellsig", "research-buy", "research-sell", "val-signal", "val-trigger", "val-tbill"];
 
 function wanted(key: string, s: any): boolean {
   const prefix = key.split(":")[0];
@@ -308,6 +309,15 @@ async function runAlertsForCurrentUser(forceDigest = false) {
     }
   } catch {
     /* no research alert this run */
+  }
+
+  // Valuations (lib/valuation/run.ts): a signal that moved on the latest close,
+  // a trigger that fired on it, the T-bill moving half a point or more, and
+  // drafts waiting for review.
+  try {
+    for (const c of await valuationAlerts(await uid())) candidates.push(c);
+  } catch {
+    /* no valuation alert this run */
   }
 
   // A T-bill or sukuk maturing: a week before and the day before, with the

@@ -21,6 +21,7 @@ const MENU: NavItem[] = [
   { href: "/portfolio", label: "Portfolios", icon: "briefcase", title: "Portfolio", subtitle: "Holdings, trades, payouts, cash and tax" },
   { href: "/watchlist", label: "Watchlist", icon: "eye", title: "Watchlist", subtitle: "Shares and sectors you would buy" },
   { href: "/strategy", label: "Strategy", icon: "compass", title: "Strategy", subtitle: "Buying a downturn in steps, dry powder and this month's rates" },
+  { href: "/valuation", label: "Valuation", icon: "scale", title: "Valuation", subtitle: "Fair values and buy zones from your approved assumptions" },
   { href: "/rebalance", label: "Rebalance", icon: "target", title: "Rebalance", subtitle: "Target allocation and the trades that reach it" },
   { href: "/analysis", label: "Model", icon: "brain", title: "Model", subtitle: "Buy and sell zones from the learned model" },
   { href: "/announcements", label: "Announcements", icon: "bell", title: "Announcements", subtitle: "What your companies have posted on the exchange" },

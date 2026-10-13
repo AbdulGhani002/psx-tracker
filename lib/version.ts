@@ -1,7 +1,7 @@
 // Single source of truth for the app version + changelog.
 // Bump APP_VERSION and prepend a CHANGELOG entry on every release.
 
-export const APP_VERSION = "11.19.0";
+export const APP_VERSION = "11.20.0";
 
 export const BUILD_DATE =
   process.env.NEXT_PUBLIC_BUILD_DATE ?? "";
@@ -17,6 +17,20 @@ export type ChangelogEntry = {
 
 // Reverse-chronological. Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: "11.20.0",
+    date: "2026-10-13",
+    title: "Valuation: fair values and buy zones",
+    changes: [
+      "New Valuation page: a fair value for each share from your approved inputs, its buy and trim levels, and its return over the hurdle (T-bill + 3.5 or 4.5).",
+      "Methods by business: banks on dividends, book and earnings power; insurers on earnings, book and parts; holding companies on NAV.",
+      "Inputs are versioned: every change keeps the old one, and nothing is valued until you approve it.",
+      "Each evening your PC reads new results letters with its own model (Ollama), scanned pages too, checks the figures and drafts the inputs for your review.",
+      "A part-year result makes a trailing year's EPS; a newer balance sheet updates book value.",
+      "Valued on every close. Alerts when a signal changes, a trigger fires, the T-bill moves half a point or a draft waits.",
+      "A filing newer than the inputs stops buy signals until you review it. No trading is ever done for you.",
+    ],
+  },
   {
     version: "11.19.0",
     date: "2026-10-11",
