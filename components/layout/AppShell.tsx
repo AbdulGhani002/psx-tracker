@@ -25,6 +25,7 @@ const MENU: NavItem[] = [
   { href: "/rebalance", label: "Rebalance", icon: "target", title: "Rebalance", subtitle: "Target allocation and the trades that reach it" },
   { href: "/analysis", label: "Model", icon: "brain", title: "Model", subtitle: "Where the indexes are likely to be next week and next month" },
   { href: "/announcements", label: "Announcements", icon: "bell", title: "Announcements", subtitle: "What your companies have posted on the exchange" },
+  { href: "/export", label: "Export", icon: "file", title: "Export", subtitle: "Trades and dividends for any period, as a CSV or a PDF" },
 ];
 const SETTINGS: NavItem = { href: "/settings", label: "Settings", icon: "gear", title: "Settings", subtitle: "Portfolios, tax status, alerts and backup" };
 const ALL_ITEMS = [...MENU, SETTINGS];

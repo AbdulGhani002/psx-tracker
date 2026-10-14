@@ -741,6 +741,10 @@ async function _getTbill12mPct(): Promise<number | null> {
   // The month's 12-month T-bill as entered, when it is as new as SBP's copy
   // or SBP's copy is old.
   const mine: any = await RateSnapshotModel.findOne({ userId: await meId(), tbill12mPct: { $ne: null } }, { month: 1, tbill12mPct: 1 }).sort({ month: -1 }).lean();
+  // SBP's latest auction from its press report, when newer than both.
+  const { latestTbillAuction } = await import("./feeds/tbill-auctions");
+  const auction = await latestTbillAuction().catch(() => null);
+  if (auction?.m12 != null && auction.date > (live?.rates.fetchedAt ?? "").slice(0, 10) && (!mine || auction.date.slice(0, 7) >= mine.month)) return auction.m12;
   if (mine && (mine.month >= (live?.rates.fetchedAt ?? "").slice(0, 7) || sbpStale(live))) return Number(mine.tbill12mPct);
   return tbill12mPct(live?.rates ?? null);
 }

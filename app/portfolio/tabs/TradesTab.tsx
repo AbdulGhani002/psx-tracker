@@ -118,7 +118,7 @@ export async function TradesTab() {
         </Card>
       )}
 
-      <Card className="mt-3" title="Trade history" eyebrow={`${transactions.length.toLocaleString()} records`}>
+      <Card className="mt-3" title="Trade history" eyebrow={`${transactions.length.toLocaleString()} records`} action={<Link href="/export" className="text-[12px] link-underline">Export CSV or PDF</Link>}>
         <TransactionsView transactions={transactions} symbols={holdings.map((h) => h.symbol)} />
       </Card>
     </div>

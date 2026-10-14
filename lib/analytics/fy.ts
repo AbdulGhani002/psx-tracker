@@ -8,7 +8,7 @@ import { buildLots } from "@/lib/calculations/lots";
 import { latestCloses, loadStoredBars, SHEET_PREFIX } from "@/lib/quant/sheet-bars";
 import { fyOf, fyWindow, fyProfit, type FyTx, type FyProfit } from "./fy-profit";
 import { indexChangePct, otherByYear, policyPct, tbillFor, tbillPct, type OtherYear, type TbillSource } from "./fy-extra";
-import { SBP_TBILL12M_YEAR_START } from "@/lib/timeseries/sbp-tbill";
+import { getTbillAuctions } from "@/lib/feeds/tbill-auctions";
 
 // Every financial year since the first trade, worked out by fy-profit.ts.
 //
@@ -94,12 +94,13 @@ async function _getFyProfits(): Promise<FyBoard> {
 
   const windows = Array.from({ length: last - first + 1 }, (_, k) => fyWindow(first + k, today));
   const uid = (await getCurrentUserId()) ?? "";
-  const [bars, rateSteps, tbills, taxYears, july] = await Promise.all([
+  const [bars, rateSteps, tbills, taxYears, july, auctions] = await Promise.all([
     loadStoredBars(["KSE100", "KMI30"]).catch(() => new Map()),
     getSbpRateSteps().then((r) => r.steps).catch(() => []),
     getYearTbills().catch(() => ({} as Record<string, number>)),
     getTaxYears().catch(() => []),
     (RateSnapshotModel.find({ userId: uid, month: { $in: windows.map((w) => `${w.endYear - 1}-07`) }, tbill12mPct: { $ne: null } }, { month: 1, tbill12mPct: 1 }).lean() as Promise<any[]>).catch(() => []),
+    getTbillAuctions().catch(() => []),
   ]);
   const julyOf = new Map(july.map((r) => [Number(String(r.month).slice(0, 4)) + 1, Number(r.tbill12mPct)]));
   const series = (code: string) => ((bars.get(code) ?? []) as Array<{ date: string; close: number }>).filter((b) => b.close > 0).sort((a, b) => a.date.localeCompare(b.date));
@@ -129,7 +130,7 @@ async function _getFyProfits(): Promise<FyBoard> {
       realizedBy.get(y) ?? 0
     );
     const o = other.get(y) ?? { funds: 0, savings: 0, fixed: 0 };
-    const tb = tbillFor(y, tbills, SBP_TBILL12M_YEAR_START, julyOf.get(y) ?? null);
+    const tb = tbillFor(y, tbills, auctions, julyOf.get(y) ?? null);
     const own = tbills[String(y)];
     return {
       ...shares,

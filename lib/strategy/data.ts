@@ -1,4 +1,5 @@
 import "server-only";
+import { latestTbillAuction } from "@/lib/feeds/tbill-auctions";
 import { cache } from "react";
 import { connectDb } from "@/lib/db";
 import { RateSnapshotModel } from "@/lib/models";
@@ -39,7 +40,7 @@ export const getRateSnapshots = cache(_getRateSnapshots);
 // carried forward with whatever SBP, PBS and your own accounts say now.
 async function _getRatesPrefill(): Promise<RatesPrefill> {
   const month = monthOf();
-  const [snaps, sbp, infl, savings, funds, settings] = await Promise.all([getRateSnapshots(), getSbpLive().catch(() => null), getInflationLive().catch(() => null), getSavingsValued().catch(() => []), getMutualFundsValued().catch(() => []), getAppSettings()]);
+  const [snaps, sbp, infl, savings, funds, settings, auction] = await Promise.all([getRateSnapshots(), getSbpLive().catch(() => null), getInflationLive().catch(() => null), getSavingsValued().catch(() => []), getMutualFundsValued().catch(() => []), getAppSettings(), latestTbillAuction().catch(() => null)]);
   const mine = snaps.find((s) => s.month === month);
   if (mine) return { values: mine, sources: {}, entered: true };
   const last = snaps[0];
@@ -48,7 +49,12 @@ async function _getRatesPrefill(): Promise<RatesPrefill> {
   // there is.
   const sbpFresh = !!sbp?.rates.fetchedAt && Date.now() - Date.parse(sbp.rates.fetchedAt) < 20 * 86400000;
   const r = sbpFresh || !last ? sbp?.rates : undefined;
-  const cut = (t: string) => r?.mtbCutoffs.find((c) => c.tenor === t)?.yieldPct ?? null;
+  // SBP's latest T-bill auction, read from its press report, when it is newer
+  // than SBP's own page as last read and under 20 days old.
+  const auctionFresh = !!auction && Date.now() - Date.parse(auction.date + "T00:00:00Z") < 20 * 86400000 && (!sbp?.rates.fetchedAt || auction.date > sbp.rates.fetchedAt.slice(0, 10));
+  const fromAuction = (t: string) => (!auctionFresh || !auction ? null : t === "3M" ? auction.m3 : t === "6M" ? auction.m6 : t === "12M" ? auction.m12 : null);
+  const cut = (t: string) => fromAuction(t) ?? r?.mtbCutoffs.find((c) => c.tenor === t)?.yieldPct ?? null;
+  const cutSource = (t: string) => (fromAuction(t) != null ? `SBP auction cut-off, ${auction!.date}` : `SBP auction cut-off, ${sbpDate}`);
   const pib5 = r?.pibCutoffs.find((c) => c.tenor === "5Y")?.yieldPct ?? r?.pibCutoffs.find((c) => c.tenor === "3Y")?.yieldPct ?? null;
   const bestSavings = savings.length ? Math.max(...savings.map((a) => a.ratePercent || 0)) : null;
   const mmf = funds.filter((f) => f.moneyMarket).map((f) => f.liveAnnualYieldPct ?? f.annualYieldPct ?? 0).filter((y) => y > 0);
@@ -62,9 +68,9 @@ async function _getRatesPrefill(): Promise<RatesPrefill> {
   const values: Rates = {
     month,
     policyPct: pick("policyPct", r?.policyRatePct ?? null, `SBP, ${sbpDate}`),
-    tbill3mPct: pick("tbill3mPct", cut("3M"), `SBP auction cut-off, ${sbpDate}`),
-    tbill6mPct: pick("tbill6mPct", cut("6M"), `SBP auction cut-off, ${sbpDate}`),
-    tbill12mPct: pick("tbill12mPct", cut("12M"), `SBP auction cut-off, ${sbpDate}`),
+    tbill3mPct: pick("tbill3mPct", cut("3M"), cutSource("3M")),
+    tbill6mPct: pick("tbill6mPct", cut("6M"), cutSource("6M")),
+    tbill12mPct: pick("tbill12mPct", cut("12M"), cutSource("12M")),
     sukukPct: pick("sukukPct", last?.sukukPct != null ? null : pib5, "the 5-year PIB yield, as a stand-in: enter the sukuk's own"),
     savingsPct: pick("savingsPct", bestSavings && bestSavings > 0 ? bestSavings : null, "your best savings account"),
     moneyMarketPct: pick("moneyMarketPct", mmf.length ? Math.max(...mmf) : null, "your money market fund, its last year"),

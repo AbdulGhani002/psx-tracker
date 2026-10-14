@@ -1,7 +1,7 @@
 // Single source of truth for the app version + changelog.
 // Bump APP_VERSION and prepend a CHANGELOG entry on every release.
 
-export const APP_VERSION = "11.24.3";
+export const APP_VERSION = "11.25.0";
 
 export const BUILD_DATE =
   process.env.NEXT_PUBLIC_BUILD_DATE ?? "";
@@ -17,6 +17,15 @@ export type ChangelogEntry = {
 
 // Reverse-chronological. Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: "11.25.0",
+    date: "2026-10-14",
+    title: "Export page; T-bill rates keep themselves up to date",
+    changes: [
+      "Export: your trades, dividends or both, for any period or all time, one share or all, as a CSV or a PDF.",
+      "T-bill rates update after every SBP auction: the server reads each auction's cut-offs from its press report every six hours. Yearly and the strategy's rates use the latest.",
+    ],
+  },
   {
     version: "11.24.3",
     date: "2026-10-14",

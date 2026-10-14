@@ -63,11 +63,15 @@ check("and none before it was bought", near(other.get(2025)!.fixed, 0) && other.
 check("the day before a year's first day is 30 June", dayBefore("2025-07-01") === "2025-06-30");
 
 // Which 12-month T-bill rate a year is compared with.
-const sbp = [{ endYear: 2026, auction: "2025-06-25", pct: 10.9274 }];
+const sbp = [
+  { date: "2025-06-11", m1: null, m3: null, m6: null, m12: 10.9497, source: "a", own: true },
+  { date: "2025-06-25", m1: null, m3: null, m6: null, m12: 10.9274, source: "b", own: true },
+  { date: "2025-07-09", m1: null, m3: null, m6: null, m12: 10.8, source: "c", own: true },
+];
 check("the rate the user set wins", tbillFor(2026, { "2026": 11.5 }, sbp, 10)?.from === "entered" && tbillFor(2026, { "2026": 11.5 }, sbp, 10)?.rate === 11.5);
-check("else SBP's auction before the year, with its date", tbillFor(2026, {}, sbp, 10)?.from === "sbp" && tbillFor(2026, {}, sbp, 10)?.auction === "2025-06-25");
+check("else SBP's last auction before 1 July, with its date", tbillFor(2026, {}, sbp, 10)?.from === "sbp" && tbillFor(2026, {}, sbp, 10)?.auction === "2025-06-25" && tbillFor(2026, {}, sbp, 10)?.rate === 10.9274);
 check("else the July rates, else none", tbillFor(2027, {}, sbp, 11.2)?.from === "monthly" && tbillFor(2027, {}, sbp, null) === null);
-check("SBP's history: each auction in the fortnight before the year's 1 July, at a believable rate", SBP_TBILL12M_YEAR_START.every((x) => x.auction <= `${x.endYear - 1}-07-01` && x.auction >= `${x.endYear - 1}-06-15` && x.pct > 0 && x.pct < 30 && x.source.length > 0) && SBP_TBILL12M_YEAR_START.length === 3);
+check("SBP's year-start history: each auction in the fortnight before the year's 1 July, at a believable rate", SBP_TBILL12M_YEAR_START.every((x) => x.auction <= `${x.endYear - 1}-07-01` && x.auction >= `${x.endYear - 1}-06-15` && x.pct > 0 && x.pct < 30 && x.source.length > 0) && SBP_TBILL12M_YEAR_START.length === 3);
 check("FY25-26 against a bill bought at 10.93%", near(tbillPct(10.9274, fyWindow(2026, "2026-10-14")), 10.9274));
 
 console.log(`\n${pass} passed, ${fail} failed`);

@@ -6,6 +6,7 @@ import { buildKse100SectorWeights, SECTOR_WEIGHTS_KEY } from "@/lib/feeds/sector
 import { computeBenchmark, benchmarkKey, BENCHMARK_RANGES } from "@/lib/feeds/benchmark";
 import { getAutoSignalsCached } from "@/lib/feeds/regime";
 import { warmIndexSeries } from "@/lib/feeds/backtest";
+import { refreshTbillAuctions } from "@/lib/feeds/tbill-auctions";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -49,6 +50,14 @@ export async function POST() {
     report.sbpRates = await refreshSbpRates();
   } catch (e) {
     report.sbpRates = { status: "error", note: String(e).slice(0, 200) };
+  }
+
+  // SBP's T-bill auctions from the press reports (SBP refuses us), every six
+  // hours: the history the Yearly tab and the strategy's T-bill rates read.
+  try {
+    report.tbillAuctions = await refreshTbillAuctions();
+  } catch (e) {
+    report.tbillAuctions = { status: "error", note: String(e).slice(0, 200) };
   }
 
   // Pakistan CPI from PBS. Monthly data, but cheap to check — this is what makes
