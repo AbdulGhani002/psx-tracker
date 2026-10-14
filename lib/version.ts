@@ -1,7 +1,7 @@
 // Single source of truth for the app version + changelog.
 // Bump APP_VERSION and prepend a CHANGELOG entry on every release.
 
-export const APP_VERSION = "11.24.0";
+export const APP_VERSION = "11.24.1";
 
 export const BUILD_DATE =
   process.env.NEXT_PUBLIC_BUILD_DATE ?? "";
@@ -17,6 +17,14 @@ export type ChangelogEntry = {
 
 // Reverse-chronological. Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: "11.24.1",
+    date: "2026-10-14",
+    title: "Your lists and rules have their own Telegram switch",
+    changes: [
+      "The Buy list, Sell list, Price rules and Friday's index levels go to Telegram under their own switch in Settings, on. The market alerts switch (drift, foreign flows, KMI, sell discipline) had been holding them back.",
+    ],
+  },
   {
     version: "11.24.0",
     date: "2026-10-14",

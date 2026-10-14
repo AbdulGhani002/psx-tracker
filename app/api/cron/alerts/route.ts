@@ -32,7 +32,10 @@ type Candidate = { key: string; message: string };
 // Which alerts this user wants. Every candidate carries a key whose prefix
 // says what it is, so one filter at the end decides what goes out instead of
 // nine scattered conditions.
-const PRICE_KEYS = ["drift", "near-ceiling", "near-buy", "fipi", "kmi-drop", "sellsig", "buy-zone", "sell-zone", "rule", "rules", "index-week"];
+const PRICE_KEYS = ["drift", "near-ceiling", "near-buy", "fipi", "kmi-drop", "sellsig"];
+// The user's own lists and rules: they fire only for what was set on them,
+// so they have their own switch, apart from the market alerts above.
+const LIST_KEYS = ["buy-zone", "sell-zone", "rule", "rules", "index-week"];
 
 function wanted(key: string, s: any): boolean {
   const prefix = key.split(":")[0];
@@ -40,6 +43,7 @@ function wanted(key: string, s: any): boolean {
   if (prefix === "exdiv") return s.alertExDates !== false;
   if (prefix === "digest") return s.alertWeeklyDigest !== false;
   if (PRICE_KEYS.includes(prefix)) return s.alertPrices !== false;
+  if (LIST_KEYS.includes(prefix)) return s.alertLists !== false;
   return true;
 }
 

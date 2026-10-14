@@ -1168,6 +1168,7 @@ async function _getAppSettings(): Promise<AppSettings> {
     announceTelegramLevel: (doc as any)?.announceTelegramLevel ?? ((doc as any)?.announceTelegram === false ? "off" : DEFAULT_SETTINGS.announceTelegramLevel),
     announceEmailLevel: (doc as any)?.announceEmailLevel ?? ((doc as any)?.announceEmail === false ? "off" : DEFAULT_SETTINGS.announceEmailLevel),
     alertPrices: (doc as any)?.alertPrices ?? DEFAULT_SETTINGS.alertPrices,
+    alertLists: (doc as any)?.alertLists ?? DEFAULT_SETTINGS.alertLists,
     alertExDates: (doc as any)?.alertExDates ?? DEFAULT_SETTINGS.alertExDates,
     alertBoardMeetings: (doc as any)?.alertBoardMeetings ?? DEFAULT_SETTINGS.alertBoardMeetings,
     alertWeeklyDigest: (doc as any)?.alertWeeklyDigest ?? DEFAULT_SETTINGS.alertWeeklyDigest,

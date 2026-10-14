@@ -40,6 +40,7 @@ const patchSchema = z.object({
   announceTelegramLevel: z.enum(["off", "board", "key", "all"]).optional(),
   announceEmailLevel: z.enum(["off", "board", "key", "all"]).optional(),
   alertPrices: z.boolean().optional(),
+  alertLists: z.boolean().optional(),
   alertExDates: z.boolean().optional(),
   alertBoardMeetings: z.boolean().optional(),
   alertWeeklyDigest: z.boolean().optional(),

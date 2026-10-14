@@ -40,6 +40,7 @@ type Settings = {
   announceTelegramLevel?: string;
   announceEmailLevel?: string;
   alertPrices?: boolean;
+  alertLists?: boolean;
   alertExDates?: boolean;
   alertBoardMeetings?: boolean;
   alertWeeklyDigest?: boolean;
@@ -178,7 +179,8 @@ export function AppSettingsManager({ initial, telegramConfigured }: { initial: S
         <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-4">
           <Toggle label="Board meetings" value={s.alertBoardMeetings ?? true} onChange={(v) => set("alertBoardMeetings", v)} hint="A held company's board meeting, up to a week ahead." />
           <Toggle label="Weekly portfolio digest" value={s.alertWeeklyDigest ?? true} onChange={(v) => set("alertWeeklyDigest", v)} hint="Friday: net worth, unrealised, XIRR, best and worst." />
-          <Toggle label="Price and plan alerts" value={s.alertPrices ?? true} onChange={(v) => set("alertPrices", v)} hint="Buy and sell zones, rebalance drift, foreign flows, KMI changes, sell discipline." />
+          <Toggle label="Your lists and rules" value={s.alertLists ?? true} onChange={(v) => set("alertLists", v)} hint="Buy list, sell list and price rules when a price is reached, and Friday's index levels." />
+          <Toggle label="Market and plan alerts" value={s.alertPrices ?? true} onChange={(v) => set("alertPrices", v)} hint="Rebalance drift, foreign flows, KMI changes, sell discipline." />
           <Toggle label="Ex-dividend reminders" value={s.alertExDates ?? true} onChange={(v) => set("alertExDates", v)} hint="Book closures in the next two weeks." />
           <Toggle label="Model charts and the next-day read" value={s.telegramQuant ?? true} onChange={(v) => set("telegramQuant", v)} hint="The daily album of charts and the model's verdict." />
         </div>
