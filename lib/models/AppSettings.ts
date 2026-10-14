@@ -64,7 +64,7 @@ const AppSettingsSchema = new Schema(
     announceEmailLevel: { type: String, default: "all" },
     // What else Telegram carries.
     alertPrices: { type: Boolean, default: true }, // drift, foreign flows, KMI drop-outs, sell discipline
-    alertLists: { type: Boolean, default: true }, // the buy list, the sell list, the price rules and the week's index levels
+    alertLists: { type: Boolean, default: true }, // the buy list, the price rules and the week's index levels
     alertExDates: { type: Boolean, default: true }, // ex-dividend and book-closure reminders
     alertBoardMeetings: { type: Boolean, default: true }, // a held name's board meeting, up to a week ahead
     alertWeeklyDigest: { type: Boolean, default: true }, // the Friday portfolio digest

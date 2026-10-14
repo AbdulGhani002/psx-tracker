@@ -1,7 +1,7 @@
 // Single source of truth for the app version + changelog.
 // Bump APP_VERSION and prepend a CHANGELOG entry on every release.
 
-export const APP_VERSION = "11.24.2";
+export const APP_VERSION = "11.24.3";
 
 export const BUILD_DATE =
   process.env.NEXT_PUBLIC_BUILD_DATE ?? "";
@@ -17,6 +17,14 @@ export type ChangelogEntry = {
 
 // Reverse-chronological. Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: "11.24.3",
+    date: "2026-10-14",
+    title: "Sell list removed",
+    changes: [
+      "The Sell list is gone. Price rules do its job: from each share's average price they tell you on Telegram how many shares to sell (or add) when a step is reached.",
+    ],
+  },
   {
     version: "11.24.2",
     date: "2026-10-14",

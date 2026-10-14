@@ -27,6 +27,5 @@ export { AnnouncementModel, type Announcement } from "./Announcement";
 export { FixedIncomeModel, type FixedIncome } from "./FixedIncome";
 export { RateSnapshotModel, type RateSnapshot } from "./RateSnapshot";
 export { BuyListModel, type BuyList } from "./BuyList";
-export { SellListModel, type SellList } from "./SellList";
 export { PriceRulesModel, type PriceRules } from "./PriceRules";
 export { IndexForecastModel, type IndexForecast } from "./IndexForecast";

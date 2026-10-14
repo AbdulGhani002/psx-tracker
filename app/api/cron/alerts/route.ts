@@ -18,7 +18,6 @@ import { sendTelegram } from "@/lib/notify/telegram";
 import { getStrategy, getRatesPrefill } from "@/lib/strategy/data";
 import { kseStepMessage, maturityMessage } from "@/lib/strategy/alerts";
 import { buyListAlerts } from "@/lib/buy-list/data";
-import { sellListAlerts } from "@/lib/sell-list/data";
 import { ruleAlerts } from "@/lib/rules/data";
 import { getIndexForecasts, weekMessage, weekMessageDue } from "@/lib/index-week/data";
 import { cronAuthorised } from "@/lib/auth/cron";
@@ -35,7 +34,7 @@ type Candidate = { key: string; message: string };
 const PRICE_KEYS = ["drift", "near-ceiling", "near-buy", "fipi", "kmi-drop", "sellsig"];
 // The user's own lists and rules: they fire only for what was set on them,
 // so they have their own switch, apart from the market alerts above.
-const LIST_KEYS = ["buy-zone", "sell-zone", "rule", "rules", "index-week"];
+const LIST_KEYS = ["buy-zone", "rule", "rules", "index-week"];
 
 function wanted(key: string, s: any): boolean {
   const prefix = key.split(":")[0];
@@ -127,16 +126,6 @@ async function runAlertsForCurrentUser(forceDigest = false) {
     for (const c of await buyListAlerts(await uid())) candidates.push(c);
   } catch {
     /* no buy-list alert this run */
-  }
-
-  // 4.2 The sell list (lib/sell-list): a share whose day's high got to a
-  //     price to sell at, or whose close fell to a stop. Each level once,
-  //     until it arms again.
-  const heldNow = new Map(summary.positions.filter((p) => p.shares > 0).map((p) => [p.symbol, { shares: p.shares, avgCost: p.avgCost }]));
-  try {
-    for (const c of await sellListAlerts(await uid(), heldNow)) candidates.push(c);
-  } catch {
-    /* no sell-list alert this run */
   }
 
   // 4.3 The price rules (lib/rules): a held share whose close reached one of
