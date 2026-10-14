@@ -93,10 +93,15 @@ const pos = [
   { date: "2025-07-01", type: "SELL", shares: -100, netAmount: 33000 },
   { date: "2025-08-01", type: "DIVIDEND", shares: 0, netAmount: 3000 },
 ];
-const hd = holdingDollars(pos, 36000, fxr)!;
+const hd = holdingDollars(pos, 36000, fxr, new Date("2025-09-01T00:00:00Z"))!;
 check("a sale takes out its share of the dollar cost", near(dollarCostBasis(pos, fxr).costUsd, 100) && near(dollarCostBasis(pos, fxr).realizedUsd, 10));
 check("unrealised in dollars, on what the shares held cost in dollars", near(hd.valueUsd, 120) && near(hd.unrealizedUsd, 20) && near(hd.unrealizedPct, 20));
-check("with dividends, the table's Total P&L in dollars", near(hd.dividendsUsd, 10) && near(hd.totalUsd, 30) && near(hd.totalPct, 30));
+check("with the dividends the shares held earned, the table's Total P&L in dollars", near(hd.dividendsUsd, 10) && near(hd.totalUsd, 30) && near(hd.totalPct, 30), hd);
+// A dividend paid on 200 shares before 100 of them were sold: half of it went
+// with the shares sold.
+const before = [pos[0], pos[1], { date: "2025-06-15", type: "DIVIDEND", shares: 200, netAmount: 6000 }, pos[2]];
+const hb = holdingDollars(before, 36000, fxr, new Date("2025-09-01T00:00:00Z"))!;
+check("a dividend before a sale: the shares held keep only their part", near(hb.dividendsUsd, 10) && near(hb.totalUsd, 30), hb);
 check("and the rupee at the first purchase", hd.firstDate === "2025-01-02" && hd.rateFirst === 280 && hd.rateNow === 300);
 check("nothing held or no rates, nothing to show", holdingDollars([...pos, { date: "2025-09-01", type: "SELL", shares: -100, netAmount: 36000 }], 0, fxr) === null && holdingDollars(pos, 36000, []) === null);
 

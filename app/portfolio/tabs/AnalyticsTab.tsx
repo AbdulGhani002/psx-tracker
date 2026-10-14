@@ -333,7 +333,7 @@ async function Report({ range }: { range: string }) {
             <Row k="Money put in, net of what came back" v={fmtRs(book.invested)} />
             <Row k="Total return on the money put in" v={book.totalReturnPct != null ? `${book.totalReturnPct >= 0 ? "+" : ""}${book.totalReturnPct.toFixed(2)}%` : "–"} tone={toneOf(book.totalReturn)} />
             <Row k="Dividend yield on value" v={yields ? `${yields.portfolioYieldPct.toFixed(2)}%` : "–"} />
-            <Row k="Dividend yield on cost" v={yields ? `${yields.yieldOnCostPct.toFixed(2)}%` : "–"} />
+            <Row k="Dividend yield on cost of the shares held, 12 months" v={yields ? `${yields.yieldOnCostPct.toFixed(2)}%` : "–"} />
             <Row k="Largest position" v={summary.positions.length ? `${[...summary.positions].sort((a, b) => b.marketValue - a.marketValue)[0].symbol} ${fmtPct(Math.max(...summary.positions.map((p) => p.currentPercent)) / 100, 1)}` : "–"} />
           </tbody>
         </table>

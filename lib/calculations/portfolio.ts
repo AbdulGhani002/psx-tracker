@@ -1,5 +1,5 @@
 import type { Holding, Transaction } from "@/lib/types";
-import { deriveFromTransactions } from "./holding";
+import { deriveFromTransactions, moneyAtWork, heldAndSold } from "./holding";
 import { xirr, type CashFlow } from "./xirr";
 import { inSameTaxYear, currentTaxYear } from "@/lib/dates";
 
@@ -20,8 +20,24 @@ export type PositionRow = {
   unrealizedPct: number;
   realizedPL: number;
   dividendsReceived: number;
+  // Booked, open and dividends: what the share has made, all told.
   totalReturn: number;
+  // On the money it had at work while held (lib/calculations/holding.ts,
+  // moneyAtWork), not on what the shares left cost: selling most of a
+  // position does not inflate it.
   totalReturnPct: number;
+  moneyAtWork: number; // the cost of the shares held, averaged over the days held
+  moneyAtWork12m: number; // the same over the last 365 days, days with none counting as nothing
+  dividends12m: number;
+  // Dividends follow the shares that earned them (holding.ts heldAndSold):
+  // those the shares held now earned, and those that went with shares sold.
+  heldDividends: number;
+  heldDividends12m: number;
+  dps12m: number; // what one share was paid in the last 12 months, after tax
+  // Yield on cost of the shares held: what a share was paid in the last 12
+  // months, on the average price paid for them.
+  yield12m: number | null;
+  sold: { shares: number; cost: number; proceeds: number; dividends: number };
   currentPercent: number;
   targetPercent: number;
   deviation: number;
@@ -55,10 +71,12 @@ export function buildPositionRows({
   holdings,
   transactions,
   prices,
+  asOf = new Date(),
 }: {
   holdings: Holding[];
   transactions: Transaction[];
   prices: Map<string, number>;
+  asOf?: Date;
 }): PositionRow[] {
   const rows: PositionRow[] = [];
 
@@ -78,7 +96,10 @@ export function buildPositionRows({
     const unrealizedPct = priceKnown && derived.totalCost > 0 ? unrealizedPL / derived.totalCost : 0;
     // Realised gains and dividends are BANKED — they stay true even with no quote.
     const totalReturn = unrealizedPL + derived.realizedPL + derived.dividendsReceived;
-    const totalReturnPct = derived.totalCost > 0 ? totalReturn / derived.totalCost : 0;
+    const work = moneyAtWork(txs, asOf);
+    const split = heldAndSold(txs, asOf);
+    const base = work.average > 0 ? work.average : derived.totalCost;
+    const totalReturnPct = base > 0 ? totalReturn / base : 0;
 
     rows.push({
       symbol: h.symbol,
@@ -97,6 +118,14 @@ export function buildPositionRows({
       dividendsReceived: derived.dividendsReceived,
       totalReturn,
       totalReturnPct,
+      moneyAtWork: base,
+      moneyAtWork12m: work.average12m,
+      dividends12m: work.dividends12m,
+      heldDividends: split.held.dividends,
+      heldDividends12m: split.held.dividends12m,
+      dps12m: split.perShare12m,
+      yield12m: derived.avgCost > 0 && derived.shares > 0 ? split.perShare12m / derived.avgCost : null,
+      sold: split.sold,
       currentPercent: 0,
       targetPercent: h.targetAllocationPercent ?? 0,
       deviation: 0,

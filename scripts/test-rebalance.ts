@@ -7,7 +7,7 @@ function pos(symbol: string, price: number, shares: number, targetPct: number): 
     symbol, name: symbol, sector: "Test", shariaCompliant: false,
     shares, avgCost: price, currentPrice: price, priceKnown: true, totalCost: marketValue,
     marketValue, unrealizedPL: 0, unrealizedPct: 0, realizedPL: 0,
-    dividendsReceived: 0, totalReturn: 0, totalReturnPct: 0,
+    dividendsReceived: 0, totalReturn: 0, totalReturnPct: 0, moneyAtWork: marketValue, moneyAtWork12m: marketValue, dividends12m: 0, heldDividends: 0, heldDividends12m: 0, dps12m: 0, yield12m: null, sold: { shares: 0, cost: 0, proceeds: 0, dividends: 0 },
     currentPercent: 0, targetPercent: targetPct, deviation: 0, parked: false,
   };
 }

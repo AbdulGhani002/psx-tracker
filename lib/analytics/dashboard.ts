@@ -251,8 +251,10 @@ export async function getRecentActivity(limit = 8): Promise<Activity[]> {
 
 export type YieldRow = { symbol: string; name: string; shares: number; price: number; cost: number; value: number; ttmDividends: number; ttmPerShare: number; yieldOnPricePct: number; yieldOnCostPct: number; allTimeDividends: number; lastPaid: string | null };
 
-// Dividend yields per held name: the last twelve months of dividends against
-// today's price and against what was paid.
+// Dividend yields per held name: the last twelve months of dividends a share
+// against today's price and against the average price paid. For the whole
+// book: what the shares held now pay at today's prices and on what they cost,
+// a share's last twelve months at a time, so buying and selling move neither.
 export async function getYields(): Promise<{ rows: YieldRow[]; ttmTotal: number; portfolioYieldPct: number; yieldOnCostPct: number }> {
   const [summary, txs] = await Promise.all([getPortfolioSummary(), getAllTransactions()]);
   const cutoff = new Date(Date.now() - 365 * 86400000).toISOString().slice(0, 10);
@@ -281,8 +283,11 @@ export async function getYields(): Promise<{ rows: YieldRow[]; ttmTotal: number;
   rows.sort((a, b) => b.yieldOnPricePct - a.yieldOnPricePct);
   const ttmTotal = rows.reduce((s, r) => s + r.ttmDividends, 0);
   const value = rows.reduce((s, r) => s + r.value, 0);
-  const cost = rows.reduce((s, r) => s + r.cost, 0);
-  return { rows, ttmTotal, portfolioYieldPct: value > 0 ? (ttmTotal / value) * 100 : 0, yieldOnCostPct: cost > 0 ? (ttmTotal / cost) * 100 : 0 };
+  const paysNow = rows.reduce((s, r) => s + r.ttmPerShare * r.shares, 0);
+  const held = summary.positions.filter((x) => x.shares > 0);
+  const heldCost = held.reduce((s, p) => s + p.totalCost, 0);
+  const paysOnCost = held.reduce((s, p) => s + p.dps12m * p.shares, 0);
+  return { rows, ttmTotal, portfolioYieldPct: value > 0 ? (paysNow / value) * 100 : 0, yieldOnCostPct: heldCost > 0 ? (paysOnCost / heldCost) * 100 : 0 };
 }
 
 export type Performance = {

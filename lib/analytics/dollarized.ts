@@ -9,6 +9,8 @@
 // day's rate. USD/PKR is Yahoo's (PKR=X), an international series, and the
 // same one the model's report keeps under MACRO:usdpkr.
 
+import { heldAndSold } from "@/lib/calculations/holding";
+import type { Transaction } from "@/lib/types";
 import { mongoBarsCache } from "@/lib/quant/store";
 import { fetchUsdPkrDaily } from "@/lib/timeseries/macro";
 
@@ -93,13 +95,15 @@ export function dollarize(txs: Flow[], valueNowPkr: number, rates: RatePoint[]):
 // takes out its proportion of the rupee cost; bonuses and splits move shares
 // only. So the dollar figures line up with the rupee ones beside them in the
 // holdings table: unrealised on what the shares still held cost, and the
-// Total P&L's unrealised plus dividends.
+// Total P&L's open plus the dividends those very shares earned (dividends
+// follow the shares that earned them, as heldAndSold does in rupees).
 export type DollarBasisTx = { date: string | Date; type: string; shares?: number | null; netAmount?: number | null; ratio?: string | null };
 
-export function dollarCostBasis(txs: DollarBasisTx[], rates: RatePoint[]): { shares: number; costUsd: number; dividendsUsd: number; realizedUsd: number; firstDate: string | null } {
+export function dollarCostBasis(txs: DollarBasisTx[], rates: RatePoint[], asOf: Date = new Date()): { shares: number; costUsd: number; dividendsUsd: number; realizedUsd: number; firstDate: string | null } {
   const s = { shares: 0, costUsd: 0, dividendsUsd: 0, realizedUsd: 0, firstDate: null as string | null };
   const sorted = [...txs].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
   for (const tx of sorted) {
+    if (new Date(tx.date).getTime() > asOf.getTime()) break;
     const d = iso(tx.date);
     const r = rateOn(rates, d);
     if (!r) continue;
@@ -141,28 +145,32 @@ export type HoldingDollars = {
   rateNow: number;
   valueUsd: number; // the shares held, at today's rate
   costUsd: number; // what they cost, each purchase at its day's rate
-  dividendsUsd: number; // every dividend on the name, at its pay day's rate
+  dividendsUsd: number; // the dividends the shares held earned, each at its day's rate
   unrealizedUsd: number;
   unrealizedPct: number | null; // on costUsd
-  totalUsd: number; // unrealised plus dividends, as the table's Total P&L
+  totalUsd: number; // open plus those dividends, as the table's Total P&L
   totalPct: number | null; // on costUsd
   firstDate: string | null;
   rateFirst: number | null;
 };
 
-export function holdingDollars(txs: DollarBasisTx[], marketValuePkr: number, rates: RatePoint[]): HoldingDollars | null {
+export function holdingDollars(txs: DollarBasisTx[], marketValuePkr: number, rates: RatePoint[], asOf: Date = new Date()): HoldingDollars | null {
   if (rates.length === 0) return null;
-  const b = dollarCostBasis(txs, rates);
+  const b = dollarCostBasis(txs, rates, asOf);
   if (!(b.costUsd > 0)) return null;
+  const inUsd = heldAndSold(txs as unknown as Transaction[], asOf, (tx) => {
+    const r = rateOn(rates, iso(tx.date));
+    return r ? 1 / r : 0;
+  });
   const rateNow = rates[rates.length - 1].close;
   const valueUsd = marketValuePkr / rateNow;
   const unrealizedUsd = valueUsd - b.costUsd;
-  const totalUsd = unrealizedUsd + b.dividendsUsd;
+  const totalUsd = unrealizedUsd + inUsd.held.dividends;
   return {
     rateNow,
     valueUsd,
     costUsd: b.costUsd,
-    dividendsUsd: b.dividendsUsd,
+    dividendsUsd: inUsd.held.dividends,
     unrealizedUsd,
     unrealizedPct: (unrealizedUsd / b.costUsd) * 100,
     totalUsd,

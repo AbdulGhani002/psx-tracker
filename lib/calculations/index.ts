@@ -1,9 +1,13 @@
 export { xirr, cagr, type CashFlow } from "./xirr";
 export {
   deriveFromTransactions,
+  moneyAtWork,
+  heldAndSold,
   dividendsYTD,
   yieldOnCost,
   type HoldingDerived,
+  type MoneyAtWork,
+  type HeldSold,
 } from "./holding";
 export {
   buildPositionRows,

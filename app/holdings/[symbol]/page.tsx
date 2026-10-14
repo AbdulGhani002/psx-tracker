@@ -32,7 +32,7 @@ import {
   getMarketContext,
   getAppSettings,
 } from "@/lib/data";
-import { deriveFromTransactions } from "@/lib/calculations";
+import { deriveFromTransactions, heldAndSold } from "@/lib/calculations";
 import {
   fmtRs,
   fmtUsd,
@@ -74,11 +74,17 @@ export default async function HoldingDetail(props: Props) {
   const marketValue = derived.shares * currentPrice;
   const unrealizedPL = marketValue - derived.totalCost;
   const unrealizedPct = derived.totalCost > 0 ? unrealizedPL / derived.totalCost : 0;
-  const yieldOnCost = derived.totalCost > 0 ? derived.dividendsReceived / derived.totalCost : 0;
-  // The same position in dollars: each purchase and dividend at its own day's
-  // USD/PKR rate, the shares at today's.
+  // Dividends follow the shares that earned them (heldAndSold): the shares
+  // held are credited only with what they earned, and the shares sold carry
+  // their dividends into what the sales booked.
+  const split = heldAndSold(transactions);
+  const heldTotal = unrealizedPL + split.held.dividends;
+  const rupeeTotalPct = derived.totalCost > 0 ? heldTotal / derived.totalCost : null;
+  const yieldOnCost = derived.avgCost > 0 && derived.shares > 0 ? split.perShare12m / derived.avgCost : null;
+  const booked = split.sold.shares > 0 ? split.sold.proceeds - split.sold.cost + split.sold.dividends : null;
+  // The same position in dollars: each purchase, sale and dividend at its own
+  // day's USD/PKR rate, the shares at today's.
   const hd = derived.shares > 0 && currentPrice > 0 ? holdingDollars(transactions, marketValue, usdRates) : null;
-  const rupeeTotalPct = derived.totalCost > 0 ? (unrealizedPL + derived.dividendsReceived) / derived.totalCost : null;
   const h = holding as any;
   // Sell-discipline context: fired triggers, spread, and this symbol's own
   // decision history. Best-effort — a feed being down must not sink the page.
@@ -163,12 +169,26 @@ export default async function HoldingDetail(props: Props) {
           hint={fmtSignedPct(unrealizedPct)}
           tone={unrealizedPL >= 0 ? "positive" : "negative"}
         />
-        <Stat label="Dividends" value={fmtRs(derived.dividendsReceived)} hint={`Yield on cost ${fmtPct(yieldOnCost, 2)}`} />
+        <Stat
+          label="Total P/L"
+          value={fmtSignedRs(heldTotal)}
+          hint={`${fmtSignedPct(rupeeTotalPct)} · open ${fmtSignedRs(unrealizedPL)} + dividends these shares earned ${fmtRs(split.held.dividends)}`}
+          tone={heldTotal >= 0 ? "positive" : "negative"}
+        />
+        {booked != null && (
+          <Stat
+            label="Booked"
+            value={fmtSignedRs(booked)}
+            hint={`${fmtNum(split.sold.shares)} sold: sales ${fmtSignedRs(split.sold.proceeds - split.sold.cost)} · their dividends ${fmtRs(split.sold.dividends)}`}
+            tone={booked >= 0 ? "positive" : "negative"}
+          />
+        )}
+        <Stat label="Dividends" value={fmtRs(derived.dividendsReceived)} hint={`Yield on cost ${yieldOnCost != null ? fmtPct(yieldOnCost, 2) : "0%"}: Rs ${split.perShare12m.toFixed(2)} a share in 12 months, on your Rs ${derived.avgCost.toFixed(2)}`} />
         {hd && (
           <Stat
             label="P&L in dollars"
             value={fmtSignedDollars(hd.totalUsd)}
-            hint={`${fmtSignedPct(hd.totalPct != null ? hd.totalPct / 100 : null)} with dividends, against ${fmtSignedPct(rupeeTotalPct)} in rupees · cost ${fmtDollars(hd.costUsd)} at the rates you paid`}
+            hint={`${fmtSignedPct(hd.totalPct != null ? hd.totalPct / 100 : null)} with the dividends these shares earned, against ${fmtSignedPct(rupeeTotalPct)} in rupees · cost ${fmtDollars(hd.costUsd)} at the rates you paid`}
             tone={hd.totalUsd >= 0 ? "positive" : "negative"}
           />
         )}
