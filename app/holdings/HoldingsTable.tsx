@@ -287,6 +287,7 @@ export function HoldingsTable({ rows, staleAfterDays }: { rows: HoldingRow[]; st
                           <div style={{ color: y >= 0 ? "var(--positive)" : "var(--negative)" }}>
                             <div className="mono-num">{fmtSignedRs(r.allIn.total)}</div>
                             <div className="mono-num text-[11px] opacity-80">{fmtSignedPct(y)} in {months(r.allIn.days)}</div>
+                            {perYear != null && <div className="mono-num text-[11px] opacity-80">{fmtSignedPct(perYear)} a year</div>}
                           </div>
                         ) : (
                           <span className="text-muted">–</span>

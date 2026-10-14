@@ -354,8 +354,8 @@ export function AddTradeForm({ held, funds, accounts, taxPct, portfolios, defaul
                 </Field>
               )}
               <div className="md:col-span-2">
-                <Field label="Notes">
-                  <input value={notes} onChange={(e) => setNotes(e.target.value)} className="field" placeholder="Optional" />
+                <Field label={action === "BUY" || action === "SELL" ? "Why" : "Notes"} hint={action === "BUY" || action === "SELL" ? "Shown back to you in 3 months and a year" : undefined}>
+                  <input value={notes} onChange={(e) => setNotes(e.target.value)} className="field" placeholder={action === "BUY" ? "Why you are buying" : action === "SELL" ? "Why you are selling" : "Optional"} />
                 </Field>
               </div>
             </div>

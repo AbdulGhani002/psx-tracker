@@ -1,7 +1,7 @@
 // Single source of truth for the app version + changelog.
 // Bump APP_VERSION and prepend a CHANGELOG entry on every release.
 
-export const APP_VERSION = "11.23.0";
+export const APP_VERSION = "11.24.0";
 
 export const BUILD_DATE =
   process.env.NEXT_PUBLIC_BUILD_DATE ?? "";
@@ -17,6 +17,21 @@ export type ChangelogEntry = {
 
 // Reverse-chronological. Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: "11.24.0",
+    date: "2026-10-14",
+    title: "Price rules, sell list, years against the market",
+    changes: [
+      "Price rules: your steps from each share's average price (−20% add 10% … +60% sell 40%). Telegram after the close with the shares to add or sell, and checks on profit, dividend, policy rate and rupee: ⚠ when one changed a lot.",
+      "Sell list: prices to take profit at and stops for shares you hold, with the % to sell. Telegram after the close.",
+      "Yearly: each year against the KSE-100, KMI-30 and a 12-month T-bill; CGT and profit after tax; funds and savings in the years, so they add up to the total return.",
+      "Parked shares count in net worth and total return.",
+      "Yield on cost shows its yearly rate.",
+      "Sale review on Trades: what each sale's shares would be worth today, with their dividends.",
+      "The Why on a buy or sale comes back on Telegram in 3 months and a year, with the price since.",
+      "June tax check: on 1 June, the year's gains, CGT and the shares under cost.",
+    ],
+  },
   {
     version: "11.23.0",
     date: "2026-10-14",

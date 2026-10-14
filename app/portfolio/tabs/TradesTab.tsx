@@ -4,12 +4,15 @@ import { StatCard } from "@/components/ui/StatCard";
 import { TransactionsView } from "@/app/transactions/TransactionsView";
 import { getAllTransactions, getAllHoldings, getCorporateActionSuggestions, getFbrPack } from "@/lib/data";
 import { currentTaxYear } from "@/lib/dates";
+import { getSaleReviews } from "@/lib/analytics/trade-review";
 import { fmtRs, fmtSignedRs, fmtDate, fmtNum } from "@/lib/format";
 
 // Trade history: what was closed and what it made, then the whole ledger.
 export async function TradesTab() {
   const cur = currentTaxYear();
-  const [transactions, holdings, corpActions, pack] = await Promise.all([getAllTransactions(), getAllHoldings(), getCorporateActionSuggestions().catch(() => []), getFbrPack(cur.endYear).catch(() => null)]);
+  const [transactions, holdings, corpActions, pack, reviews] = await Promise.all([getAllTransactions(), getAllHoldings(), getCorporateActionSuggestions().catch(() => []), getFbrPack(cur.endYear).catch(() => null), getSaleReviews().catch(() => [])]);
+  const reviewed = reviews.filter((r) => r.diff != null);
+  const helped = reviewed.reduce((s, r) => s + (r.diff ?? 0), 0);
   const buys = transactions.filter((t) => t.type === "BUY" || t.type === "RIGHT");
   const sells = transactions.filter((t) => t.type === "SELL");
   const bought = buys.reduce((s, t) => s + t.netAmount, 0);
@@ -84,6 +87,34 @@ export async function TradesTab() {
               </tbody>
             </table>
           </div>
+        </Card>
+      )}
+
+      {reviewed.length > 0 && (
+        <Card className="mt-3" title="Sale review" eyebrow="What each sale's shares would be worth today, with the dividends they would have paid" action={<span className="pill" data-tone={helped >= 0 ? "positive" : "negative"}>Selling {helped >= 0 ? "helped" : "cost"} {fmtRs(Math.abs(helped))}</span>}>
+          <div className="overflow-x-auto -mx-2">
+            <table className="table-zar">
+              <thead>
+                <tr><th>Date</th><th>Share</th><th className="text-right">Sold</th><th className="text-right">Got</th><th className="text-right">Worth now</th><th className="text-right">Selling</th></tr>
+              </thead>
+              <tbody>
+                {reviewed.slice(0, 40).map((r) => (
+                  <tr key={r.id}>
+                    <td className="text-muted whitespace-nowrap">{fmtDate(r.date)}</td>
+                    <td><Link href={`/stock/${r.symbol}`} className="font-semibold hover:text-[var(--accent-deep)]">{r.symbol}</Link></td>
+                    <td className="text-right mono-num whitespace-nowrap">{fmtNum(r.shares)} at {r.price.toFixed(2)}</td>
+                    <td className="text-right mono-num">{fmtRs(r.proceeds)}</td>
+                    <td className="text-right mono-num whitespace-nowrap">
+                      {fmtRs((r.worthNow ?? 0) + r.dividends)}
+                      <div className="text-[11px] text-muted">{r.changePct != null ? `${r.changePct >= 0 ? "+" : "−"}${Math.abs(r.changePct).toFixed(1)}% since` : ""}{r.dividends >= 1 ? ` · ${fmtRs(r.dividends)} dividends` : ""}</div>
+                    </td>
+                    <td className="text-right mono-num whitespace-nowrap" style={{ color: (r.diff ?? 0) >= 0 ? "var(--positive)" : "var(--negative)" }}>{(r.diff ?? 0) >= 0 ? "helped " : "cost "}{fmtRs(Math.abs(r.diff ?? 0))}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <p className="text-[11.5px] text-muted mt-3">Worth now: the shares sold at today&apos;s price (bonus and splits counted) plus the cash dividends they would have been paid after tax, against what the sale brought in after fees.</p>
         </Card>
       )}
 

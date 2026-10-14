@@ -348,7 +348,7 @@ export type BookFigures = {
   totalReturnPct: number | null; // on the money put in
   todayProfit: number; // shares at today's closes plus the day's fund income
   todayPct: number | null;
-  equity: { cost: number; value: number; unrealized: number; realized: number; dividends: number; total: number; todayProfit: number; todayPct: number };
+  equity: { cost: number; value: number; unrealized: number; realized: number; dividends: number; total: number; todayProfit: number; todayPct: number; parkedOpen: number };
   funds: { cost: number; value: number; gain: number; realized: number; perDay: number; count: number }; // gain includes what redemptions banked; count is the funds still held
   savings: { principal: number; balance: number; profit: number };
   fixedIncome: { cost: number; value: number; profit: number; count: number }; // T-bills and sukuks still held; profit includes coupons paid
@@ -363,7 +363,13 @@ async function _getBookFigures(): Promise<BookFigures> {
   const fiCost = fixed.reduce((s, x) => s + x.cost, 0);
   const fiValue = fixed.reduce((s, x) => s + x.value, 0);
   const fiProfit = fixed.reduce((s, x) => s + x.profitSoFar, 0);
-  const eqTotal = summary.unrealizedPL + summary.realizedPL + summary.dividendsTotal;
+  // Parked shares count in every total: their worth, their cost and their
+  // open gain or loss, as well as what they made before they were parked.
+  const parked = summary.parked.filter((p) => p.priceKnown && p.shares > 0);
+  const parkedCost = parked.reduce((s, p) => s + p.totalCost, 0);
+  const parkedValue = parked.reduce((s, p) => s + p.marketValue, 0);
+  const eqUnrealized = summary.unrealizedPL + parkedValue - parkedCost;
+  const eqTotal = eqUnrealized + summary.realizedPL + summary.dividendsTotal;
   const fCost = funds.reduce((s, f) => s + f.cost, 0);
   const fValue = funds.reduce((s, f) => s + f.value, 0);
   const fRealized = funds.reduce((s, f) => s + (f.realized ?? 0), 0);
@@ -372,7 +378,7 @@ async function _getBookFigures(): Promise<BookFigures> {
   const fPerDay = funds.reduce((s, f) => s + (f.moneyMarket || f.dailyDividend ? f.earnedPerDay : 0), 0);
   const sPrincipal = savings.reduce((s, a) => s + a.principal, 0);
   const sBalance = savings.reduce((s, a) => s + a.balance, 0);
-  const costBasis = summary.totalCost + fCost + sPrincipal + fiCost;
+  const costBasis = summary.totalCost + parkedCost + fCost + sPrincipal + fiCost;
   const totalReturn = eqTotal + (fValue - fCost) + fRealized + (sBalance - sPrincipal) + fiProfit;
   // Net worth less every gain ever made is the money that was put in, net of
   // what was taken out: the cost of what is held today includes the realised
@@ -390,7 +396,7 @@ async function _getBookFigures(): Promise<BookFigures> {
     totalReturnPct: invested > 0 ? (totalReturn / invested) * 100 : null,
     todayProfit,
     todayPct: base > 0 ? (todayProfit / base) * 100 : null,
-    equity: { cost: summary.totalCost, value: summary.totalValue, unrealized: summary.unrealizedPL, realized: summary.realizedPL, dividends: summary.dividendsTotal, total: eqTotal, todayProfit: today.profit, todayPct: today.profitPct },
+    equity: { cost: summary.totalCost + parkedCost, value: summary.totalValue + parkedValue, unrealized: eqUnrealized, realized: summary.realizedPL, dividends: summary.dividendsTotal, total: eqTotal, todayProfit: today.profit, todayPct: today.profitPct, parkedOpen: parkedValue - parkedCost },
     funds: { cost: fCost, value: fValue, gain: fValue - fCost + fRealized, realized: fRealized, perDay: fPerDay, count: funds.filter((f) => f.units > 0).length },
     savings: { principal: sPrincipal, balance: sBalance, profit: sBalance - sPrincipal },
     fixedIncome: { cost: fiCost, value: fiValue, profit: fiProfit, count: fixed.length },

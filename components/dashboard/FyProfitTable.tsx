@@ -1,81 +1,124 @@
 import { Card } from "@/components/ui/Card";
-import type { FyBoard } from "@/lib/analytics/fy";
+import type { FyBoard, YearRow } from "@/lib/analytics/fy";
 import { fmtRs, fmtSignedRs } from "@/lib/format";
+import { TbillRatesForm } from "./TbillRatesForm";
 
-// Profit by financial year (lib/analytics/fy-profit.ts), every year since the
-// first trade, then where this year's came from, name by name.
+// Profit by financial year (lib/analytics/fy.ts): the shares' price gain and
+// dividends, the rest of the book, the CGT on the year's sales and what that
+// leaves; then each year against the KSE-100, the KMI-30 and a T-bill.
 
 const tone = (v: number) => (v >= 0 ? "var(--positive)" : "var(--negative)");
 const pct = (v: number | null) => (v == null ? "—" : `${v >= 0 ? "+" : "−"}${Math.abs(v).toFixed(1)}%`);
+const otherOf = (y: YearRow) => y.other.funds + y.other.savings + y.other.fixed;
+const afterTax = (y: YearRow) => y.total - (y.cgt ?? 0);
+
+function Money({ v, strong }: { v: number; strong?: boolean }) {
+  return <td className={`text-right mono-num${strong ? " font-semibold" : ""}`} style={{ color: tone(v) }}>{fmtSignedRs(v)}</td>;
+}
 
 export function FyProfitTable({ board }: { board: FyBoard }) {
   if (board.years.length === 0) return null;
-  const cur = board.current ?? board.years[0];
-  const maxAbs = Math.max(1, ...cur.stocks.map((s) => Math.abs(s.profit)));
   const missing = [...new Set(board.years.flatMap((y) => y.missingPrices))];
+  const hasOther = board.years.some((y) => Math.abs(otherOf(y)) >= 1);
+  const sum = (f: (y: YearRow) => number) => board.years.reduce((s, y) => s + f(y), 0);
   return (
-    <Card className="mt-3" title="Profit by financial year" action={<span className="text-[12px] text-muted">July to June, dividends included</span>}>
-      <div className="overflow-x-auto -mx-2">
-        <table className="table-zar">
-          <thead>
-            <tr>
-              <th>Year</th>
-              <th className="text-right">Worth at the start</th>
-              <th className="text-right">Bought</th>
-              <th className="text-right">Sold</th>
-              <th className="text-right">Worth at the end</th>
-              <th className="text-right">Price gain</th>
-              <th className="text-right">Dividends</th>
-              <th className="text-right">Profit</th>
-              <th className="text-right">Return</th>
-            </tr>
-          </thead>
-          <tbody>
-            {board.years.map((y) => (
-              <tr key={y.fy.label}>
-                <td className="font-semibold whitespace-nowrap">
-                  {y.fy.label}
-                  {y.fy.current && <span className="text-[11px] font-normal text-muted"> to date</span>}
-                </td>
-                <td className="text-right mono-num">{fmtRs(y.startValue)}</td>
-                <td className="text-right mono-num">{fmtRs(y.bought)}</td>
-                <td className="text-right mono-num">{fmtRs(y.sold)}</td>
-                <td className="text-right mono-num">{fmtRs(y.endValue)}</td>
-                <td className="text-right mono-num" style={{ color: tone(y.capitalGain) }} title={`Realised on sales: ${fmtSignedRs(y.realized)}`}>{fmtSignedRs(y.capitalGain)}</td>
-                <td className="text-right mono-num" title={y.dividendTax > 0 ? `After ${fmtRs(y.dividendTax)} tax withheld` : undefined}>{fmtRs(y.dividends)}</td>
-                <td className="text-right mono-num font-semibold" style={{ color: tone(y.profit) }}>{fmtSignedRs(y.profit)}</td>
-                <td className="text-right mono-num" style={{ color: y.returnPct == null ? undefined : tone(y.returnPct) }} title={y.returnShort ? "Too little of the year had money at work for a percentage to mean anything" : undefined}>{pct(y.returnPct)}</td>
+    <>
+      <Card title="Profit by financial year" action={<span className="text-[12px] text-muted">July to June, dividends included</span>}>
+        <div className="overflow-x-auto -mx-2">
+          <table className="table-zar">
+            <thead>
+              <tr>
+                <th>Year</th>
+                <th className="text-right">Price gain</th>
+                <th className="text-right">Dividends</th>
+                {hasOther && <th className="text-right" title="Funds, savings, T-bills and deposits">Funds &amp; savings</th>}
+                <th className="text-right">Profit</th>
+                <th className="text-right" title="Capital gains tax on the year's sales, as on the Tax tab">CGT</th>
+                <th className="text-right" title="Profit less the CGT. Dividends are already after the tax withheld.">After tax</th>
+                <th className="text-right" title="The shares' profit on the money they had at work (Modified Dietz)">Return</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+            </thead>
+            <tbody>
+              {board.years.map((y) => (
+                <tr key={y.fy.label}>
+                  <td className="font-semibold whitespace-nowrap" title={`Worth at the start ${fmtRs(y.startValue)} · bought ${fmtRs(y.bought)} · sold ${fmtRs(y.sold)} · worth at the end ${fmtRs(y.endValue)}`}>
+                    {y.fy.label}
+                    {y.fy.current && <span className="text-[11px] font-normal text-muted"> to date</span>}
+                  </td>
+                  <td className="text-right mono-num" style={{ color: tone(y.capitalGain) }} title={`Realised on sales: ${fmtSignedRs(y.realized)}`}>{fmtSignedRs(y.capitalGain)}</td>
+                  <td className="text-right mono-num" title={y.dividendTax > 0 ? `After ${fmtRs(y.dividendTax)} tax withheld` : undefined}>{fmtRs(y.dividends)}</td>
+                  {hasOther && (Math.abs(otherOf(y)) >= 1 ? <td className="text-right mono-num" style={{ color: tone(otherOf(y)) }} title={`Funds ${fmtSignedRs(y.other.funds)} · savings ${fmtSignedRs(y.other.savings)} · T-bills and deposits ${fmtSignedRs(y.other.fixed)}`}>{fmtSignedRs(otherOf(y))}</td> : <td className="text-right text-muted">–</td>)}
+                  <Money v={y.total} strong />
+                  <td className="text-right mono-num text-muted">{y.cgt != null ? fmtRs(y.cgt) : "–"}</td>
+                  <Money v={afterTax(y)} />
+                  <td className="text-right mono-num" style={{ color: y.returnPct == null ? undefined : tone(y.returnPct) }} title={y.returnShort ? "Too little of the year had money at work for a percentage to mean anything" : undefined}>{pct(y.returnPct)}</td>
+                </tr>
+              ))}
+            </tbody>
+            {board.years.length > 1 && (
+              <tfoot>
+                <tr className="font-semibold">
+                  <td>All years</td>
+                  <Money v={sum((y) => y.capitalGain)} />
+                  <td className="text-right mono-num">{fmtRs(sum((y) => y.dividends))}</td>
+                  {hasOther && <Money v={sum(otherOf)} />}
+                  <Money v={sum((y) => y.total)} strong />
+                  <td className="text-right mono-num text-muted">{fmtRs(sum((y) => y.cgt ?? 0))}</td>
+                  <Money v={sum(afterTax)} />
+                  <td />
+                </tr>
+              </tfoot>
+            )}
+          </table>
+        </div>
+        <p className="text-[11.5px] text-muted mt-3">
+          Profit = end − start − (bought − sold) + dividends{hasOther ? ", plus funds and savings" : ""}. Reinvested dividends count once.
+          {missing.length > 0 && <> No year-end price for {missing.join(", ")}.</>}
+        </p>
+      </Card>
 
-      {cur.stocks.length > 0 && (
-        <>
-          <div className="label-cap mt-5 mb-2">Where {cur.fy.label}&apos;s profit came from</div>
-          <div className="space-y-2">
-            {cur.stocks.map((s) => (
-              <div key={s.symbol} className="grid grid-cols-[70px_1fr_auto] items-center gap-3 text-[12.5px]">
-                <span className="font-semibold">{s.symbol}</span>
-                <div className="relative h-2 rounded-full" style={{ background: "var(--surface-2)" }}>
-                  <div className="absolute top-0 h-full rounded-full" style={{ left: s.profit >= 0 ? "50%" : `${50 - (Math.abs(s.profit) / maxAbs) * 50}%`, width: `${(Math.abs(s.profit) / maxAbs) * 50}%`, background: tone(s.profit) }} />
-                  <div className="absolute top-[-2px] left-1/2 w-px h-3" style={{ background: "var(--rule-strong)" }} />
-                </div>
-                <span className="mono-num text-right whitespace-nowrap" title={`Price gain ${fmtSignedRs(s.profit - s.dividends)} · dividends ${fmtRs(s.dividends)}`}>
-                  <span style={{ color: tone(s.profit) }}>{fmtSignedRs(s.profit)}</span>
-                  {s.dividends > 0 && <span className="text-muted text-[11px]"> incl. {fmtRs(s.dividends)} dividends</span>}
-                </span>
-              </div>
-            ))}
-          </div>
-        </>
-      )}
-
-      <p className="text-[11.5px] text-muted mt-4">
-        Profit = end − start − (bought − sold) + dividends. Reinvested dividends count once.
-        {missing.length > 0 && <> No year-end price for {missing.join(", ")}.</>}
-      </p>
-    </Card>
+      <Card className="mt-3" title="Against the market" action={<span className="text-[12px] text-muted">Each year&apos;s change</span>}>
+        <div className="overflow-x-auto -mx-2">
+          <table className="table-zar">
+            <thead>
+              <tr>
+                <th>Year</th>
+                <th className="text-right">Your shares</th>
+                <th className="text-right" title="Price only: the index leaves dividends out">KSE-100</th>
+                <th className="text-right" title="Price only: the index leaves dividends out">KMI-30</th>
+                <th className="text-right" title="A 12-month T-bill bought on 1 July, before tax">12M T-bill</th>
+              </tr>
+            </thead>
+            <tbody>
+              {board.years.map((y) => {
+                const m = y.market;
+                const beat = (v: number | null) => (y.returnPct != null && v != null ? (y.returnPct >= v ? "var(--positive)" : "var(--negative)") : undefined);
+                return (
+                  <tr key={y.fy.label}>
+                    <td className="font-semibold whitespace-nowrap">{y.fy.label}{y.fy.current && <span className="text-[11px] font-normal text-muted"> to date</span>}</td>
+                    <td className="text-right mono-num font-semibold">{pct(y.returnPct)}</td>
+                    <td className="text-right mono-num" style={{ color: beat(m.kse) }}>{pct(m.kse)}</td>
+                    <td className="text-right mono-num" style={{ color: beat(m.kmi) }}>{pct(m.kmi)}</td>
+                    <td
+                      className="text-right mono-num"
+                      style={{ color: beat(m.tbill) }}
+                      title={m.tbillFrom === "entered" ? `${m.tbillRate}% on 1 July${y.fy.current ? ", the part earned so far" : ""}` : m.tbillFrom === "policy" ? "No T-bill rate kept for this year: money at the policy rate instead. Set the rate below." : undefined}
+                    >
+                      {m.tbillFrom === "policy" && <span className="text-muted">≈ </span>}
+                      {pct(m.tbill)}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+        <p className="text-[11.5px] text-muted mt-3">Green: your shares did better. The indexes leave dividends out; ≈ is the policy rate where no T-bill rate is set.</p>
+        <details className="mt-2 text-[12.5px]">
+          <summary className="cursor-pointer select-none text-muted">Set the 12-month T-bill rate for a year</summary>
+          <TbillRatesForm years={board.years.map((y) => ({ endYear: y.fy.endYear, label: y.fy.label, rate: y.market.tbillRate }))} />
+        </details>
+      </Card>
+    </>
   );
 }

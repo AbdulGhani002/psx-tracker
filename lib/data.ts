@@ -1100,7 +1100,8 @@ async function _getNetWorth(): Promise<NetWorth> {
     getSavingsValued(),
     getFixedIncomeValued(),
   ]);
-  const equity = summary.totalValue;
+  // Parked shares are left out of the weights, not out of what you own.
+  const equity = summary.totalValue + summary.parked.filter((p) => p.priceKnown && p.shares > 0).reduce((s, p) => s + p.marketValue, 0);
   const fundsTotal = funds.reduce((s, f) => s + f.value, 0);
   const moneyMarket = funds.filter((f) => f.moneyMarket).reduce((s, f) => s + f.value, 0);
   const savingsTotal = savings.reduce((s, a) => s + a.balance, 0);

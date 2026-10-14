@@ -323,6 +323,7 @@ table { font-variant-numeric: tabular-nums; }
 }
 .pill[data-tone="positive"] { color: var(--positive); background: #ecfdf3; }
 .pill[data-tone="negative"] { color: var(--negative); background: #fef2f2; }
+.pill[data-tone="amber"] { color: var(--amber); background: #fffbeb; }
 .pill[data-tone="muted"] { color: var(--muted); }
 
 .seg { display: inline-flex; background: var(--surface-2); border-radius: 8px; padding: 3px; gap: 2px; }

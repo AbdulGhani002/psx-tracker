@@ -22,6 +22,10 @@ import { getEventRecord } from "@/lib/quant/event-record";
 import { buildLots } from "@/lib/calculations/lots";
 import { currentTaxYear } from "@/lib/dates";
 import { getSellDiscipline, getDecisionsFor } from "@/lib/data-decisions";
+import { getRuleBoard } from "@/lib/rules/data";
+import { getNoteReviews } from "@/lib/analytics/trade-review";
+import { checkFacts } from "@/lib/rules/checks";
+import { signedPct, stepText } from "@/lib/rules/ladder";
 import { knownHoldingCompany } from "@/lib/holding-companies";
 import {
   getHoldingBySymbol,
@@ -95,17 +99,21 @@ export default async function HoldingDetail(props: Props) {
   const everything = derived.dividendsReceived + derived.realizedPL + unrealizedPL;
   const yoc = employed > 0 ? everything / employed : null;
   const heldFor = work.daysHeld < 45 ? `${work.daysHeld} days` : `${Math.round(work.daysHeld / 30.44)} months`;
+  const yocYear = yoc != null && work.daysHeld >= 180 ? (yoc * 365) / work.daysHeld : null;
   // The same position in dollars: each purchase, sale and dividend at its own
   // day's USD/PKR rate, the shares at today's.
   const hd = derived.shares > 0 && currentPrice > 0 ? holdingDollars(transactions, marketValue, usdRates) : null;
   const h = holding as any;
   // Sell-discipline context: fired triggers, spread, and this symbol's own
   // decision history. Best-effort — a feed being down must not sink the page.
-  const [discipline, symbolDecisions, eventRecord] = await Promise.all([
+  const [discipline, symbolDecisions, eventRecord, ruleBoard, reasons] = await Promise.all([
     getSellDiscipline().catch(() => null),
     getDecisionsFor(symbol).catch(() => []),
     getEventRecord(symbol).catch(() => null),
+    derived.shares > 0 ? getRuleBoard().catch(() => null) : Promise.resolve(null),
+    getNoteReviews(symbol).catch(() => []),
   ]);
+  const rule = ruleBoard?.settings.on ? ruleBoard.shares.find((x) => x.symbol === symbol) ?? null : null;
   const disc = discipline?.positions.find((x) => x.signal.symbol === symbol) ?? null;
 
   // Sector peers from the market-wide ratings universe — the opportunity-cost
@@ -185,7 +193,7 @@ export default async function HoldingDetail(props: Props) {
         <Stat
           label="Yield on cost"
           value={fmtSignedPct(yoc)}
-          hint={`Dividends ${fmtSignedRs(derived.dividendsReceived)} · trades ${fmtSignedRs(derived.realizedPL)} · open ${fmtSignedRs(unrealizedPL)} = ${fmtSignedRs(everything)}, on ${fmtRs(employed)} employed on average over ${heldFor}`}
+          hint={`${yocYear != null ? `${fmtSignedPct(yocYear)} a year. ` : ""}Dividends ${fmtSignedRs(derived.dividendsReceived)} · trades ${fmtSignedRs(derived.realizedPL)} · open ${fmtSignedRs(unrealizedPL)} = ${fmtSignedRs(everything)}, on ${fmtRs(employed)} employed on average over ${heldFor}`}
           tone={everything >= 0 ? "positive" : "negative"}
         />
         <Stat
@@ -212,6 +220,37 @@ export default async function HoldingDetail(props: Props) {
           />
         )}
       </StatRow>
+
+      {rule && (
+        <div className="mt-5 flex flex-wrap items-center gap-x-6 gap-y-2 text-[13px]">
+          <Link href="/rules" className="label-cap hover:underline">Price rules</Link>
+          {rule.move != null && <span><span className="mono-num" style={{ color: rule.move >= 0 ? "var(--positive)" : "var(--negative)" }}>{signedPct(rule.move)}</span> <span className="text-muted">from your {fmtRs(rule.avgCost, true)}</span>{rule.at && <span className="font-semibold">: {stepText(rule.at)}</span>}</span>}
+          {rule.addsOff ? <span className="text-muted">Adds off: 0% target</span> : rule.nextAdd && <span><span className="text-muted">Add {rule.nextAdd.step.sizePct}% at</span> <span className="mono-num">{fmtRs(rule.nextAdd.price, true)}</span></span>}
+          {rule.nextSell && <span><span className="text-muted">Sell {rule.nextSell.step.sizePct}% at</span> <span className="mono-num">{fmtRs(rule.nextSell.price, true)}</span></span>}
+          <span className="flex gap-1">
+            {checkFacts(rule.checks).map((c) => (
+              <span key={c.label} className="pill" data-tone={c.ok ? "positive" : "amber"} title={c.text}>{c.ok ? "✓" : "⚠"} {c.label}</span>
+            ))}
+          </span>
+          {rule.off && <span className="text-muted">Off for this share</span>}
+        </div>
+      )}
+
+      {reasons.length > 0 && (
+        <div className="mt-5 text-[13px]">
+          <div className="label-cap mb-1">Why you traded</div>
+          <ul className="space-y-1">
+            {reasons.slice(0, 6).map((r) => (
+              <li key={r.id} className="flex flex-wrap gap-x-2">
+                <span className="text-muted whitespace-nowrap">{r.date}</span>
+                <span className="font-semibold">{r.type === "BUY" ? "Bought" : "Sold"} at {r.price.toFixed(2)}</span>
+                <span>“{r.note}”</span>
+                {r.since && <span className="mono-num" style={{ color: r.since.changePct >= 0 ? "var(--positive)" : "var(--negative)" }}>{r.since.changePct >= 0 ? "+" : "−"}{Math.abs(r.since.changePct).toFixed(1)}% since</span>}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       {market && (market.week52High != null || market.indices.length > 0) && (
         <div className="mt-5 flex flex-wrap items-center gap-x-8 gap-y-3 text-[13px]">

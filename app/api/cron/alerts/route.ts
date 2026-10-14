@@ -2,7 +2,11 @@ import { NextResponse } from "next/server";
 import { connectDb } from "@/lib/db";
 import { AlertLogModel, RateSnapshotModel } from "@/lib/models";
 import { appOrigin } from "@/lib/auth/mailer";
-import { getAppSettings, getPortfolioSummary, getAllHoldings, getUpcomingExDates, getAllUserIds, getShariahStatus, getFeedSnapshot, saveFeedSnapshot, getNetWorth, getEffectiveInflationPct, getFixedIncomeValued } from "@/lib/data";
+import { getAppSettings, getPortfolioSummary, getAllHoldings, getUpcomingExDates, getAllUserIds, getShariahStatus, getFeedSnapshot, saveFeedSnapshot, getNetWorth, getEffectiveInflationPct, getFixedIncomeValued, getFbrPack } from "@/lib/data";
+import { currentTaxYear } from "@/lib/dates";
+import { juneDue, juneMessage } from "@/lib/tax/june";
+import { noteAlerts } from "@/lib/analytics/trade-review";
+import { pktToday } from "@/lib/quant/sheet-bars";
 import { getUsdPkr } from "@/lib/fx";
 import { getPriceFreshness } from "@/lib/prices";
 import { getFlows, getEarningsCalendar } from "@/lib/analytics";
@@ -14,6 +18,8 @@ import { sendTelegram } from "@/lib/notify/telegram";
 import { getStrategy, getRatesPrefill } from "@/lib/strategy/data";
 import { kseStepMessage, maturityMessage } from "@/lib/strategy/alerts";
 import { buyListAlerts } from "@/lib/buy-list/data";
+import { sellListAlerts } from "@/lib/sell-list/data";
+import { ruleAlerts } from "@/lib/rules/data";
 import { getIndexForecasts, weekMessage, weekMessageDue } from "@/lib/index-week/data";
 import { cronAuthorised } from "@/lib/auth/cron";
 
@@ -26,7 +32,7 @@ type Candidate = { key: string; message: string };
 // Which alerts this user wants. Every candidate carries a key whose prefix
 // says what it is, so one filter at the end decides what goes out instead of
 // nine scattered conditions.
-const PRICE_KEYS = ["drift", "near-ceiling", "near-buy", "fipi", "kmi-drop", "sellsig", "buy-zone", "index-week"];
+const PRICE_KEYS = ["drift", "near-ceiling", "near-buy", "fipi", "kmi-drop", "sellsig", "buy-zone", "sell-zone", "rule", "rules", "index-week"];
 
 function wanted(key: string, s: any): boolean {
   const prefix = key.split(":")[0];
@@ -117,6 +123,25 @@ async function runAlertsForCurrentUser(forceDigest = false) {
     for (const c of await buyListAlerts(await uid())) candidates.push(c);
   } catch {
     /* no buy-list alert this run */
+  }
+
+  // 4.2 The sell list (lib/sell-list): a share whose day's high got to a
+  //     price to sell at, or whose close fell to a stop. Each level once,
+  //     until it arms again.
+  const heldNow = new Map(summary.positions.filter((p) => p.shares > 0).map((p) => [p.symbol, { shares: p.shares, avgCost: p.avgCost }]));
+  try {
+    for (const c of await sellListAlerts(await uid(), heldNow)) candidates.push(c);
+  } catch {
+    /* no sell-list alert this run */
+  }
+
+  // 4.3 The price rules (lib/rules): a held share whose close reached one of
+  //     the user's add or sell steps from its average price, with the checks
+  //     on what changed since it was bought.
+  try {
+    for (const c of await ruleAlerts(await uid())) candidates.push(c);
+  } catch {
+    /* no rule alert this run */
   }
 
   // 4.5 Plan proximity: your OWN pre-committed levels, approaching. The price
@@ -270,6 +295,27 @@ async function runAlertsForCurrentUser(forceDigest = false) {
     }
   } catch {
     /* no zone alert this run */
+  }
+
+  // The June tax check (lib/tax/june.ts): once, from 1 June, before the tax
+  // year closes: the gains and CGT so far and the shares under cost.
+  try {
+    if (juneDue(pktToday())) {
+      const cur = currentTaxYear();
+      const pack = await getFbrPack(cur.endYear);
+      const losers = [...summary.positions, ...summary.parked].filter((p) => p.shares > 0 && p.priceKnown && p.unrealizedPL < 0).map((p) => ({ symbol: p.symbol, open: p.unrealizedPL, parked: p.parked }));
+      candidates.push({ key: `june-tax:${cur.label}`, message: juneMessage({ label: cur.label, netGain: pack.cgt.netGain, cgt: pack.cgt.cgt, ratePct: pack.cgt.rate, dividendsNet: pack.divTotals.net, dividendTax: pack.divTotals.wht, losers }, `${appOrigin()}/portfolio?tab=cgt`) });
+    }
+  } catch {
+    /* no tax check this run */
+  }
+
+  // Reasons typed on buys and sales, shown back three months and a year on
+  // with what the price has done since (lib/notes).
+  try {
+    for (const c of await noteAlerts()) candidates.push(c);
+  } catch {
+    /* no note reminder this run */
   }
 
   // The model's week (lib/index-week): once the week's last close is in, the

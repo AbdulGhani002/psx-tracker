@@ -103,7 +103,7 @@ async function Profitability({ range }: { range: string }) {
     <div>
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3 stagger">
         <StatCard label="Total return" value={fmtSignedRs(book.totalReturn)} tone={book.totalReturn >= 0 ? "positive" : "negative"} delta={book.totalReturnPct != null ? `${book.totalReturnPct >= 0 ? "+" : ""}${book.totalReturnPct.toFixed(1)}%` : undefined} deltaTone={book.totalReturn >= 0 ? "positive" : "negative"} hint={book.funds.count > 0 ? `Shares ${fmtSignedRs(book.equity.total)} · funds ${fmtSignedRs(fundsGain)}` : undefined} />
-        <StatCard label="Unrealized" value={fmtSignedRs(summary.unrealizedPL + fundsGain)} tone={summary.unrealizedPL + fundsGain >= 0 ? "positive" : "negative"} hint={book.funds.count > 0 ? `Shares ${fmtSignedRs(summary.unrealizedPL)} · funds ${fmtSignedRs(fundsGain)}` : undefined} />
+        <StatCard label="Unrealized" value={fmtSignedRs(book.equity.unrealized + fundsGain)} tone={book.equity.unrealized + fundsGain >= 0 ? "positive" : "negative"} hint={book.funds.count > 0 ? `Shares ${fmtSignedRs(book.equity.unrealized)} · funds ${fmtSignedRs(fundsGain)}` : undefined} />
         <StatCard label="Realized" value={fmtSignedRs(summary.realizedPL)} tone={summary.realizedPL >= 0 ? "positive" : "negative"} />
         <StatCard label="Dividends" value={fmtRs(summary.dividendsTotal)} delta={yields ? `${yields.portfolioYieldPct.toFixed(2)}% yield` : undefined} deltaTone="muted" />
       </div>

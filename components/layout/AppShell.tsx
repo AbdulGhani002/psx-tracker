@@ -20,6 +20,8 @@ const MENU: NavItem[] = [
   { href: "/", label: "Overview", icon: "grid", title: "Overview", subtitle: "Consolidated view across all portfolios" },
   { href: "/portfolio", label: "Portfolios", icon: "briefcase", title: "Portfolio", subtitle: "Holdings, trades, payouts, cash and tax" },
   { href: "/buy-list", label: "Buy list", icon: "eye", title: "Buy list", subtitle: "Shares at the prices you'd buy them, told on Telegram" },
+  { href: "/sell-list", label: "Sell list", icon: "arrowUpRight", title: "Sell list", subtitle: "Prices to take profit at and stops, told on Telegram" },
+  { href: "/rules", label: "Price rules", icon: "scale", title: "Price rules", subtitle: "Your steps to add and sell from each share's average price" },
   { href: "/strategy", label: "Strategy", icon: "compass", title: "Strategy", subtitle: "Buying a downturn in steps, dry powder and this month's rates" },
   { href: "/rebalance", label: "Rebalance", icon: "target", title: "Rebalance", subtitle: "Target allocation and the trades that reach it" },
   { href: "/analysis", label: "Model", icon: "brain", title: "Model", subtitle: "Where the indexes are likely to be next week and next month" },

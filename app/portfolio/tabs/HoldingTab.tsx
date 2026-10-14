@@ -88,7 +88,7 @@ export async function HoldingTab() {
 
       <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-3 stagger">
         <StatCard label="Investment value" value={fmtRs(book.costBasis)} hint={`What you hold cost${hasFunds ? `: shares ${fmtRs(book.equity.cost)} · funds ${fmtRs(book.funds.cost + book.savings.principal)}` : ""} · money put in, net ${fmtRs(book.invested)}`} />
-        <StatCard label="Unrealized gain/loss" value={fmtSignedRs(unrealizedAll)} tone={unrealizedAll >= 0 ? "positive" : "negative"} delta={pct(unrealizedAll, book.costBasis)} deltaTone={unrealizedAll >= 0 ? "positive" : "negative"} hint={hasFunds ? `Shares ${fmtSignedRs(book.equity.unrealized)} · funds ${fmtSignedRs(book.funds.gain + book.savings.profit)}` : undefined} />
+        <StatCard label="Unrealized gain/loss" value={fmtSignedRs(unrealizedAll)} tone={unrealizedAll >= 0 ? "positive" : "negative"} delta={pct(unrealizedAll, book.costBasis)} deltaTone={unrealizedAll >= 0 ? "positive" : "negative"} hint={[hasFunds ? `Shares ${fmtSignedRs(book.equity.unrealized)} · funds ${fmtSignedRs(book.funds.gain + book.savings.profit)}` : "", Math.abs(book.equity.parkedOpen) >= 1 ? `parked ${fmtSignedRs(book.equity.parkedOpen)}` : ""].filter(Boolean).join(" · ") || undefined} />
         <StatCard label="Today's return" value={fmtSignedRs(book.todayProfit)} tone={book.todayProfit >= 0 ? "positive" : "negative"} delta={book.todayPct != null ? `${book.todayPct >= 0 ? "+" : ""}${book.todayPct.toFixed(2)}%` : undefined} deltaTone={book.todayProfit >= 0 ? "positive" : "negative"} hint={hasFunds ? `Shares ${fmtSignedRs(book.equity.todayProfit)} · funds ${fmtSignedRs(book.funds.perDay)} a day` : undefined} />
         <StatCard label="Dividends" value={fmtRs(summary.dividendsTotal)} action={<Link href="/portfolio?tab=payouts" className="text-[11px] link-underline whitespace-nowrap">View details</Link>} />
         <StatCard label="Dividend tax" value={fmtRs(dividendTax)} />
@@ -118,11 +118,11 @@ export async function HoldingTab() {
             <StatCard
               key={y.fy.label}
               label={`Profit ${y.fy.label}${y.fy.current ? " so far" : ""}`}
-              value={fmtSignedRs(y.profit)}
-              tone={y.profit >= 0 ? "positive" : "negative"}
+              value={fmtSignedRs(y.total)}
+              tone={y.total >= 0 ? "positive" : "negative"}
               delta={y.returnPct != null ? signedPct(y.returnPct, 1) : undefined}
-              deltaTone={y.profit >= 0 ? "positive" : "negative"}
-              hint={`Price ${fmtSignedRs(y.capitalGain)} · dividends ${fmtRs(y.dividends)}`}
+              deltaTone={y.total >= 0 ? "positive" : "negative"}
+              hint={[`Price ${fmtSignedRs(y.capitalGain)}`, `dividends ${fmtRs(y.dividends)}`, Math.abs(y.total - y.profit) >= 1 ? `funds ${fmtSignedRs(y.total - y.profit)}` : "", y.cgt ? `CGT ${fmtRs(y.cgt)}` : ""].filter(Boolean).join(" · ")}
               action={<Link href="/portfolio?tab=yearly" className="text-[11px] link-underline whitespace-nowrap">By year</Link>}
             />
           ))}
@@ -140,7 +140,7 @@ export async function HoldingTab() {
 
       <Card className="mt-3">
         <HoldingsTable rows={rows} staleAfterDays={STALE_AFTER_DAYS} />
-        {summary.parked.length > 0 && <p className="mt-3 text-[11.5px] text-muted">{summary.parked.filter((p) => p.shares > 0).map((p) => p.symbol).join(", ")} {summary.parked.filter((p) => p.shares > 0).length === 1 ? "is" : "are"} parked and left out of every figure on this page.</p>}
+        {summary.parked.length > 0 && <p className="mt-3 text-[11.5px] text-muted">{summary.parked.filter((p) => p.shares > 0).map((p) => p.symbol).join(", ")} {summary.parked.filter((p) => p.shares > 0).length === 1 ? "is" : "are"} parked: out of this table and the weights, in the totals above.</p>}
         {shariah && shariah.totalValue > 0 && (
           <p className="mt-4 text-[12px] text-muted leading-relaxed">
             KMI screen: <span className="mono-num">{Math.round((shariah.compliantValue / shariah.totalValue) * 100)}%</span> of your equity value sits in KMI index members.
