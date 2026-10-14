@@ -7,7 +7,8 @@ import { fmtRs, fmtSignedRs } from "@/lib/format";
 // price, trades and dividends together, with the % on the capital the share
 // had employed that year. Then all the years together, and the yield on cost:
 // that total on the share's average capital employed over the days it was
-// held (`employed`, from holding.ts moneyAtWork). Shares sold out stay in.
+// held (`employed`, from holding.ts moneyAtWork). Shares sold out and parked
+// ones stay in.
 
 const tone = (v: number) => (v >= 0 ? "var(--positive)" : "var(--negative)");
 const pct = (v: number | null) => (v == null ? null : `${v >= 0 ? "+" : "−"}${Math.abs(v).toFixed(1)}%`);
@@ -22,18 +23,21 @@ function Cell({ v, sub, strong }: { v: number | null; sub?: string | null; stron
   );
 }
 
-export function YearlyShares({ board, employed }: { board: FyBoard; employed: Record<string, number> }) {
+export function YearlyShares({ board, employed, parked = [] }: { board: FyBoard; employed: Record<string, number>; parked?: string[] }) {
   if (board.years.length === 0) return null;
   const years = [...board.years].reverse();
   const now = board.current ?? board.years[0];
   const held = new Set(now.stocks.filter((s) => s.endShares > 0).map((s) => s.symbol));
+  const isParked = new Set(parked);
   const rows = [...new Set(years.flatMap((y) => y.stocks.map((s) => s.symbol)))].map((symbol) => {
     const cells = years.map((y) => y.stocks.find((s) => s.symbol === symbol) ?? null);
     const total = cells.reduce((a, c) => a + (c?.profit ?? 0), 0);
     const base = employed[symbol] ?? 0;
-    return { symbol, held: held.has(symbol), cells, total, base, yoc: base > 0 ? (total / base) * 100 : null };
+    const state: "held" | "parked" | "sold" = isParked.has(symbol) ? "parked" : held.has(symbol) ? "held" : "sold";
+    return { symbol, state, cells, total, base, yoc: base > 0 ? (total / base) * 100 : null };
   });
-  rows.sort((a, b) => Number(b.held) - Number(a.held) || b.total - a.total);
+  const order = { held: 2, parked: 1, sold: 0 } as const;
+  rows.sort((a, b) => order[b.state] - order[a.state] || b.total - a.total);
   const grand = years.reduce((a, y) => a + y.profit, 0);
 
   return (
@@ -57,8 +61,8 @@ export function YearlyShares({ board, employed }: { board: FyBoard; employed: Re
             {rows.map((r) => (
               <tr key={r.symbol}>
                 <td className="whitespace-nowrap">
-                  <Link href={r.held ? `/holdings/${r.symbol}` : `/stock/${r.symbol}`} className="font-semibold hover:text-[var(--accent-deep)]">{r.symbol}</Link>
-                  {!r.held && <span className="text-[11px] text-muted"> sold</span>}
+                  <Link href={r.state === "sold" ? `/stock/${r.symbol}` : `/holdings/${r.symbol}`} className="font-semibold hover:text-[var(--accent-deep)]">{r.symbol}</Link>
+                  {r.state !== "held" && <span className="text-[11px] text-muted"> {r.state}</span>}
                 </td>
                 {r.cells.map((c, k) => (
                   <Cell key={years[k].fy.label} v={c ? c.profit : null} sub={c ? pct(c.returnPct) : null} />

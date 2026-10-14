@@ -34,10 +34,10 @@ export type FyBoard = { years: FyProfit[]; current: FyProfit | null; firstTrade:
 
 async function _getFyProfits(): Promise<FyBoard> {
   const [txs, summary] = await Promise.all([getAllTransactions(), getPortfolioSummary()]);
-  // Parked holdings stay outside every total, as on the Holding tab.
-  const parked = new Set(summary.parked.map((p) => p.symbol));
+  // Every share counts, parked ones too: the sales that left a few shares
+  // parked made or lost money in their year, and the Holding tab's totals
+  // keep those gains, losses and dividends as well.
   const mine: FyTx[] = txs
-    .filter((t) => !parked.has(t.symbol))
     .map((t: any) => ({ symbol: t.symbol, type: t.type, date: new Date(t.date).toISOString().slice(0, 10), shares: Number(t.shares) || 0, netAmount: Number(t.netAmount) || 0, totalAmount: Number(t.totalAmount) || 0, taxDeducted: Number(t.taxDeducted) || 0, ratio: t.ratio ?? "" }))
     .sort((a, b) => a.date.localeCompare(b.date));
   if (mine.length === 0) return { years: [], current: null, firstTrade: null };
@@ -48,11 +48,11 @@ async function _getFyProfits(): Promise<FyBoard> {
   // Gains and losses on what was sold, by the year of the sale.
   const realizedBy = new Map<number, number>();
   const bySym = new Map<string, any[]>();
-  for (const t of txs) if (!parked.has(t.symbol)) (bySym.get(t.symbol) ?? bySym.set(t.symbol, []).get(t.symbol)!).push(t);
+  for (const t of txs) (bySym.get(t.symbol) ?? bySym.set(t.symbol, []).get(t.symbol)!).push(t);
   for (const [s, list] of bySym) for (const d of buildLots(s, list).disposals) realizedBy.set(fyOf(d.soldDate), (realizedBy.get(fyOf(d.soldDate)) ?? 0) + d.gain);
 
   // Prices: each year's end close, and today's for the year not over.
-  const live = new Map(summary.positions.filter((p) => p.priceKnown && p.currentPrice > 0).map((p) => [p.symbol, p.currentPrice]));
+  const live = new Map([...summary.positions, ...summary.parked].filter((p) => p.priceKnown && p.currentPrice > 0).map((p) => [p.symbol, p.currentPrice]));
   const lastClose = await latestCloses().catch(() => new Map<string, { date: string; close: number }>());
   const yearEnd = new Map<number, Map<string, number>>();
   for (let y = first - 1; y <= last; y++) if (y < last || `${y}-06-30` < today) yearEnd.set(y, await closesOn(`${y}-06-30`));

@@ -27,6 +27,7 @@ export const CHANGELOG: ChangelogEntry[] = [
       "Yield on cost on the holdings shows the rupees as well as the %.",
       "Dividend yield on cost: a year of the company's dividends a share (its last full year of payouts), on your average price, before tax. PTL: Rs 4.00 on Rs 50.45 = 7.9%. One number on Holdings, the share page, Payouts and Analytics.",
       "The year table moved from Analytics to Yearly; By year on Holding opens it.",
+      "Parked shares now count in every year's profit. LUCK, HUBC and MARI's losses on the sales that left them parked were missing from the years.",
     ],
   },
   {

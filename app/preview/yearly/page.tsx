@@ -24,12 +24,14 @@ const TXS: FyTx[] = [
   t("MUREB", "BUY", "2026-01-15", 165, 990),
   t("MUREB", "BUY", "2026-07-08", 497, 940),
   t("HINOON", "BUY", "2026-08-20", 479, 1100),
+  t("LUCK", "BUY", "2026-01-10", 60, 1300),
+  t("LUCK", "SELL", "2026-08-01", 54, 980),
 ];
 const CLOSES: Record<string, Record<string, number>> = {
   "2025-06-30": { NBP: 108.2 },
-  "2026-06-30": { MEBL: 516.46, PTL: 58.34, MUREB: 919.55 },
+  "2026-06-30": { MEBL: 516.46, PTL: 58.34, MUREB: 919.55, LUCK: 1100 },
 };
-const NOW: Record<string, number> = { MEBL: 560, PTL: 49.1, MUREB: 936, HINOON: 1050 };
+const NOW: Record<string, number> = { MEBL: 560, PTL: 49.1, MUREB: 936, HINOON: 1050, LUCK: 950 };
 
 export default async function YearlyPreview() {
   if (process.env.NODE_ENV === "production" || process.env.DEV_PREVIEW !== "1") notFound();
@@ -46,7 +48,7 @@ export default async function YearlyPreview() {
   return (
     <div className="p-4">
       <FyProfitTable board={board} />
-      <YearlyShares board={board} employed={employed} />
+      <YearlyShares board={board} employed={employed} parked={["LUCK"]} />
     </div>
   );
 }
