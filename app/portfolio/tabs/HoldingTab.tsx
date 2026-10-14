@@ -6,7 +6,7 @@ import { NetWorthChart } from "@/components/dashboard/NetWorthChart";
 import { SetupBanner } from "@/components/layout/SetupBanner";
 import { HoldingsTable, type HoldingRow } from "@/app/holdings/HoldingsTable";
 import { ParkedHoldings } from "@/components/dashboard/ParkedHoldings";
-import { getPortfolioSummary, checkDataAvailability, getSparklines, getShariahStatus, getAllTransactions, getFbrPack, getAllHoldings } from "@/lib/data";
+import { getPortfolioSummary, checkDataAvailability, getSparklines, getShariahStatus, getAllTransactions, getFbrPack, getAllHoldings, getDividendForecast } from "@/lib/data";
 import { getToday, getAllocation, getBookFigures, getDollarized, getUsdPkrSeries } from "@/lib/analytics/dashboard";
 import { holdingDollars } from "@/lib/analytics/dollarized";
 import { getFyProfits } from "@/lib/analytics/fy";
@@ -33,6 +33,8 @@ export async function HoldingTab() {
   const [freshness, spark, shariah] = await Promise.all([getPriceFreshness(held.map((p) => p.symbol)), getSparklines(held.map((r) => r.symbol)), getShariahStatus().catch(() => null)]);
   const shariahBySym = new Map((shariah?.holdings ?? []).map((h) => [h.symbol, (h.compliant === null ? null : h.inKmi30 ? "KMI30" : h.inKmiAllShare ? "KMIALL" : "NON") as HoldingRow["shariah"]]));
   const byName = new Map(today.names.map((n) => [n.symbol, n]));
+  const forecast = await getDividendForecast().catch(() => null);
+  const yearOf = new Map((forecast?.profiles ?? []).filter((p) => p.declaredAnnualDps > 0).map((p) => [p.symbol, { dps: p.declaredAnnualDps, label: p.declaredLabel }]));
 
   const dividendTax = txs.filter((t) => t.type === "DIVIDEND").reduce((s, t) => s + (t.taxDeducted ?? 0), 0);
   const fees = txs.filter((t) => t.type === "BUY" || t.type === "SELL" || t.type === "RIGHT").reduce((s, t) => s + (t.fees ?? 0), 0);
@@ -56,8 +58,9 @@ export async function HoldingTab() {
       unrealizedPct: r.unrealizedPct,
       dividendsReceived: r.dividendsReceived,
       heldDividends: r.heldDividends,
-      yield12m: r.yield12m,
+      divYear: yearOf.get(r.symbol) ?? null,
       booked: r.sold.shares > 0 ? r.sold : null,
+      allIn: { total: r.totalReturn, dividends: r.dividendsReceived, trades: r.realizedPL, open: r.unrealizedPL, atWork: r.moneyAtWork, days: r.daysHeld },
       totalCost: r.totalCost,
       currentPercent: r.currentPercent,
       targetPercent: r.targetPercent,
@@ -120,7 +123,7 @@ export async function HoldingTab() {
               delta={y.returnPct != null ? signedPct(y.returnPct, 1) : undefined}
               deltaTone={y.profit >= 0 ? "positive" : "negative"}
               hint={`Price ${fmtSignedRs(y.capitalGain)} · dividends ${fmtRs(y.dividends)}`}
-              action={<Link href="/portfolio?tab=analytics&view=profitability#by-year" className="text-[11px] link-underline whitespace-nowrap">By year</Link>}
+              action={<Link href="/portfolio?tab=yearly" className="text-[11px] link-underline whitespace-nowrap">By year</Link>}
             />
           ))}
         </div>

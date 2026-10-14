@@ -120,10 +120,6 @@ export function moneyAtWork(txs: Transaction[], asOf: Date = new Date()): MoneyA
 export type HeldSold = {
   held: { shares: number; cost: number; dividends: number; dividends12m: number };
   sold: { shares: number; cost: number; proceeds: number; dividends: number };
-  // What one share was paid in the last 365 days, after tax: each dividend
-  // over the shares it was paid on. With the average price paid, the yield
-  // on cost of the shares held, however many were bought or sold since.
-  perShare12m: number;
 };
 
 export function heldAndSold(txs: Transaction[], asOf: Date = new Date(), unit: (tx: Transaction) => number = () => 1): HeldSold {
@@ -132,7 +128,6 @@ export function heldAndSold(txs: Transaction[], asOf: Date = new Date(), unit: (
   let shares = 0, cost = 0;
   let earned: Array<{ day: number; amount: number }> = []; // dividends on the shares held
   const sold = { shares: 0, cost: 0, proceeds: 0, dividends: 0 };
-  let perShare12m = 0;
   for (const tx of [...txs].sort(byDate)) {
     const d = dayOf(tx.date);
     if (d > end) break;
@@ -169,7 +164,6 @@ export function heldAndSold(txs: Transaction[], asOf: Date = new Date(), unit: (
         const onHeld = entitled > 0 ? amount * Math.min(1, shares / entitled) : 0;
         sold.dividends += amount - onHeld;
         if (onHeld > 0) earned.push({ day: d, amount: onHeld });
-        if (entitled > 0 && d > from) perShare12m += amount / entitled;
         break;
       }
     }
@@ -177,7 +171,6 @@ export function heldAndSold(txs: Transaction[], asOf: Date = new Date(), unit: (
   return {
     held: { shares, cost, dividends: earned.reduce((t, x) => t + x.amount, 0), dividends12m: earned.filter((x) => x.day > from).reduce((t, x) => t + x.amount, 0) },
     sold,
-    perShare12m,
   };
 }
 

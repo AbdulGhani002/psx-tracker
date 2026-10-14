@@ -6,7 +6,7 @@
 
 import "server-only";
 import { cache } from "react";
-import { getAllTransactions, getPortfolioSummary, getMutualFundsValued, getSavingsValued, getFixedIncomeValued, getCashEntries, getCashSummary, getNetWorth, getAllHoldings, getAppSettings, getCurrentPrices } from "@/lib/data";
+import { getAllTransactions, getPortfolioSummary, getMutualFundsValued, getSavingsValued, getFixedIncomeValued, getCashEntries, getCashSummary, getNetWorth, getAllHoldings, getAppSettings, getCurrentPrices, getDividendForecast } from "@/lib/data";
 import { getCurrentUserId } from "@/lib/auth/current-user";
 import { computeBenchmarkCached } from "@/lib/feeds/benchmark";
 import { eodBarsCached } from "@/lib/timeseries/eod-cache";
@@ -249,21 +249,23 @@ export async function getRecentActivity(limit = 8): Promise<Activity[]> {
   return items.slice(0, limit);
 }
 
-export type YieldRow = { symbol: string; name: string; shares: number; price: number; cost: number; value: number; ttmDividends: number; ttmPerShare: number; yieldOnPricePct: number; yieldOnCostPct: number; allTimeDividends: number; lastPaid: string | null };
+export type YieldRow = { symbol: string; name: string; shares: number; price: number; cost: number; value: number; ttmDividends: number; yearDps: number; yearLabel: string | null; yieldOnPricePct: number; yieldOnCostPct: number; allTimeDividends: number; lastPaid: string | null };
 
-// Dividend yields per held name: the last twelve months of dividends a share
-// against today's price and against the average price paid. For the whole
-// book: what the shares held now pay at today's prices and on what they cost,
-// a share's last twelve months at a time, so buying and selling move neither.
+// Dividend yields per held name: a year of the company's dividends a share
+// (its last finished year of payouts, from the dividend forecast's declared
+// year) against today's price and against the average price paid, before
+// tax. For the whole book, the same on what the shares held now are worth
+// and what they cost. Per share, so buying and selling move neither.
 export async function getYields(): Promise<{ rows: YieldRow[]; ttmTotal: number; portfolioYieldPct: number; yieldOnCostPct: number }> {
-  const [summary, txs] = await Promise.all([getPortfolioSummary(), getAllTransactions()]);
+  const [summary, txs, forecast] = await Promise.all([getPortfolioSummary(), getAllTransactions(), getDividendForecast().catch(() => null)]);
+  const yearOf = new Map((forecast?.profiles ?? []).map((p) => [p.symbol, { dps: p.declaredAnnualDps, label: p.declaredLabel }]));
   const cutoff = new Date(Date.now() - 365 * 86400000).toISOString().slice(0, 10);
   const rows: YieldRow[] = [];
   for (const p of summary.positions.filter((x) => x.shares > 0)) {
     const divs = txs.filter((t) => t.symbol === p.symbol && t.type === "DIVIDEND");
     const ttm = divs.filter((t) => new Date(t.date).toISOString().slice(0, 10) >= cutoff);
     const ttmDividends = ttm.reduce((s, t) => s + t.netAmount, 0);
-    const ttmPerShare = ttm.reduce((s, t) => s + (t.pricePerShare || 0), 0);
+    const year = yearOf.get(p.symbol) ?? { dps: 0, label: null };
     const last = divs.length ? divs.map((t) => new Date(t.date).toISOString().slice(0, 10)).sort().pop()! : null;
     rows.push({
       symbol: p.symbol,
@@ -273,9 +275,10 @@ export async function getYields(): Promise<{ rows: YieldRow[]; ttmTotal: number;
       cost: p.totalCost,
       value: p.marketValue,
       ttmDividends,
-      ttmPerShare,
-      yieldOnPricePct: p.currentPrice > 0 && ttmPerShare > 0 ? (ttmPerShare / p.currentPrice) * 100 : 0,
-      yieldOnCostPct: p.avgCost > 0 && ttmPerShare > 0 ? (ttmPerShare / p.avgCost) * 100 : 0,
+      yearDps: year.dps,
+      yearLabel: year.label,
+      yieldOnPricePct: p.currentPrice > 0 && year.dps > 0 ? (year.dps / p.currentPrice) * 100 : 0,
+      yieldOnCostPct: p.avgCost > 0 && year.dps > 0 ? (year.dps / p.avgCost) * 100 : 0,
       allTimeDividends: p.dividendsReceived,
       lastPaid: last,
     });
@@ -283,11 +286,9 @@ export async function getYields(): Promise<{ rows: YieldRow[]; ttmTotal: number;
   rows.sort((a, b) => b.yieldOnPricePct - a.yieldOnPricePct);
   const ttmTotal = rows.reduce((s, r) => s + r.ttmDividends, 0);
   const value = rows.reduce((s, r) => s + r.value, 0);
-  const paysNow = rows.reduce((s, r) => s + r.ttmPerShare * r.shares, 0);
-  const held = summary.positions.filter((x) => x.shares > 0);
-  const heldCost = held.reduce((s, p) => s + p.totalCost, 0);
-  const paysOnCost = held.reduce((s, p) => s + p.dps12m * p.shares, 0);
-  return { rows, ttmTotal, portfolioYieldPct: value > 0 ? (paysNow / value) * 100 : 0, yieldOnCostPct: heldCost > 0 ? (paysOnCost / heldCost) * 100 : 0 };
+  const paysNow = rows.reduce((s, r) => s + r.yearDps * r.shares, 0);
+  const cost = rows.reduce((s, r) => s + r.cost, 0);
+  return { rows, ttmTotal, portfolioYieldPct: value > 0 ? (paysNow / value) * 100 : 0, yieldOnCostPct: cost > 0 ? (paysNow / cost) * 100 : 0 };
 }
 
 export type Performance = {

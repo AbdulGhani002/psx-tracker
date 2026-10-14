@@ -1,7 +1,7 @@
 // Single source of truth for the app version + changelog.
 // Bump APP_VERSION and prepend a CHANGELOG entry on every release.
 
-export const APP_VERSION = "11.22.0";
+export const APP_VERSION = "11.23.0";
 
 export const BUILD_DATE =
   process.env.NEXT_PUBLIC_BUILD_DATE ?? "";
@@ -18,12 +18,25 @@ export type ChangelogEntry = {
 // Reverse-chronological. Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "11.23.0",
+    date: "2026-10-14",
+    title: "Yearly tab",
+    changes: [
+      "Yearly: each financial year's profit for the whole book, then every share year by year: price, trades and dividends together, with the % on the capital it employed that year. Shares you sold stay in.",
+      "Each share's all-years total and its yield on cost: that total on the capital employed while held.",
+      "Yield on cost on the holdings shows the rupees as well as the %.",
+      "Dividend yield on cost: a year of the company's dividends a share (its last full year of payouts), on your average price, before tax. PTL: Rs 4.00 on Rs 50.45 = 7.9%. One number on Holdings, the share page, Payouts and Analytics.",
+      "The year table moved from Analytics to Yearly; By year on Holding opens it.",
+    ],
+  },
+  {
     version: "11.22.0",
     date: "2026-10-14",
-    title: "Dividends follow the shares that earned them",
+    title: "Yield on cost: everything, on the capital employed",
     changes: [
+      "Yield on cost: every dividend, every trade's profit or loss and the open position, on the capital employed in the share (averaged over the days held). PTL: −Rs 5,692 on Rs 44,723 = −12.7%.",
       "Total P&L is now the shares you hold: open P&L plus the dividends those very shares earned, on what they cost.",
-      "Dividend yield is yield on cost a share at a time: the dividends you were paid per share in the last 12 months, on your average price.",
+      "Dividend yield is yield on cost a share at a time: a year of the company's dividends as you were paid them, on your average price. One payout's warrants count once, and a year is the company's own number of payouts.",
       "New Booked column: shares you sold, with what the sale made or lost plus the dividends they earned before they went.",
       "So selling most of a position no longer inflates the yield (PTL's 60%) or hides the loss.",
       "Rebalance can add a company while the exchange refuses the server: it checks the exchange's list and the last close.",

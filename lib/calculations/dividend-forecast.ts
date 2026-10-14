@@ -85,6 +85,7 @@ export type SymbolDividendProfile = {
   overridden: boolean; // user pinned one or more values
 
   declaredAnnualDps: number; // what they actually declare in a full cycle (uncapped)
+  declaredLabel: string | null; // the year it is from, e.g. "FY25-26"
   forwardEps: number | null;
   appliedPayoutRatioPct: number | null;
   forwardDpsAnnual: number; // realistic, earnings-capped
@@ -362,11 +363,14 @@ export function buildDividendProfiles(
       paymentsPerYear = cadenceCounts[ov.cadence];
     }
 
-    // Declared annual dividend = most recent year that completed a cycle (has a
-    // Final); else the most recent complete fiscal year; else the latest year.
+    // Declared annual dividend = the most recent finished year that completed a
+    // cycle (has a Final); else the most recent year with a Final; else the
+    // most recent complete fiscal year; else the latest year. A year still
+    // under way is passed over: a June-year company's final falls early in the
+    // next one (PTL's in October), and that year alone would read as half.
     const cycleYears = byFiscalYear.filter((y) => y.hasFinal);
     const completeYears = byFiscalYear.filter((y) => y.complete);
-    const declaredYear = cycleYears[0] ?? completeYears[0] ?? byFiscalYear[0];
+    const declaredYear = cycleYears.find((y) => y.complete) ?? cycleYears[0] ?? completeYears[0] ?? byFiscalYear[0];
     const declaredAnnualDps = declaredYear?.dps ?? 0;
 
     const ratioYears = (cycleYears.length ? cycleYears : completeYears).filter((y) => y.payoutRatioPct != null);
@@ -463,6 +467,7 @@ export function buildDividendProfiles(
       medianPayoutRatioPct,
       overridden,
       declaredAnnualDps,
+      declaredLabel: declaredYear?.label ?? null,
       forwardEps,
       appliedPayoutRatioPct,
       forwardDpsAnnual,

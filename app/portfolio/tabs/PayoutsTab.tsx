@@ -147,14 +147,14 @@ export async function PayoutsTab() {
           <div className="overflow-x-auto -mx-2">
             <table className="table-zar">
               <thead>
-                <tr><th>Name</th><th className="text-right">Shares</th><th className="text-right">12m per share</th><th className="text-right">12m received</th><th className="text-right">Yield on price</th><th className="text-right">Yield on cost</th><th className="text-right">All time</th><th className="text-right">Last paid</th></tr>
+                <tr><th>Name</th><th className="text-right">Shares</th><th className="text-right">A year per share</th><th className="text-right">12m received</th><th className="text-right">Dividend yield</th><th className="text-right">Dividend yield on cost</th><th className="text-right">All time</th><th className="text-right">Last paid</th></tr>
               </thead>
               <tbody>
                 {yields.rows.map((r) => (
                   <tr key={r.symbol}>
                     <td><Link href={`/holdings/${r.symbol}`} className="font-semibold hover:text-[var(--accent-deep)]">{r.symbol}</Link> <span className="text-[11px] text-muted">{r.name}</span></td>
                     <td className="text-right mono-num">{r.shares.toLocaleString()}</td>
-                    <td className="text-right mono-num">{r.ttmPerShare ? r.ttmPerShare.toFixed(2) : "–"}</td>
+                    <td className="text-right mono-num" title={r.yearLabel ? `${r.yearLabel}, the company's last full year of payouts, before tax` : undefined}>{r.yearDps ? r.yearDps.toFixed(2) : "–"}</td>
                     <td className="text-right mono-num">{r.ttmDividends ? fmtRs(r.ttmDividends) : "–"}</td>
                     <td className="text-right mono-num">{r.yieldOnPricePct ? `${r.yieldOnPricePct.toFixed(2)}%` : "–"}</td>
                     <td className="text-right mono-num">{r.yieldOnCostPct ? `${r.yieldOnCostPct.toFixed(2)}%` : "–"}</td>

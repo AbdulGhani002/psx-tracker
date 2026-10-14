@@ -77,5 +77,11 @@ const r9 = fyProfit(many, FY, flat({ A: 50, E: 50 }, { A: 60, E: 60, B: 12 }), 0
 check("the year's profit is the sum over the names", near(r9.profit, r9.stocks.reduce((a, s) => a + s.profit, 0)) && near(r9.profit, 1000 + 1000 + 200) && r9.stocks[0].profit >= r9.stocks[r9.stocks.length - 1].profit);
 check("a name sold out before the year does not appear", fyProfit([buy("G", "2024-01-01", 10, 5), sell("G", "2024-05-01", 10, 6), ...held], FY, flat({ A: 50 }, { A: 60 }), 0).stocks.every((s) => s.symbol !== "G"));
 
+// Each name's own %: on the capital it employed in the year.
+const mix = fyProfit([...held, buy("T", "2025-09-01", 1, 16), sell("T", "2026-03-01", 1, 10)], FY, flat({ A: 50 }, { A: 60 }), 0);
+const a = mix.stocks.find((x) => x.symbol === "A")!, tiny = mix.stocks.find((x) => x.symbol === "T")!;
+check("a name held all year: its % is on its worth at the start", near(a.returnPct, 20) && near(a.base, 5000), a.returnPct);
+check("a few rupees employed get no %, the rupees stand", tiny.returnPct === null && near(tiny.profit, -6), tiny.base.toFixed(2));
+
 console.log("\n" + pass + " passed, " + fail + " failed");
 if (fail > 0) process.exit(1);

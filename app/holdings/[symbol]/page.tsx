@@ -31,8 +31,9 @@ import {
   getLookThroughFor,
   getMarketContext,
   getAppSettings,
+  getDividendForecast,
 } from "@/lib/data";
-import { deriveFromTransactions, heldAndSold } from "@/lib/calculations";
+import { deriveFromTransactions, heldAndSold, moneyAtWork } from "@/lib/calculations";
 import {
   fmtRs,
   fmtUsd,
@@ -80,8 +81,20 @@ export default async function HoldingDetail(props: Props) {
   const split = heldAndSold(transactions);
   const heldTotal = unrealizedPL + split.held.dividends;
   const rupeeTotalPct = derived.totalCost > 0 ? heldTotal / derived.totalCost : null;
-  const yieldOnCost = derived.avgCost > 0 && derived.shares > 0 ? split.perShare12m / derived.avgCost : null;
+  // Dividend yield on cost: a year of the company's dividends a share (its
+  // last finished year of payouts, from the dividend forecast) on the
+  // average price paid.
+  const profile = (await getDividendForecast().catch(() => null))?.profiles.find((p) => p.symbol === symbol) ?? null;
+  const yearDps = profile?.declaredAnnualDps ?? 0;
+  const divYieldOnCost = derived.avgCost > 0 && derived.shares > 0 && yearDps > 0 ? yearDps / derived.avgCost : null;
   const booked = split.sold.shares > 0 ? split.sold.proceeds - split.sold.cost + split.sold.dividends : null;
+  // Yield on cost: everything (every dividend, every trade's booked result,
+  // the open position) on the capital employed, averaged over the days held.
+  const work = moneyAtWork(transactions);
+  const employed = work.average > 0 ? work.average : derived.totalCost;
+  const everything = derived.dividendsReceived + derived.realizedPL + unrealizedPL;
+  const yoc = employed > 0 ? everything / employed : null;
+  const heldFor = work.daysHeld < 45 ? `${work.daysHeld} days` : `${Math.round(work.daysHeld / 30.44)} months`;
   // The same position in dollars: each purchase, sale and dividend at its own
   // day's USD/PKR rate, the shares at today's.
   const hd = derived.shares > 0 && currentPrice > 0 ? holdingDollars(transactions, marketValue, usdRates) : null;
@@ -170,6 +183,12 @@ export default async function HoldingDetail(props: Props) {
           tone={unrealizedPL >= 0 ? "positive" : "negative"}
         />
         <Stat
+          label="Yield on cost"
+          value={fmtSignedPct(yoc)}
+          hint={`Dividends ${fmtSignedRs(derived.dividendsReceived)} · trades ${fmtSignedRs(derived.realizedPL)} · open ${fmtSignedRs(unrealizedPL)} = ${fmtSignedRs(everything)}, on ${fmtRs(employed)} employed on average over ${heldFor}`}
+          tone={everything >= 0 ? "positive" : "negative"}
+        />
+        <Stat
           label="Total P/L"
           value={fmtSignedRs(heldTotal)}
           hint={`${fmtSignedPct(rupeeTotalPct)} · open ${fmtSignedRs(unrealizedPL)} + dividends these shares earned ${fmtRs(split.held.dividends)}`}
@@ -183,7 +202,7 @@ export default async function HoldingDetail(props: Props) {
             tone={booked >= 0 ? "positive" : "negative"}
           />
         )}
-        <Stat label="Dividends" value={fmtRs(derived.dividendsReceived)} hint={`Yield on cost ${yieldOnCost != null ? fmtPct(yieldOnCost, 2) : "0%"}: Rs ${split.perShare12m.toFixed(2)} a share in 12 months, on your Rs ${derived.avgCost.toFixed(2)}`} />
+        <Stat label="Dividends" value={fmtRs(derived.dividendsReceived)} hint={divYieldOnCost != null ? `Dividend yield on cost ${fmtPct(divYieldOnCost, 2)}: Rs ${yearDps.toFixed(2)} a share in ${profile?.declaredLabel ?? "a year"}, on your Rs ${derived.avgCost.toFixed(2)}, before tax` : "No dividend on record for a year"} />
         {hd && (
           <Stat
             label="P&L in dollars"

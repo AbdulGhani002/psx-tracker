@@ -41,6 +41,11 @@ export type FyStock = {
   sold: number;
   dividends: number;
   profit: number;
+  // The capital it had employed over the year (Modified Dietz, as for the
+  // whole book) and the profit as a % of it; no % where too little of the
+  // year had money in it, or too little money, for one to mean anything.
+  base: number;
+  returnPct: number | null;
 };
 
 export type FyProfit = {
@@ -61,6 +66,7 @@ export type FyProfit = {
 };
 
 const DAY = 86400000;
+const MIN_BASE = 1000; // rupees employed in a share for its year's % to mean anything
 
 export function fyOf(dateIso: string): number {
   const y = Number(dateIso.slice(0, 4));
@@ -93,6 +99,22 @@ export function sharesAt(txs: FyTx[], date: string): Map<string, number> {
 const dayBefore = (iso: string) => new Date(Date.parse(iso + "T00:00:00Z") - DAY).toISOString().slice(0, 10);
 const amount = (t: FyTx) => Math.abs(t.netAmount || t.totalAmount || 0);
 
+// Modified Dietz: each flow counts for the part of the year after it. Money
+// in (buys) adds to the capital at work, money out (sales, and the dividends
+// the shares paid) takes from it.
+function dietzFlows(txs: FyTx[], fy: FyWindow): number {
+  const t0 = Date.parse(fy.start + "T00:00:00Z") - DAY; // the start is the close before the year
+  const T = Math.max(1, (Date.parse(fy.end + "T00:00:00Z") - t0) / DAY);
+  let weighted = 0;
+  for (const t of txs) {
+    const w = (Date.parse(fy.end + "T00:00:00Z") - Date.parse(t.date + "T00:00:00Z")) / DAY / T;
+    if (t.type === "BUY" || t.type === "RIGHT") weighted += w * amount(t);
+    else if (t.type === "SELL") weighted -= w * amount(t);
+    else if (t.type === "DIVIDEND") weighted -= w * (t.netAmount || 0);
+  }
+  return weighted;
+}
+
 export function fyProfit(
   txs: FyTx[],
   fy: FyWindow,
@@ -123,7 +145,11 @@ export function fyProfit(
     const dividends = mine.filter((t) => t.type === "DIVIDEND").reduce((a, t) => a + (t.netAmount || 0), 0);
     const startValue = n0 * (p0 ?? 0), endValue = n1 * (p1 ?? 0);
     if (n0 === 0 && n1 === 0 && mine.length === 0) continue;
-    stocks.push({ symbol: s, startShares: n0, startValue, endShares: n1, endValue, bought, sold, dividends, profit: endValue - startValue - bought + sold + dividends });
+    const profit = endValue - startValue - bought + sold + dividends;
+    const base = startValue + dietzFlows(mine, fy);
+    const scale = Math.max(startValue, endValue, bought);
+    const short = base < MIN_BASE || (scale > 0 && base < 0.2 * scale);
+    stocks.push({ symbol: s, startShares: n0, startValue, endShares: n1, endValue, bought, sold, dividends, profit, base, returnPct: base > 0 && !short ? (profit / base) * 100 : null });
   }
   stocks.sort((a, b) => b.profit - a.profit);
   const sum = (f: (x: FyStock) => number) => stocks.reduce((a, x) => a + f(x), 0);
@@ -132,19 +158,7 @@ export function fyProfit(
   const capitalGain = endValue - startValue - bought + sold;
   const profit = capitalGain + dividends;
 
-  // Modified Dietz: each flow counts for the part of the year after it.
-  // Money in (buys) adds to the capital at work, money out (sales, and the
-  // dividends the shares paid) takes from it.
-  const t0 = Date.parse(fy.start + "T00:00:00Z") - DAY; // the start is the close before the year
-  const T = Math.max(1, (Date.parse(fy.end + "T00:00:00Z") - t0) / DAY);
-  let weighted = 0;
-  for (const t of inYear) {
-    const w = (Date.parse(fy.end + "T00:00:00Z") - Date.parse(t.date + "T00:00:00Z")) / DAY / T;
-    if (t.type === "BUY" || t.type === "RIGHT") weighted += w * amount(t);
-    else if (t.type === "SELL") weighted -= w * amount(t);
-    else if (t.type === "DIVIDEND") weighted -= w * (t.netAmount || 0);
-  }
-  const base = startValue + weighted;
+  const base = startValue + dietzFlows(inYear, fy);
   // A year the money came in at the very end (the first, often) has almost
   // no capital at work, and a few hundred rupees of profit on it reads as a
   // triple-digit return. Below a fifth of the year's largest sum, no %.

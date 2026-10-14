@@ -213,5 +213,11 @@ const paidEarly = forecastDividends([tx({ symbol: "PTL", date: "2027-02-28", pri
 ok("so does a payout already recorded, before its expected date", paidEarly.due.filter((e) => e.symbol === "PTL").length === 0);
 ok("the 12-month forecast itself is unchanged", dueF.events.length > 0 && Math.abs(dueF.total12m - dueF.events.reduce((s, e) => s + e.expectedGross, 0)) < 1e-6);
 
+// A June-year company: its final falls early in the next financial year,
+// so the year under way holds only that final. The declared year is the last
+// finished one: PTL's final and interim, Rs 4, not the Rs 2 so far.
+const ptlYear = buildDividendProfiles([], [hld("PTL", 100)], { asOf: oct7, fundamentals: { PTL: pf([["2025-09-29", 20, "F"], ["2026-03-05", 20, "i"], ["2026-09-08", 20, "F"]]) } }).find((p) => p.symbol === "PTL")!;
+ok("PTL declared = Rs 4 a year from the last finished year, not the Rs 2 of the year under way", Math.abs(ptlYear.declaredAnnualDps - 4) < 1e-9 && ptlYear.declaredLabel === "FY25-26", `${ptlYear.declaredAnnualDps} ${ptlYear.declaredLabel}`);
+
 console.log(`\n${pass} passed, ${fail} failed`);
 if (fail > 0) process.exit(1);

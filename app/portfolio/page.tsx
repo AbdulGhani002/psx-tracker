@@ -3,6 +3,7 @@ import { Suspense } from "react";
 import { Skeleton } from "@/components/ui/Skeleton";
 import { selectedPortfolio, listPortfolios } from "@/lib/portfolios";
 import { HoldingTab } from "./tabs/HoldingTab";
+import { YearlyTab } from "./tabs/YearlyTab";
 import { AnalyticsTab } from "./tabs/AnalyticsTab";
 import { QualityTab } from "./tabs/QualityTab";
 import { TradesTab } from "./tabs/TradesTab";
@@ -21,6 +22,7 @@ export const dynamic = "force-dynamic";
 
 const TABS = [
   { key: "holding", label: "Holding" },
+  { key: "yearly", label: "Yearly" },
   { key: "analytics", label: "Analytics" },
   { key: "quality", label: "Quality" },
   { key: "trades", label: "Trade history" },
@@ -70,6 +72,7 @@ export default async function PortfolioPage(props: { searchParams: Promise<Portf
 
       <Suspense fallback={<Skeleton className="w-full" style={{ height: 420, borderRadius: 10 }} />}>
         {tab === "holding" && <HoldingTab />}
+        {tab === "yearly" && <YearlyTab />}
         {tab === "analytics" && <AnalyticsTab search={searchParams} />}
         {tab === "quality" && <QualityTab />}
         {tab === "trades" && <TradesTab />}

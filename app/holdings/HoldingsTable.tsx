@@ -14,9 +14,12 @@ import { fmtRs, fmtNum, fmtSignedPct, fmtSignedRs, fmtPct, fmtSignedDollars, fmt
 // (lib/calculations/holding.ts, heldAndSold): Total P&L is the shares held
 // now (open P&L plus what they earned, on what they cost), and Booked is the
 // shares sold (what the sales made or lost plus what those shares earned).
-// The dividend yield is on cost a share at a time: what a share was paid in
-// the last 12 months over the average price paid. So selling most of a
-// position neither inflates the yield nor hides the loss. P&L in $ is the Total P&L again in
+// Yield on cost is everything the share has made or lost: every dividend,
+// every trade's booked result and the open position, on the money you had in
+// it (what the shares held cost, averaged over the days held:
+// lib/calculations/holding.ts moneyAtWork), so buying more, trimming or
+// selling most of a position does not bend it. The dividend yield (a column
+// to turn on) is on cost a share at a time. P&L in $ is the Total P&L again in
 // dollars: each purchase, sale and dividend at its own day's USD/PKR rate,
 // the shares at today's (lib/analytics/dollarized.ts). Rows arrive as plain
 // numbers so sorting happens here on the number, never on the formatted
@@ -35,10 +38,15 @@ export type HoldingRow = {
   unrealizedPct: number;
   dividendsReceived: number;
   heldDividends: number; // what the shares held now earned
-  yield12m: number | null; // what a share was paid in the last 12 months, on the average price paid
+  // A year of the company's dividends a share (its last finished year of
+  // payouts, from the dividend forecast), before tax.
+  divYear: { dps: number; label: string | null } | null;
   // The shares sold: what they cost, what the sales fetched, and the
   // dividends they earned before they went. Null when none were sold.
   booked: { shares: number; cost: number; proceeds: number; dividends: number } | null;
+  // Everything: every dividend, every trade's booked result and the open
+  // position, on the money at work (its average while held) over `days`.
+  allIn: { total: number; dividends: number; trades: number; open: number; atWork: number; days: number };
   totalCost: number;
   currentPercent: number;
   targetPercent: number;
@@ -52,7 +60,10 @@ export type HoldingRow = {
   usd?: { total: number; totalPct: number | null; costUsd: number; valueUsd: number; rateNow: number } | null;
 };
 
-type SortKey = "symbol" | "shares" | "avgCost" | "price" | "today" | "total" | "booked" | "usd" | "unrealized" | "marketValue" | "totalCost" | "yield" | "weight";
+type SortKey = "symbol" | "shares" | "avgCost" | "price" | "today" | "total" | "booked" | "yoc" | "usd" | "unrealized" | "marketValue" | "totalCost" | "yield" | "weight";
+
+const yocOf = (r: HoldingRow) => (r.allIn.atWork > 0 ? r.allIn.total / r.allIn.atWork : null);
+const months = (days: number) => (days < 45 ? `${days} days` : `${Math.round(days / 30.44)} mo`);
 
 const bookedOf = (r: HoldingRow) => (r.booked ? r.booked.proceeds - r.booked.cost + r.booked.dividends : null);
 
@@ -64,11 +75,12 @@ const VALUE: Record<SortKey, (r: HoldingRow) => number | string | null> = {
   today: (r) => r.todayProfit,
   total: (r) => (r.priceKnown ? r.unrealizedPL + r.heldDividends : null),
   booked: (r) => bookedOf(r),
+  yoc: (r) => (r.priceKnown ? yocOf(r) : null),
   usd: (r) => (r.priceKnown && r.usd ? r.usd.total : null),
   unrealized: (r) => (r.priceKnown ? r.unrealizedPL : null),
   marketValue: (r) => (r.priceKnown ? r.marketValue : null),
   totalCost: (r) => r.totalCost,
-  yield: (r) => r.yield12m,
+  yield: (r) => (r.divYear && r.avgCost > 0 ? r.divYear.dps / r.avgCost : null),
   weight: (r) => r.currentPercent,
 };
 
@@ -80,15 +92,16 @@ const ALL_COLUMNS: Array<{ key: SortKey; label: string; align: "left" | "right";
   { key: "today", label: "Today P&L", align: "right" },
   { key: "total", label: "Total P&L", align: "right", title: "The shares you hold: open P&L plus the dividends these shares earned, on what they cost." },
   { key: "booked", label: "Booked", align: "right", title: "The shares you sold: what the sales made or lost, plus the dividends those shares earned before they went." },
+  { key: "yoc", label: "Yield on cost", align: "right", title: "Everything this share has made or lost: every dividend, every trade's profit or loss and the open position, on the capital employed in it (what the shares held cost, averaged over the days held)." },
   { key: "usd", label: "P&L in $", align: "right" },
   { key: "unrealized", label: "Unrealized profit", align: "right" },
   { key: "marketValue", label: "Market value", align: "right" },
   { key: "totalCost", label: "Total investment", align: "right" },
-  { key: "yield", label: "Dividend yield", align: "right", title: "Yield on cost: the dividends you were paid per share in the last 12 months, after tax, on your average price. 0% until your first dividend." },
+  { key: "yield", label: "Dividend yield on cost", align: "right", title: "Dividends only: a year of the company's dividends a share (its last full year of payouts), on your average price, before tax." },
   { key: "weight", label: "Portfolio %", align: "right" },
 ];
 
-const DEFAULT_HIDDEN: SortKey[] = ["totalCost"];
+const DEFAULT_HIDDEN: SortKey[] = ["totalCost", "yield"];
 
 const SHARIAH_LABEL: Record<string, { text: string; tone: "positive" | "negative" | "amber"; title: string }> = {
   KMI30: { text: "KMI-30", tone: "positive", title: "In the KMI-30 index, which is Meezan-screened" },
@@ -143,8 +156,8 @@ export function HoldingsTable({ rows, staleAfterDays }: { rows: HoldingRow[]; st
   }
 
   function exportCsv() {
-    const header = ["symbol", "name", "quantity", "avgPrice", "price", "marketValue", "investment", "unrealized", "unrealizedPct", "dividendsOnHeld", "totalPnl", "yieldOnCost12mPct", "soldShares", "soldCost", "soldProceeds", "soldDividends", "booked", "weightPct", "pnlUsd", "pnlUsdPct"];
-    const lines = [header.join(",")].concat(view.map((r) => [r.symbol, `"${r.name.replace(/"/g, '""')}"`, r.shares, r.avgCost.toFixed(2), r.priceKnown ? r.price.toFixed(2) : "", r.marketValue.toFixed(0), r.totalCost.toFixed(0), r.unrealizedPL.toFixed(0), r.unrealizedPct.toFixed(2), r.heldDividends.toFixed(0), (r.unrealizedPL + r.heldDividends).toFixed(0), r.yield12m != null ? (r.yield12m * 100).toFixed(2) : "", r.booked ? r.booked.shares : "", r.booked ? r.booked.cost.toFixed(0) : "", r.booked ? r.booked.proceeds.toFixed(0) : "", r.booked ? r.booked.dividends.toFixed(0) : "", bookedOf(r)?.toFixed(0) ?? "", r.currentPercent.toFixed(2), r.usd ? r.usd.total.toFixed(0) : "", r.usd?.totalPct != null ? r.usd.totalPct.toFixed(2) : ""].join(",")));
+    const header = ["symbol", "name", "quantity", "avgPrice", "price", "marketValue", "investment", "unrealized", "unrealizedPct", "dividendsOnHeld", "totalPnl", "soldShares", "soldCost", "soldProceeds", "soldDividends", "booked", "allDividends", "allTrades", "everything", "moneyAtWork", "daysHeld", "yieldOnCostPct", "dividendYieldOnCostPct", "weightPct", "pnlUsd", "pnlUsdPct"];
+    const lines = [header.join(",")].concat(view.map((r) => [r.symbol, `"${r.name.replace(/"/g, '""')}"`, r.shares, r.avgCost.toFixed(2), r.priceKnown ? r.price.toFixed(2) : "", r.marketValue.toFixed(0), r.totalCost.toFixed(0), r.unrealizedPL.toFixed(0), r.unrealizedPct.toFixed(2), r.heldDividends.toFixed(0), (r.unrealizedPL + r.heldDividends).toFixed(0), r.booked ? r.booked.shares : "", r.booked ? r.booked.cost.toFixed(0) : "", r.booked ? r.booked.proceeds.toFixed(0) : "", r.booked ? r.booked.dividends.toFixed(0) : "", bookedOf(r)?.toFixed(0) ?? "", r.allIn.dividends.toFixed(0), r.allIn.trades.toFixed(0), r.allIn.total.toFixed(0), r.allIn.atWork.toFixed(0), r.allIn.days, yocOf(r) != null ? (yocOf(r)! * 100).toFixed(2) : "", r.divYear && r.avgCost > 0 ? ((r.divYear.dps / r.avgCost) * 100).toFixed(2) : "", r.currentPercent.toFixed(2), r.usd ? r.usd.total.toFixed(0) : "", r.usd?.totalPct != null ? r.usd.totalPct.toFixed(2) : ""].join(",")));
     const blob = new Blob([lines.join("\n")], { type: "text/csv;charset=utf-8" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
@@ -261,6 +274,26 @@ export function HoldingsTable({ rows, staleAfterDays }: { rows: HoldingRow[]; st
                         {r.priceKnown ? <Money v={total} pct={totalPct} /> : <span className="text-muted">–</span>}
                       </td>
                     );
+                  case "yoc": {
+                    const y = yocOf(r);
+                    const perYear = y != null && r.allIn.days >= 180 ? (y * 365) / r.allIn.days : null;
+                    return (
+                      <td
+                        key={key}
+                        className="text-right"
+                        title={`Dividends ${fmtSignedRs(r.allIn.dividends)} · trades ${fmtSignedRs(r.allIn.trades)} · open ${fmtSignedRs(r.allIn.open)} = ${fmtSignedRs(r.allIn.total)}, on ${fmtRs(r.allIn.atWork)} employed on average over ${months(r.allIn.days)}${perYear != null ? ` (about ${fmtSignedPct(perYear)} a year)` : ""}`}
+                      >
+                        {r.priceKnown && y != null ? (
+                          <div style={{ color: y >= 0 ? "var(--positive)" : "var(--negative)" }}>
+                            <div className="mono-num">{fmtSignedRs(r.allIn.total)}</div>
+                            <div className="mono-num text-[11px] opacity-80">{fmtSignedPct(y)} in {months(r.allIn.days)}</div>
+                          </div>
+                        ) : (
+                          <span className="text-muted">–</span>
+                        )}
+                      </td>
+                    );
+                  }
                   case "booked":
                     return (
                       <td
@@ -292,7 +325,11 @@ export function HoldingsTable({ rows, staleAfterDays }: { rows: HoldingRow[]; st
                   case "totalCost":
                     return <td key={key} className="text-right mono-num">{fmtRs(r.totalCost)}</td>;
                   case "yield":
-                    return <td key={key} className="text-right mono-num">{r.yield12m != null ? `${(r.yield12m * 100).toFixed(2)}%` : "0.00%"}</td>;
+                    return (
+                      <td key={key} className="text-right mono-num" title={r.divYear ? `Rs ${r.divYear.dps.toFixed(2)} a share in ${r.divYear.label ?? "a year"}, on your Rs ${r.avgCost.toFixed(2)}` : "No dividend on record"}>
+                        {r.divYear && r.avgCost > 0 ? `${((r.divYear.dps / r.avgCost) * 100).toFixed(2)}%` : "–"}
+                      </td>
+                    );
                   case "weight":
                     return (
                       <td key={key} className="text-right">
