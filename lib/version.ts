@@ -23,7 +23,7 @@ export const CHANGELOG: ChangelogEntry[] = [
     title: "Dividends follow the shares that earned them",
     changes: [
       "Total P&L is now the shares you hold: open P&L plus the dividends those very shares earned, on what they cost.",
-      "Dividend yield is yield on cost a share at a time: what a share was paid in the last 12 months, on your average price.",
+      "Dividend yield is yield on cost a share at a time: the dividends you were paid per share in the last 12 months, on your average price.",
       "New Booked column: shares you sold, with what the sale made or lost plus the dividends they earned before they went.",
       "So selling most of a position no longer inflates the yield (PTL's 60%) or hides the loss.",
       "Rebalance can add a company while the exchange refuses the server: it checks the exchange's list and the last close.",

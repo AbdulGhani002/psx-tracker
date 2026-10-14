@@ -84,7 +84,7 @@ const ALL_COLUMNS: Array<{ key: SortKey; label: string; align: "left" | "right";
   { key: "unrealized", label: "Unrealized profit", align: "right" },
   { key: "marketValue", label: "Market value", align: "right" },
   { key: "totalCost", label: "Total investment", align: "right" },
-  { key: "yield", label: "Dividend yield", align: "right", title: "Yield on cost: what a share was paid in the last 12 months, after tax, on your average price for the shares you hold." },
+  { key: "yield", label: "Dividend yield", align: "right", title: "Yield on cost: the dividends you were paid per share in the last 12 months, after tax, on your average price. 0% until your first dividend." },
   { key: "weight", label: "Portfolio %", align: "right" },
 ];
 
