@@ -55,7 +55,7 @@ export default async function YearlyPreview() {
         other: o,
         total: shares.profit + o.funds + o.savings + o.fixed,
         cgt: w.endYear === 2026 ? 3200 : w.endYear === 2027 ? 0 : null,
-        market: { kse: indexChangePct(KSE, w), kmi: indexChangePct(KMI, w), tbill: entered != null ? tbillPct(entered, w) : policyPct(SBP_POLICY_RATE_DEFAULTS, w), tbillRate: entered, tbillFrom: entered != null ? ("entered" as const) : ("policy" as const) },
+        market: { kse: indexChangePct(KSE, w), kmi: indexChangePct(KMI, w), tbill: entered != null ? tbillPct(entered, w) : policyPct(SBP_POLICY_RATE_DEFAULTS, w), tbillRate: entered, tbillFrom: entered != null ? ("sbp" as const) : ("policy" as const), tbillAuction: entered != null ? "2025-06-25" : null, tbillEntered: null },
       };
     })
     .reverse();

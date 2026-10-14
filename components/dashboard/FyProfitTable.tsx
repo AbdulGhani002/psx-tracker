@@ -11,6 +11,17 @@ const tone = (v: number) => (v >= 0 ? "var(--positive)" : "var(--negative)");
 const pct = (v: number | null) => (v == null ? "—" : `${v >= 0 ? "+" : "−"}${Math.abs(v).toFixed(1)}%`);
 const otherOf = (y: YearRow) => y.other.funds + y.other.savings + y.other.fixed;
 const afterTax = (y: YearRow) => y.total - (y.cgt ?? 0);
+const day = (d: string) => new Date(d + "T00:00:00Z").toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" });
+
+function tbillTitle(y: YearRow): string | undefined {
+  const m = y.market;
+  const soFar = y.fy.current ? ", the part earned so far" : "";
+  if (m.tbillFrom === "sbp") return `SBP's 12-month cut-off at the ${day(m.tbillAuction!)} auction: ${m.tbillRate}%${soFar}`;
+  if (m.tbillFrom === "entered") return `${m.tbillRate}%, the rate you set${soFar}`;
+  if (m.tbillFrom === "monthly") return `${m.tbillRate}%, from your July rates${soFar}`;
+  if (m.tbillFrom === "policy") return "No T-bill rate for this year: money at the policy rate instead. Set the rate below.";
+  return undefined;
+}
 
 function Money({ v, strong }: { v: number; strong?: boolean }) {
   return <td className={`text-right mono-num${strong ? " font-semibold" : ""}`} style={{ color: tone(v) }}>{fmtSignedRs(v)}</td>;
@@ -102,7 +113,7 @@ export function FyProfitTable({ board }: { board: FyBoard }) {
                     <td
                       className="text-right mono-num"
                       style={{ color: beat(m.tbill) }}
-                      title={m.tbillFrom === "entered" ? `${m.tbillRate}% on 1 July${y.fy.current ? ", the part earned so far" : ""}` : m.tbillFrom === "policy" ? "No T-bill rate kept for this year: money at the policy rate instead. Set the rate below." : undefined}
+                      title={tbillTitle(y)}
                     >
                       {m.tbillFrom === "policy" && <span className="text-muted">≈ </span>}
                       {pct(m.tbill)}
@@ -113,10 +124,10 @@ export function FyProfitTable({ board }: { board: FyBoard }) {
             </tbody>
           </table>
         </div>
-        <p className="text-[11.5px] text-muted mt-3">Green: your shares did better. The indexes leave dividends out; ≈ is the policy rate where no T-bill rate is set.</p>
+        <p className="text-[11.5px] text-muted mt-3">Green: your shares did better. The indexes leave dividends out. The T-bill is the 12-month cut-off at SBP&apos;s last auction before 1 July{board.years.some((y) => y.market.tbillFrom === "policy") ? "; ≈ is the policy rate where there is none" : ""}.</p>
         <details className="mt-2 text-[12.5px]">
           <summary className="cursor-pointer select-none text-muted">Set the 12-month T-bill rate for a year</summary>
-          <TbillRatesForm years={board.years.map((y) => ({ endYear: y.fy.endYear, label: y.fy.label, rate: y.market.tbillRate }))} />
+          <TbillRatesForm years={board.years.map((y) => ({ endYear: y.fy.endYear, label: y.fy.label, rate: y.market.tbillEntered, inUse: y.market.tbillFrom === "policy" ? null : y.market.tbillRate }))} />
         </details>
       </Card>
     </>

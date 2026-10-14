@@ -92,3 +92,17 @@ export function otherByYear(input: { funds: FundYearInput[]; savings: SavingsYea
   }
   return out;
 }
+
+export type TbillSource = "entered" | "sbp" | "monthly" | "policy";
+
+// The 12-month T-bill rate a year is compared with: the one the user set for
+// it, else SBP's auction before the year began (lib/timeseries/sbp-tbill.ts),
+// else the user's July rates; none, and the policy rate stands in.
+export function tbillFor(endYear: number, entered: Record<string, number>, sbp: Array<{ endYear: number; auction: string; pct: number }>, july: number | null): { rate: number; from: TbillSource; auction: string | null } | null {
+  const own = entered[String(endYear)];
+  if (own != null && Number.isFinite(own)) return { rate: own, from: "entered", auction: null };
+  const s = sbp.find((x) => x.endYear === endYear);
+  if (s) return { rate: s.pct, from: "sbp", auction: s.auction };
+  if (july != null && Number.isFinite(july)) return { rate: july, from: "monthly", auction: null };
+  return null;
+}

@@ -5,7 +5,8 @@
 //
 //   npx tsx scripts/test-fy-extra.ts
 
-import { closeOn, indexChangePct, tbillPct, policyPct, otherByYear, dayBefore } from "../lib/analytics/fy-extra";
+import { closeOn, indexChangePct, tbillPct, policyPct, otherByYear, dayBefore, tbillFor } from "../lib/analytics/fy-extra";
+import { SBP_TBILL12M_YEAR_START } from "../lib/timeseries/sbp-tbill";
 import { fyWindow } from "../lib/analytics/fy-profit";
 import { valueSavings } from "../lib/calculations/assets";
 import { valueFixedIncome } from "../lib/fixed-income/value";
@@ -60,6 +61,14 @@ check("savings: each year is the interest of that year", other.get(2026)!.saving
 check("a T-bill: the years add up to its profit so far", near(sum("fixed"), valueFixedIncome(tbill, "2026-10-14").profitSoFar, 1e-6), sum("fixed").toFixed(2));
 check("and none before it was bought", near(other.get(2025)!.fixed, 0) && other.get(2026)!.fixed > 0);
 check("the day before a year's first day is 30 June", dayBefore("2025-07-01") === "2025-06-30");
+
+// Which 12-month T-bill rate a year is compared with.
+const sbp = [{ endYear: 2026, auction: "2025-06-25", pct: 10.9274 }];
+check("the rate the user set wins", tbillFor(2026, { "2026": 11.5 }, sbp, 10)?.from === "entered" && tbillFor(2026, { "2026": 11.5 }, sbp, 10)?.rate === 11.5);
+check("else SBP's auction before the year, with its date", tbillFor(2026, {}, sbp, 10)?.from === "sbp" && tbillFor(2026, {}, sbp, 10)?.auction === "2025-06-25");
+check("else the July rates, else none", tbillFor(2027, {}, sbp, 11.2)?.from === "monthly" && tbillFor(2027, {}, sbp, null) === null);
+check("SBP's history: each auction in the fortnight before the year's 1 July, at a believable rate", SBP_TBILL12M_YEAR_START.every((x) => x.auction <= `${x.endYear - 1}-07-01` && x.auction >= `${x.endYear - 1}-06-15` && x.pct > 0 && x.pct < 30 && x.source.length > 0) && SBP_TBILL12M_YEAR_START.length === 3);
+check("FY25-26 against a bill bought at 10.93%", near(tbillPct(10.9274, fyWindow(2026, "2026-10-14")), 10.9274));
 
 console.log(`\n${pass} passed, ${fail} failed`);
 if (fail > 0) process.exit(1);

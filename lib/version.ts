@@ -1,7 +1,7 @@
 // Single source of truth for the app version + changelog.
 // Bump APP_VERSION and prepend a CHANGELOG entry on every release.
 
-export const APP_VERSION = "11.24.1";
+export const APP_VERSION = "11.24.2";
 
 export const BUILD_DATE =
   process.env.NEXT_PUBLIC_BUILD_DATE ?? "";
@@ -17,6 +17,14 @@ export type ChangelogEntry = {
 
 // Reverse-chronological. Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: "11.24.2",
+    date: "2026-10-14",
+    title: "Real 12-month T-bill rates for each year",
+    changes: [
+      "Yearly compares each year with SBP's 12-month T-bill cut-off at the last auction before 1 July: 18.54% for FY24-25, 10.93% for FY25-26, 11.84% for FY26-27 (so far). The policy rate stands in only for a year with none.",
+    ],
+  },
   {
     version: "11.24.1",
     date: "2026-10-14",

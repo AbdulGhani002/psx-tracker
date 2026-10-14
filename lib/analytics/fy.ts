@@ -1,13 +1,14 @@
 import "server-only";
 import { cache } from "react";
 import { connectDb } from "@/lib/db";
-import { FeedSnapshotModel } from "@/lib/models";
+import { FeedSnapshotModel, RateSnapshotModel } from "@/lib/models";
 import { getAllTransactions, getPortfolioSummary, getMutualFundsValued, getSavingsValued, getFixedIncomeValued, getSbpRateSteps, getTaxYears, getFeedSnapshot, saveFeedSnapshot } from "@/lib/data";
 import { getCurrentUserId } from "@/lib/auth/current-user";
 import { buildLots } from "@/lib/calculations/lots";
 import { latestCloses, loadStoredBars, SHEET_PREFIX } from "@/lib/quant/sheet-bars";
 import { fyOf, fyWindow, fyProfit, type FyTx, type FyProfit } from "./fy-profit";
-import { indexChangePct, otherByYear, policyPct, tbillPct, type OtherYear } from "./fy-extra";
+import { indexChangePct, otherByYear, policyPct, tbillFor, tbillPct, type OtherYear, type TbillSource } from "./fy-extra";
+import { SBP_TBILL12M_YEAR_START } from "@/lib/timeseries/sbp-tbill";
 
 // Every financial year since the first trade, worked out by fy-profit.ts.
 //
@@ -38,7 +39,9 @@ export type YearRow = FyProfit & {
   other: OtherYear;
   total: number; // shares and the rest of the book
   cgt: number | null;
-  market: { kse: number | null; kmi: number | null; tbill: number | null; tbillRate: number | null; tbillFrom: "entered" | "policy" | null };
+  // tbillRate: the rate the year is compared with; tbillEntered: the one the
+  // user set, if any; tbillAuction: SBP's auction date when it is theirs.
+  market: { kse: number | null; kmi: number | null; tbill: number | null; tbillRate: number | null; tbillFrom: TbillSource | null; tbillAuction: string | null; tbillEntered: number | null };
 };
 
 export type FyBoard = { years: YearRow[]; current: YearRow | null; firstTrade: string | null };
@@ -90,12 +93,15 @@ async function _getFyProfits(): Promise<FyBoard> {
   for (let y = first - 1; y <= last; y++) if (y < last || `${y}-06-30` < today) yearEnd.set(y, await closesOn(`${y}-06-30`));
 
   const windows = Array.from({ length: last - first + 1 }, (_, k) => fyWindow(first + k, today));
-  const [bars, rateSteps, tbills, taxYears] = await Promise.all([
+  const uid = (await getCurrentUserId()) ?? "";
+  const [bars, rateSteps, tbills, taxYears, july] = await Promise.all([
     loadStoredBars(["KSE100", "KMI30"]).catch(() => new Map()),
     getSbpRateSteps().then((r) => r.steps).catch(() => []),
     getYearTbills().catch(() => ({} as Record<string, number>)),
     getTaxYears().catch(() => []),
+    (RateSnapshotModel.find({ userId: uid, month: { $in: windows.map((w) => `${w.endYear - 1}-07`) }, tbill12mPct: { $ne: null } }, { month: 1, tbill12mPct: 1 }).lean() as Promise<any[]>).catch(() => []),
   ]);
+  const julyOf = new Map(july.map((r) => [Number(String(r.month).slice(0, 4)) + 1, Number(r.tbill12mPct)]));
   const series = (code: string) => ((bars.get(code) ?? []) as Array<{ date: string; close: number }>).filter((b) => b.close > 0).sort((a, b) => a.date.localeCompare(b.date));
   const kse = series("KSE100"), kmi = series("KMI30");
   const cgtBy = new Map(taxYears.map((r) => [r.endYear, r.cgt]));
@@ -123,8 +129,8 @@ async function _getFyProfits(): Promise<FyBoard> {
       realizedBy.get(y) ?? 0
     );
     const o = other.get(y) ?? { funds: 0, savings: 0, fixed: 0 };
-    const entered = tbills[String(y)];
-    const tbillRate = entered != null && Number.isFinite(entered) ? entered : null;
+    const tb = tbillFor(y, tbills, SBP_TBILL12M_YEAR_START, julyOf.get(y) ?? null);
+    const own = tbills[String(y)];
     return {
       ...shares,
       other: o,
@@ -133,9 +139,11 @@ async function _getFyProfits(): Promise<FyBoard> {
       market: {
         kse: indexChangePct(kse, w),
         kmi: indexChangePct(kmi, w),
-        tbill: tbillRate != null ? tbillPct(tbillRate, w) : rateSteps.length > 0 ? policyPct(rateSteps, w) : null,
-        tbillRate,
-        tbillFrom: tbillRate != null ? "entered" : rateSteps.length > 0 ? "policy" : null,
+        tbill: tb ? tbillPct(tb.rate, w) : rateSteps.length > 0 ? policyPct(rateSteps, w) : null,
+        tbillRate: tb?.rate ?? null,
+        tbillFrom: tb ? tb.from : rateSteps.length > 0 ? "policy" : null,
+        tbillAuction: tb?.auction ?? null,
+        tbillEntered: own != null && Number.isFinite(own) ? own : null,
       },
     };
   });
