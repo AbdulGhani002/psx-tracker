@@ -155,7 +155,14 @@ async function _getStrategy(): Promise<StrategyView> {
     pe: board?.market?.pe ?? null,
     tbillPct: rates ? rates.tbill12mPct ?? rates.tbill6mPct ?? rates.tbill3mPct ?? rates.policyPct : null,
   });
-  const plan = strategyPlan({ today, profile, kse, market: board?.market ? { pe: board.market.pe, cape: board.market.cape, dividendYieldPct: board.market.dividendYieldPct } : null, rates, prevRates, book, names, zones });
+  // Where that dry powder already is, so the parking line compares rather
+  // than repeats.
+  const places = [
+    ...funds.filter((f) => f.moneyMarket && f.value >= 1).map((f) => ({ label: f.name, amount: f.value, yieldPct: f.liveAnnualYieldPct ?? f.annualYieldPct ?? null, liquid: true })),
+    ...savings.filter((a) => a.balance >= 1).map((a) => ({ label: a.name, amount: a.balance, yieldPct: a.ratePercent ?? null, liquid: true })),
+    ...fixed.filter((f) => !f.matured && f.value >= 1).map((f) => ({ label: f.name, amount: f.value, yieldPct: f.yieldPct ?? null, liquid: false, until: f.maturityDate })),
+  ];
+  const plan = strategyPlan({ today, profile, kse, market: board?.market ? { pe: board.market.pe, cape: board.market.cape, dividendYieldPct: board.market.dividendYieldPct } : null, rates, prevRates, book, names, zones, places });
   // No single-share buy calls: those come from the buy list the user keeps.
   plan.steps = plan.steps.filter((x) => !x.startsWith("Buy:"));
 

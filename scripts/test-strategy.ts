@@ -77,5 +77,13 @@ const tomorrow = maturityMessage({ name: "Sukuk <A&B>", face: 500_000, maturityD
 check("maturity tomorrow; rates flagged when not this month's; the name escaped", tomorrow.includes("Sukuk &lt;A&amp;B&gt;</b> matures tomorrow") && tomorrow.includes("Rates (not this month's): "), tomorrow);
 check("maturity without rates: no rates line", !maturityMessage({ name: "3M T-bill", face: 100_000, maturityDate: "2026-10-15", daysLeft: 4 }, null, false).includes("Rates"));
 
+// Cash already parked: compared, not re-parked.
+const placed = strategyPlan({ ...base, rates: { ...rates, tbill6mPct: 12.4, tbill3mPct: 12 }, book: { stocks: 1_911_282, equityFunds: 0, cashLike: 101_000, fixedIncome: 10_000 }, places: [{ label: "MCB Cash Management Optimizer", amount: 101_000, yieldPct: 10.25, liquid: true }, { label: "Bank Alfalah FD", amount: 10_000, yieldPct: 10.2, liquid: false, until: "2027-01-12" }] });
+const pl = placed.parking.line;
+check("parked cash: what it earns against the best short bill, and the gain a year", pl.startsWith("Cash: Rs 101,000 in MCB Cash Management Optimizer earns 8.7% after tax; 6-month T-bills pay 10.5%") && pl.includes("a year more"), pl);
+check("a deposit stays where it is until it matures", pl.includes("Rs 10,000 locked in Bank Alfalah FD to 2027-01-12") && !pl.includes("Park:"), pl);
+const fine = strategyPlan({ ...base, places: [{ label: "MCB Cash", amount: 50_000, yieldPct: 12.5, liquid: true }] });
+check("cash already earning as much is fine where it is", fine.parking.line.includes("Rs 50,000 in MCB Cash at 10.6% after tax: fine"), fine.parking.line);
+
 console.log("\n" + pass + " passed, " + fail + " failed");
 if (fail > 0) process.exit(1);

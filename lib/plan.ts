@@ -15,12 +15,13 @@ import {
   getCashSummary,
   getAppSettings,
   getLadderBuys,
+  getFixedIncomeValued,
 } from "@/lib/data";
 import { runRuleCheck, getFallDistribution, type RuleCheck } from "@/lib/feeds/backtest";
 import type { DeployPlan } from "@/lib/calculations/deploy-plan";
 import { getAutoSignalsCached } from "@/lib/feeds/regime";
-import { scoreRegime, cashCheck, SIGNAL_HINTS, MANUAL_SIGNALS, type RegimeSignal, type RegimeVerdict } from "@/lib/calculations/regime";
-import { planLadder, ladderVerdict, suggestLadder, reweightLadder, type LadderPlan } from "@/lib/calculations/ladder";
+import { scoreRegime, cashCheck, SIGNAL_HINTS, MANUAL_SIGNALS, MANUAL_SIGNAL_DAYS, manualAgeDays, type RegimeSignal, type RegimeVerdict } from "@/lib/calculations/regime";
+import { planLadder, ladderVerdict, suggestLadder, reweightLadder, cappedPool, type LadderPlan } from "@/lib/calculations/ladder";
 import { fetchUsdPkrSpot } from "@/lib/timeseries/yahoo";
 
 export type CashBreakdown = {
@@ -41,8 +42,12 @@ export type CashBreakdown = {
     note: string;
   }>;
   fundEarnedPerDay: number;
-  fundEarnedWeek: number;
+  fundEarnedWeek: number; // what the funds earned over the last seven days they were held
   usdRate: number;
+  // Where the money that counts as available is, and what is locked away
+  // (term deposits, T-bills, sukuks) and so not counted until it matures.
+  places: Array<{ label: string; pkr: number; yieldPct: number | null }>;
+  locked: Array<{ label: string; pkr: number; until: string }>;
 };
 
 export type PlanView = {
@@ -70,6 +75,9 @@ export type PlanView = {
   equityValue: number;
   netWorth: number;
   investable: number;
+  // The pool the ladder was armed with, when more than the money there is now
+  // (spent outside the ladder since): the rungs are cut from what is left.
+  poolCut: { armed: number; armedAt: string; now: number } | null;
   playbook: {
     indexName: string;
     poolAtArming: number;
@@ -109,7 +117,7 @@ export async function savePlaybook(patch: Record<string, unknown>) {
 }
 
 export async function assemblePlan(): Promise<PlanView> {
-  const [pb, summary, netWorth, funds, cashSum, settings, auto] = await Promise.all([
+  const [pb, summary, netWorth, funds, cashSum, settings, auto, fixed] = await Promise.all([
     getPlaybook(),
     getPortfolioSummary().catch(() => null as any),
     getNetWorth().catch(() => null as any),
@@ -117,21 +125,28 @@ export async function assemblePlan(): Promise<PlanView> {
     getCashSummary().catch(() => null as any),
     getAppSettings().catch(() => ({} as any)),
     getAutoSignalsCached().catch(() => ({ data: null, stale: false })),
+    getFixedIncomeValued().catch(() => [] as any[]),
   ]);
+  const todayIso = new Date(Date.now() + 5 * 3600_000).toISOString().slice(0, 10);
 
   // --- regime ---------------------------------------------------------------
   const autoSignals: RegimeSignal[] = auto.data?.signals ?? [];
   const manualByKey = new Map<string, any>((pb.regimeManual ?? []).map((m: any) => [m.key, m]));
+  // A reading set by hand counts for a month: an old judgement must not keep
+  // steering the score after the market has moved on. Past that it is shown,
+  // not counted, and a live feed for the same signal takes over.
   const manualSignals: RegimeSignal[] = MANUAL_SIGNALS.map((m) => {
     const set = manualByKey.get(m.key);
     const opt = set ? m.options.find((o) => o.score === set.score) : undefined;
+    const age = set?.setAt ? manualAgeDays(set.setAt, todayIso) : null;
+    const stale = age != null && age > MANUAL_SIGNAL_DAYS;
     return {
       key: m.key,
       label: m.label,
       source: "manual" as const,
-      score: set?.score ?? 0,
-      reading: set ? `${opt?.text ?? ""}${set.note ? ` — ${set.note}` : ""}${set.setAt ? ` (set ${set.setAt})` : ""}` : "not set",
-      known: !!set,
+      score: set && !stale ? set.score : 0,
+      reading: set ? `${opt?.text ?? ""}${set.note ? ` — ${set.note}` : ""}${set.setAt ? ` (set ${set.setAt}${stale ? `, ${age} days ago: not counted` : ""})` : ""}` : "not set",
+      known: !!set && !stale,
       hint: SIGNAL_HINTS[m.key] ?? "",
     };
   });
@@ -162,6 +177,14 @@ export async function assemblePlan(): Promise<PlanView> {
   const usdRate = (await fetchUsdPkrSpot().catch(() => null)) ?? 0;
   const fundValue = (funds as any[]).reduce((s, f) => s + (f.value ?? 0), 0);
   const fundEarnedPerDay = (funds as any[]).reduce((s, f) => s + (f.earnedPerDay ?? 0), 0);
+  // The last seven days each fund was actually held: one bought on Friday has
+  // earned two days, not a week.
+  const fundEarnedWeek = (funds as any[]).reduce((s, f) => {
+    const buys = ((f.trades ?? []) as any[]).filter((t) => t.side === "BUY").map((t) => String(t.date)).sort();
+    const since = buys.length ? buys[buys.length - 1] : String(f.anchorDate ?? "");
+    const days = since ? Math.max(0, Math.min(7, manualAgeDays(since, todayIso))) : 7;
+    return s + (f.earnedPerDay ?? 0) * days;
+  }, 0);
   const brokerCash = Math.max(0, Number(cashSum?.balance ?? 0));
 
   const manualRows: CashBreakdown["manualRows"] = ((pb.cashSources ?? []) as any[])
@@ -194,8 +217,14 @@ export async function assemblePlan(): Promise<PlanView> {
     brokerCash,
     manualRows,
     fundEarnedPerDay,
-    fundEarnedWeek: fundEarnedPerDay * 7,
+    fundEarnedWeek,
     usdRate,
+    places: [
+      ...(funds as any[]).filter((f) => (f.value ?? 0) >= 1).map((f) => ({ label: String(f.name), pkr: Number(f.value), yieldPct: f.liveAnnualYieldPct ?? f.annualYieldPct ?? null })),
+      ...(brokerCash >= 1 ? [{ label: "Broker cash", pkr: brokerCash, yieldPct: null }] : []),
+      ...manualRows.filter((r) => r.kind === "available").map((r) => ({ label: r.label, pkr: r.pkr, yieldPct: null })),
+    ],
+    locked: (fixed as any[]).filter((f) => !f.matured && (f.value ?? 0) >= 1).map((f) => ({ label: String(f.name), pkr: Number(f.value), until: String(f.maturityDate) })),
   };
 
   const equityValue = Number(summary?.totalValue ?? 0);
@@ -203,9 +232,15 @@ export async function assemblePlan(): Promise<PlanView> {
   const cashPct = investable > 0 ? (available / investable) * 100 : 0;
 
   // --- ladder ----------------------------------------------------------------
-  // The pool is frozen at arming. If it was never armed, fall back to the money
-  // free right now so a fresh ladder still sizes itself sensibly.
-  const poolAtArming = pb.poolAtArming > 0 ? pb.poolAtArming : available + receivable + expected;
+  // The pool is frozen at arming, so the ladder's own buys never shrink the
+  // rungs still to come. But it is never more than the money there is: what
+  // has a claim on it now plus what the ladder has already spent. Money spent
+  // outside the ladder since arming is gone, and the rungs are cut from what
+  // is left. Never armed: the money free right now.
+  const firedTotal = ((pb.rungs ?? []) as any[]).reduce((s, r) => s + (r.firedAt ? Number(r.firedAmount) || 0 : 0), 0);
+  const withClaim = available + receivable + expected;
+  const poolAtArming = cappedPool(Number(pb.poolAtArming) || 0, withClaim, firedTotal);
+  const poolCut = pb.poolAtArming > 0 && pb.poolAtArming > poolAtArming + 1 ? { armed: Number(pb.poolAtArming), armedAt: String(pb.armedAt ?? ""), now: poolAtArming } : null;
 
   // The record of how far the index has fallen below its own high, so each rung
   // can be judged on how often its level actually turns up rather than on how
@@ -274,6 +309,7 @@ export async function assemblePlan(): Promise<PlanView> {
     equityValue,
     netWorth: Number(netWorth?.total ?? 0),
     investable,
+    poolCut,
     playbook: {
       indexName: pb.indexName || "KSE-100",
       poolAtArming,

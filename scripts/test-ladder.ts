@@ -6,8 +6,10 @@ import {
   fallDistributionOf,
   suggestLadder,
   reweightLadder,
+  cappedPool,
   type LadderRung,
 } from "../lib/calculations/ladder";
+import { manualAgeDays, MANUAL_SIGNAL_DAYS } from "../lib/calculations/regime";
 import { valueFund } from "../lib/calculations/assets";
 
 let pass = 0,
@@ -435,6 +437,29 @@ check("growth fund value stays units x NAV", equityFund.value === 11225, equityF
   check("no history means no reweight", reweightLadder(mine, [], 100000).length === 0);
   check("no reference high means no reweight", reweightLadder(mine, dist, 0).length === 0);
 }
+
+// ---------------------------------------------------- only the money there is
+// The user's ladder: armed with Rs 375,983 on 2 Sep, most of it since spent
+// on shares outside the ladder; Rs 102,002 left.
+const real = [rung(165000, 76, "Immediate support"), rung(156000, 14), rung(141000, 5), rung(130000, 5)];
+check("the pool is never more than the money there is", cappedPool(375_983, 102_002, 0) === 102_002, cappedPool(375_983, 102_002, 0));
+check("the ladder's own buys keep the arming pool", cappedPool(300_000, 180_000, 120_000) === 300_000);
+check("money spent outside the ladder shrinks it", cappedPool(300_000, 80_000, 120_000) === 200_000);
+check("never armed: the money there is now", cappedPool(0, 102_002, 0) === 102_002);
+const sized = planLadder({ indexLevel: 166_420, rungs: real, poolAtArming: cappedPool(375_983, 102_002, 0), poolNow: 102_002, reservePct: 10 });
+const v = ladderVerdict(sized);
+check("rung sized from real money: 76% of the cash after a 10% reserve", Math.round(sized.next!.amount) === Math.round(102_002 * 0.9 * 0.76) && sized.next!.cashNow >= sized.next!.amount - 1, Math.round(sized.next!.amount));
+check("and the verdict deploys only that", v.line.includes(`Deploy Rs ${Math.round(102_002 * 0.9 * 0.76).toLocaleString("en-PK")} then`), v.line);
+const stale = planLadder({ indexLevel: 166_420, rungs: real, poolAtArming: 375_983, poolNow: 102_002, reservePct: 10 });
+const sv = ladderVerdict(stale);
+check("an old pool's rung asks for more than there is: the verdict says what is free", stale.next!.cashNow < stale.next!.amount && sv.line.includes("you have Rs") && sv.line.includes("free, so deploy that then"), sv.line);
+const broke = planLadder({ indexLevel: 166_420, rungs: real, poolAtArming: 375_983, poolNow: 0, reservePct: 10 });
+check("no cash: nothing to deploy at the next rung", ladderVerdict(broke).line.endsWith("No cash is free to deploy then."), ladderVerdict(broke).line);
+const reachedBroke = planLadder({ indexLevel: 164_000, rungs: real, poolAtArming: 375_983, poolNow: 0, reservePct: 10 });
+const rb = ladderVerdict(reachedBroke);
+check("a rung reached with no cash: wait, nothing to deploy", rb.action === "WAIT" && rb.line.includes("reached, but no cash is free"), rb.line);
+
+check("a reading set by hand counts for a month", MANUAL_SIGNAL_DAYS === 30 && manualAgeDays("2026-09-03", "2026-10-18") === 45 && manualAgeDays("2026-10-18", "2026-10-18") === 0);
 
 console.log(`\n${pass} passed, ${fail} failed`);
 if (fail > 0) process.exit(1);

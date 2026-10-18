@@ -1,7 +1,7 @@
 // Single source of truth for the app version + changelog.
 // Bump APP_VERSION and prepend a CHANGELOG entry on every release.
 
-export const APP_VERSION = "11.25.0";
+export const APP_VERSION = "11.25.1";
 
 export const BUILD_DATE =
   process.env.NEXT_PUBLIC_BUILD_DATE ?? "";
@@ -17,6 +17,19 @@ export type ChangelogEntry = {
 
 // Reverse-chronological. Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: "11.25.1",
+    date: "2026-10-18",
+    title: "The weekly plan only counts money you have",
+    changes: [
+      "The ladder is cut from the cash there is now, never from an old pool: money spent outside the ladder since it was armed is gone. A rung asks only for what your cash covers.",
+      "With stocks above your target, the weekly plan says no buying instead of deploy.",
+      "Money lists where the cash is (the fund, the broker) and what is locked in deposits until they mature.",
+      "Parking compares where your cash already is with T-bills, instead of telling you to park it again.",
+      "A reading you set by hand counts for 30 days; after that a live feed takes over or it is not counted.",
+      "The fund's earnings count only the days it was held.",
+    ],
+  },
   {
     version: "11.25.0",
     date: "2026-10-14",

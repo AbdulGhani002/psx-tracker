@@ -311,3 +311,9 @@ export const MANUAL_SIGNALS: Array<{ key: string; label: string; options: Array<
     ],
   },
 ];
+
+// A reading set by hand counts for a month: an old judgement must not keep
+// steering the score after the market has moved on.
+export const MANUAL_SIGNAL_DAYS = 30;
+export const manualAgeDays = (setAt: string, today: string) =>
+  Math.max(0, Math.round((Date.parse(today.slice(0, 10) + "T00:00:00Z") - Date.parse(String(setAt).slice(0, 10) + "T00:00:00Z")) / 86400000));

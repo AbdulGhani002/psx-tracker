@@ -12,6 +12,7 @@ export { buildWeeklyTex, weekOf, type WeeklyReportData };
 export async function assembleWeeklyReport(now = new Date()): Promise<WeeklyReportData> {
   const [plan, summary, s] = await Promise.all([assemblePlan(), getPortfolioSummary().catch(() => null as any), getStrategy().catch(() => null)]);
   const wk = weekOf(now);
+  const gate = gateLine(s);
   const r = s?.rates ?? null;
   const month = r ? new Date(r.month + "-01T00:00:00Z").toLocaleString("en-GB", { month: "long", year: "numeric", timeZone: "UTC" }) : "";
   const strategy: WeeklyReportData["strategy"] = s
@@ -71,12 +72,22 @@ export async function assembleWeeklyReport(now = new Date()): Promise<WeeklyRepo
     cashCheckOk: plan.cashCheck.ok,
     fundEarnedWeek: plan.cash.fundEarnedWeek,
     fundEarnedPerDay: plan.cash.fundEarnedPerDay,
+    cashPlaces: plan.cash.places,
+    cashLocked: plan.cash.locked,
+    gateLine: gate,
+    poolCutLine: plan.poolCut
+      ? `Sized from the Rs ${Math.round(plan.poolCut.now).toLocaleString("en-PK")} you have now. The ladder was armed with Rs ${Math.round(plan.poolCut.armed).toLocaleString("en-PK")}${plan.poolCut.armedAt ? ` on ${plan.poolCut.armedAt}` : ""}; the rest has been spent since.`
+      : null,
 
     indexName: plan.ladder.indexName,
     indexLevel: plan.ladder.indexLevel,
     indexAsOf: plan.ladder.indexAsOf,
-    ladderAction: plan.ladderVerdict.action,
-    ladderLine: plan.ladderVerdict.line,
+    // With stocks above their target the week's answer is no buying: the
+    // ladder's level is still shown, its deploy is not.
+    ladderAction: gate ? "WAIT" : plan.ladderVerdict.action,
+    ladderLine: gate
+      ? `${gate} ${plan.ladder.indexName} is ${Math.round(plan.ladder.indexLevel).toLocaleString("en-PK")}${plan.ladder.next ? `; your ladder's next rung is ${Math.round(plan.ladder.next.level).toLocaleString("en-PK")}, ${Math.abs(plan.ladder.next.moveRequiredPct).toFixed(1)}% away` : ""}.`
+      : plan.ladderVerdict.line,
     rungs: plan.ladder.rows.map((r) => ({
       level: r.level,
       pct: r.pct,
@@ -91,6 +102,14 @@ export async function assembleWeeklyReport(now = new Date()): Promise<WeeklyRepo
     parked,
     strategy,
   };
+}
+
+// The strategy's allocation decides first: with stocks above their target the
+// week's answer is no buying, so the ladder cannot say deploy beside it.
+function gateLine(s: Awaited<ReturnType<typeof getStrategy>> | null): string | null {
+  const a = s?.plan.allocation;
+  if (!a || a.total <= 0 || a.stocksNowPct <= a.stocksTargetPct + 5) return null;
+  return `No buying: stocks are ${a.stocksNowPct.toFixed(1)}% of your book, above your ${a.stocksTargetPct.toFixed(0)}% target.`;
 }
 
 // Plain-text summary for the Telegram caption and the email body. The PDF is
@@ -108,11 +127,11 @@ export function weeklySummaryText(d: WeeklyReportData): string {
     `Favour: ${d.favour.join(", ")}`,
     `Avoid: ${d.avoid.join(", ")}`,
     "",
-    `Cash available ${rs(d.cashAvailable)} · receivable ${rs(d.cashReceivable)} · expected ${rs(d.cashExpected)}`,
+    `Cash available ${rs(d.cashAvailable)}${d.cashPlaces.length ? ` (${d.cashPlaces.map((p) => `${p.label} ${rs(p.pkr)}`).join(", ")})` : ""}${d.cashReceivable >= 1 ? ` · receivable ${rs(d.cashReceivable)}` : ""}${d.cashExpected >= 1 ? ` · expected ${rs(d.cashExpected)}` : ""}${d.cashLocked.length ? ` · locked ${d.cashLocked.map((p) => `${p.label} ${rs(p.pkr)} to ${p.until}`).join(", ")}` : ""}`,
     `Equities ${rs(d.equityValue)} · net worth ${rs(d.netWorth)}`,
   ];
   if (d.fundEarnedPerDay > 0) {
-    lines.push(`The parked cash earned about ${rs(d.fundEarnedWeek)} this week while it waited.`);
+    lines.push(`The money-market fund earns about ${rs(d.fundEarnedPerDay)} a day (${rs(d.fundEarnedWeek)} over the past week).`);
   }
   if (d.missing.length > 0) lines.push("", `Not scored: ${d.missing.join(", ")}.`);
   return lines.join("\n");

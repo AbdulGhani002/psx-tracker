@@ -70,6 +70,11 @@ export type StrategyInput = {
   book: { stocks: number; equityFunds: number; cashLike: number; fixedIncome: number };
   names: StrategyName[];
   zones?: BuyZone[] | null; // lib/strategy/zones.ts, highest first
+  // Where the dry powder already is: a money-market fund or savings account
+  // (liquid, at its own yield) or a deposit, bill or sukuk (locked until it
+  // matures). With these the parking line compares, instead of telling you to
+  // park money that is already parked.
+  places?: Array<{ label: string; amount: number; yieldPct: number | null; liquid: boolean; until?: string }>;
 };
 
 export type PhaseKey = "calm" | "pullback" | "correction" | "mandi" | "crash";
@@ -115,6 +120,26 @@ export function phaseOf(drawdownPct: number | null): PhaseKey {
   if (drawdownPct == null) return "calm";
   const d = -drawdownPct;
   return d >= 30 ? "crash" : d >= 20 ? "mandi" : d >= 10 ? "correction" : d >= 5 ? "pullback" : "calm";
+}
+
+// The cash where it is, against the best a short bill or a fund pays after
+// tax: switch only for a real gain (half a point or more), and money locked
+// in a deposit stays put until it matures.
+function placesLine(places: NonNullable<StrategyInput["places"]>, opts: ParkOption[], taxPct: number): string {
+  const liquid = places.filter((p) => p.liquid && p.amount >= 1);
+  const locked = places.filter((p) => !p.liquid && p.amount >= 1);
+  const best = [...opts].filter((o) => ["tbill3m", "tbill6m", "mmf"].includes(o.key)).sort((a, b) => b.afterTaxPct - a.afterTaxPct)[0];
+  const parts: string[] = [];
+  for (const p of liquid) {
+    const after = p.yieldPct != null ? p.yieldPct * (1 - taxPct / 100) : null;
+    if (best && after != null && best.afterTaxPct - after >= 0.5) {
+      parts.push(`${rs(p.amount)} in ${p.label} earns ${pct(after)} after tax; ${best.words} pay ${pct(best.afterTaxPct)}: about ${rs((p.amount * (best.afterTaxPct - after)) / 100)} a year more`);
+    } else {
+      parts.push(`${rs(p.amount)} in ${p.label}${after != null ? ` at ${pct(after)} after tax` : ""}: fine`);
+    }
+  }
+  if (locked.length) parts.push(`${rs(locked.reduce((s, p) => s + p.amount, 0))} locked in ${locked.map((p) => `${p.label}${p.until ? ` to ${p.until}` : ""}`).join(", ")}`);
+  return parts.length ? `Cash: ${parts.join("; ")}` : "";
 }
 
 export function strategyPlan(i: StrategyInput): StrategyPlan {
@@ -207,7 +232,7 @@ export function strategyPlan(i: StrategyInput): StrategyPlan {
   const lockAmt = Math.max(0, dryNow - liquidAmt);
   const home = lockPick ?? liquidPick;
   const parts = [liquidAmt > 0 && liquidPick ? `${rs(liquidAmt)} in ${liquidPick.words} (${pct(liquidPick.afterTaxPct)})` : "", lockAmt > 0 && home ? `${rs(lockAmt)} in ${home.words} (${pct(home.afterTaxPct)})` : ""].filter(Boolean);
-  const parkLine = opts.length === 0 ? "" : dryNow <= 0 ? (home ? `New cash: ${home.words} (${pct(home.afterTaxPct)} after tax)` : "") : `Park: ${parts.join(", ")}, after tax`;
+  const parkLine = i.places && i.places.some((p) => p.amount >= 1) ? placesLine(i.places, opts, tax) : opts.length === 0 ? "" : dryNow <= 0 ? (home ? `New cash: ${home.words} (${pct(home.afterTaxPct)} after tax)` : "") : `Park: ${parts.join(", ")}, after tax`;
 
   // --- flight to quality
   const good = (n: StrategyName) => n.grade === "A" || n.grade === "B";

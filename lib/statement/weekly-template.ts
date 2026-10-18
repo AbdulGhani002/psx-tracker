@@ -33,8 +33,14 @@ export type WeeklyReportData = {
   cashPct: number; // available cash as a share of investable
   cashCheckLine: string;
   cashCheckOk: boolean;
-  fundEarnedWeek: number; // what the money-market money threw off this week
+  fundEarnedWeek: number; // what the money-market money threw off over the last seven days it was held
   fundEarnedPerDay: number;
+  cashPlaces: Array<{ label: string; pkr: number; yieldPct: number | null }>; // where the available cash is
+  cashLocked: Array<{ label: string; pkr: number; until: string }>; // deposits and bills not counted until they mature
+  // Stocks above the allocation target: the week's answer is no buying,
+  // whatever the ladder's next rung says.
+  gateLine: string | null;
+  poolCutLine: string | null; // the ladder re-cut from the money there is now
 
   // ladder
   indexName: string;
@@ -133,10 +139,14 @@ ${st.rates.values.map(([, v]) => (v == null ? "---" : `${v.toFixed(2)}\\%`)).joi
 }`
     : "";
 
-  const actionBox =
-    d.ladderAction === "DEPLOY"
-      ? `\\fbox{\\parbox{\\dimexpr\\textwidth-2\\fboxsep-2\\fboxrule}{\\bfseries ACTION THIS WEEK\\par\\vspace{3pt}\\normalfont ${esc(d.ladderLine)}}}`
-      : `\\fbox{\\parbox{\\dimexpr\\textwidth-2\\fboxsep-2\\fboxrule}{\\bfseries NO ACTION THIS WEEK\\par\\vspace{3pt}\\normalfont ${esc(d.ladderLine)}}}`;
+  const deploy = d.ladderAction === "DEPLOY";
+  const actionText = d.ladderLine;
+  const actionBox = deploy
+    ? `\\fbox{\\parbox{\\dimexpr\\textwidth-2\\fboxsep-2\\fboxrule}{\\bfseries ACTION THIS WEEK\\par\\vspace{3pt}\\normalfont ${esc(actionText)}}}`
+    : `\\fbox{\\parbox{\\dimexpr\\textwidth-2\\fboxsep-2\\fboxrule}{\\bfseries NO ACTION THIS WEEK\\par\\vspace{3pt}\\normalfont ${esc(actionText)}}}`;
+  const day = (iso: string) => (/^\d{4}-\d{2}-\d{2}/.test(iso) ? new Date(iso.slice(0, 10) + "T00:00:00Z").toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" }) : iso);
+  const placeRows = d.cashPlaces.map((p) => `\\quad ${esc(p.label)}${p.yieldPct != null ? ` (${p.yieldPct.toFixed(2)}\\%)` : ""} & ${rs(p.pkr)} \\\\`).join("\n");
+  const lockedRows = d.cashLocked.map((p) => `${esc(p.label)}, locked to ${esc(day(p.until))} & ${rs(p.pkr)} \\\\`).join("\n");
 
   return `\\documentclass[10pt,a4paper]{article}
 \\usepackage[margin=2.0cm]{geometry}
@@ -175,21 +185,24 @@ ${d.missing.length ? `\\vspace{4pt}\\par{\\footnotesize Not set: ${esc(d.missing
 \\vspace{4pt}
 \\begin{tabular}{@{}lr@{}}\\toprule Source & Amount \\\\\\midrule
 Cash available now & ${rs(d.cashAvailable)} \\\\
-Receivable & ${rs(d.cashReceivable)} \\\\
-Expected & ${rs(d.cashExpected)} \\\\
+${placeRows}
+${d.cashReceivable >= 1 ? `Receivable & ${rs(d.cashReceivable)} \\\\` : ""}
+${d.cashExpected >= 1 ? `Expected & ${rs(d.cashExpected)} \\\\` : ""}
+${lockedRows}
 \\midrule
 Equities at market & ${rs(d.equityValue)} \\\\
 Net worth & ${rs(d.netWorth)} \\\\
 \\bottomrule\\end{tabular}
 \\par\\vspace{4pt}
 Cash is ${d.cashPct.toFixed(0)}\\% of investable. ${esc(d.cashCheckLine)}\\par
-${d.fundEarnedPerDay > 0 ? `\\vspace{2pt}{\\footnotesize The money-market balance earned about ${rs(d.fundEarnedWeek)} over the last seven days, roughly ${rs(d.fundEarnedPerDay)} a day, while it waited.}\\par` : ""}
+${d.fundEarnedPerDay > 0 ? `\\vspace{2pt}{\\footnotesize The money-market fund earns about ${rs(d.fundEarnedPerDay)} a day: ${rs(d.fundEarnedWeek)} over the past week, for the days it was held.}\\par` : ""}
 
 \\vspace{12pt}
 {\\large\\bfseries The ladder}\\quad{\\small ${esc(d.indexName)} at ${Math.round(d.indexLevel).toLocaleString("en-PK")}${
     d.indexAsOf ? ` (${esc(d.indexAsOf)})` : ""
   }}\\par
 \\vspace{4pt}
+${d.poolCutLine ? `{\\footnotesize ${esc(d.poolCutLine)}}\\par\\vspace{3pt}` : ""}
 ${
   d.rungs.length
     ? `\\begin{tabular}{@{}rrrll@{}}\\toprule Level & Share & Amount & Note & Status \\\\\\midrule\n${rungRows}\n\\bottomrule\\end{tabular}`
@@ -205,7 +218,7 @@ ${
     ? `\\begin{tabular}{@{}lrr@{}}\\toprule Symbol & Value & Weight \\\\\\midrule\n${posRows}\n\\bottomrule\\end{tabular}`
     : "{\\footnotesize No positions.}"
 }
-${d.parked.length ? `\\par\\vspace{3pt}{\\footnotesize Parked, outside every figure here: ${esc(d.parked.map((p) => `${p.symbol} ${p.shares.toLocaleString()}`).join(", "))}.}` : ""}
+${d.parked.length ? `\\par\\vspace{3pt}{\\footnotesize Parked, in net worth but not in these weights: ${esc(d.parked.map((p) => `${p.symbol} ${p.shares.toLocaleString()}`).join(", "))}.}` : ""}
 
 \\vspace{14pt}\\hrule\\vspace{4pt}
 {\\footnotesize The ladder is a rule, not a forecast. It tells you what your own levels commit you to this week and nothing more. Nothing here is advice, and nothing trades itself.}

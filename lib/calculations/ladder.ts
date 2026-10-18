@@ -99,6 +99,7 @@ export type LadderRungRow = LadderRung & {
   // exists. Rungs are funded in the order they fire, so an earlier rung
   // consumes the cash before a later one can claim it.
   funding: RungFunding;
+  cashNow: number; // rupees of this rung today's cash above the reserve covers
   fundedOn: string; // ISO date the money lands, "" when it is already here
   fundedBy: string; // which source, for the row that explains itself
   shortfall: number; // rupees of this rung nothing on the books pays for
@@ -291,6 +292,7 @@ export function planLadder({
       reachedSharePct,
       reach,
       funding: "short" as RungFunding,
+      cashNow: 0,
       fundedOn: "",
       fundedBy: "",
       shortfall: 0,
@@ -331,6 +333,7 @@ export function planLadder({
     cashLeft -= fromCash;
     need -= fromCash;
     fundedNow += fromCash;
+    row.cashNow = fromCash;
 
     if (need <= 1) {
       row.funding = "now";
@@ -605,15 +608,41 @@ export function ladderVerdict(plan: LadderPlan): { action: "DEPLOY" | "WAIT" | "
       line: `${plan.indexName} is ${rs(plan.indexLevel)}. ${names} armed. Deploy Rs ${rs(plan.readyAmount)}.`,
     };
   }
-  if (plan.next) {
-    const fall = Math.abs(plan.next.moveRequiredPct);
+  if (plan.ready.length > 0) {
+    const names = plan.ready.map((r) => (r.label ? r.label : `${rs(r.level)}`)).join(" and ");
     return {
       action: "WAIT",
-      line: `${plan.indexName} is ${rs(plan.indexLevel)}. Next rung ${rs(plan.next.level)}, a ${fall.toFixed(1)}% fall away. Deploy Rs ${rs(plan.next.amount)} then. Until then, nothing.`,
+      line: `${plan.indexName} is ${rs(plan.indexLevel)}. ${names} reached, but no cash is free above your reserve: nothing to deploy.`,
+    };
+  }
+  if (plan.next) {
+    const fall = Math.abs(plan.next.moveRequiredPct);
+    const at = `${plan.indexName} is ${rs(plan.indexLevel)}. Next rung ${rs(plan.next.level)}, a ${fall.toFixed(1)}% fall away.`;
+    // Only what today's cash covers: a rung the money is not there for is
+    // not an instruction.
+    const covered = plan.next.cashNow;
+    return {
+      action: "WAIT",
+      line:
+        covered >= plan.next.amount - 1
+          ? `${at} Deploy Rs ${rs(plan.next.amount)} then. Until then, nothing.`
+          : covered > 0
+            ? `${at} The rung asks for Rs ${rs(plan.next.amount)}; you have Rs ${rs(covered)} free, so deploy that then. Until then, nothing.`
+            : `${at} No cash is free to deploy then.`,
     };
   }
   return {
     action: "WAIT",
     line: `${plan.indexName} is ${rs(plan.indexLevel)}. Every rung has fired. Rs ${rs(plan.reserveAmount)} is reserve and stays put.`,
   };
+}
+
+// The pool the rungs are cut from: frozen at arming, so the ladder's own buys
+// never shrink the rungs still to come, but never more than the money there
+// is: what has a claim on it now plus what the ladder has already spent.
+// Money spent outside the ladder since arming is gone. Never armed (0): the
+// money there is now.
+export function cappedPool(armed: number, withClaim: number, firedTotal: number): number {
+  const now = Math.max(0, withClaim);
+  return armed > 0 ? Math.min(armed, now + Math.max(0, firedTotal)) : now;
 }
