@@ -40,6 +40,7 @@ const PayoutSchema = new Schema(
     pctOfFace: { type: Number, required: true },
     cycle: { type: String, default: "" }, // F | i | ii | iii
     payoutType: { type: String, default: "cash" }, // cash | bonus | right | other
+    source: { type: String, default: "" }, // "letter": read from the company's letter (lib/payout-letters)
   },
   { _id: false }
 );

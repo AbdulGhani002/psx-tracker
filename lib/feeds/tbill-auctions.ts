@@ -1,7 +1,6 @@
 import "server-only";
 import { connectDb } from "@/lib/db";
 import { FeedSnapshotModel } from "@/lib/models";
-import { SBP_TBILL12M_YEAR_START } from "@/lib/timeseries/sbp-tbill";
 import { auctionOn, htmlText, isAuctionLink, mergeAuctions, parseAuction, type Auction } from "./tbill-parse";
 
 // SBP's T-bill auctions, kept as they happen: every six hours the hourly
@@ -19,8 +18,6 @@ const EVERY_MS = 6 * 3600_000;
 
 type Stored = { auctions: Auction[]; lastId: number; checkedAt: string; status: string };
 
-const seed: Auction[] = SBP_TBILL12M_YEAR_START.map((s) => ({ date: s.auction, m1: null, m3: null, m6: null, m12: s.pct, source: s.source, own: true }));
-
 async function stored(): Promise<Stored> {
   await connectDb();
   const d: any = await FeedSnapshotModel.findOne({ key: KEY }, { data: 1 }).lean();
@@ -28,10 +25,10 @@ async function stored(): Promise<Stored> {
   return { auctions: data?.auctions ?? [], lastId: data?.lastId ?? 0, checkedAt: data?.checkedAt ?? "", status: data?.status ?? "" };
 }
 
-// Every auction kept, oldest first, with the year-start ones the app ships with.
+// Every auction kept in the database, oldest first.
 export async function getTbillAuctions(): Promise<Auction[]> {
   const s = await stored().catch(() => null);
-  return mergeAuctions(seed, s?.auctions ?? []);
+  return mergeAuctions([], s?.auctions ?? []);
 }
 
 export async function latestTbillAuction(): Promise<Auction | null> {

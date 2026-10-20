@@ -32,6 +32,9 @@ const AnnouncementSchema = new Schema(
     fileBytes: { type: Number, default: 0 },
     seenAt: { type: Date, default: () => new Date() },
     deliveries: { type: [DeliverySchema], default: [] },
+    // What lib/payout-letters.ts read from the letter: a dividend, its book
+    // closure, none, or that it could not be read.
+    payoutRead: { type: Schema.Types.Mixed, default: undefined },
   },
   { timestamps: true }
 );

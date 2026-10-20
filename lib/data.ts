@@ -31,6 +31,7 @@ import { getPriceFreshness } from "./prices";
 import { planDeployment, type DeployCandidate, type DeployPlan } from "./calculations/deploy-plan";
 import { summarisePortfolio, computeCashBalance, summarisePmexAccount, type PortfolioSummary, type CashSummary, type PmexAccountSummary, type PmexMovement } from "./calculations";
 import { forecastDividends, type DividendForecast } from "./calculations/dividend-forecast";
+import { withLetterRows } from "./calculations/payout-letter";
 import { computeSotp, deriveSharesOutstanding, type SotpResult } from "./calculations/sotp";
 import { analyzeConcentration, analyzeCorrelation, type ConcentrationResult, type CorrelationResult } from "./calculations/risk-analysis";
 import { fetchManyEod } from "./timeseries/psx-eod";
@@ -169,7 +170,7 @@ export async function getFundamentals(symbols: string[]): Promise<Record<string,
             sharesOutstanding: fresh?.sharesOutstanding ?? prev?.sharesOutstanding ?? null,
             marketCapThousands: fresh?.marketCapThousands ?? prev?.marketCapThousands ?? null,
             payouts: payouts != null
-              ? payouts.map((p) => ({ date: p.announceDate ?? p.bookClosureStart, bookClosure: p.bookClosureStart, pctOfFace: p.pctOfFace, cycle: p.cycle, payoutType: p.payoutType }))
+              ? withLetterRows(payouts.map((p) => ({ date: p.announceDate ?? p.bookClosureStart, bookClosure: p.bookClosureStart, pctOfFace: p.pctOfFace, cycle: p.cycle, payoutType: p.payoutType })), prev?.payouts ?? [])
               : prev?.payouts ?? [],
             source: fresh?.source ?? "psx-dps",
             fetchedAt: new Date(),

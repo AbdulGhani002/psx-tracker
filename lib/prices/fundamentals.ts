@@ -21,7 +21,7 @@ export type AnnualFinancial = {
 
 export type CompanyFundamentals = {
   symbol: string;
-  faceValue: number; // par value; PSX standard is Rs 10
+  faceValue: number | null; // par value when the page gives it; null keeps the one known (most are Rs 10, some Re 1 or Rs 5)
   sector: string; // PSX sector name
   annual: AnnualFinancial[]; // newest first
   latestEps: number | null; // most recent annual EPS
@@ -140,7 +140,9 @@ export function parseFinancials(html: string, symbol: string): CompanyFundamenta
 
   return {
     symbol: symbol.toUpperCase(),
-    faceValue: 10,
+    // The company page does not state it, and claiming Rs 10 overwrote the
+    // Re 1 of companies that split, making their dividends ten times too big.
+    faceValue: null,
     sector: parseSector(html),
     annual,
     latestEps,

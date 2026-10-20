@@ -1,7 +1,7 @@
 // Single source of truth for the app version + changelog.
 // Bump APP_VERSION and prepend a CHANGELOG entry on every release.
 
-export const APP_VERSION = "11.25.1";
+export const APP_VERSION = "11.26.2";
 
 export const BUILD_DATE =
   process.env.NEXT_PUBLIC_BUILD_DATE ?? "";
@@ -17,6 +17,45 @@ export type ChangelogEntry = {
 
 // Reverse-chronological. Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: "11.26.2",
+    date: "2026-10-20",
+    title: "More book-closure dates found",
+    changes: [
+      "Book-closure dates are read in more wordings (\"September 22, 2026, to ...\", the year written once) and from a meeting notice's later pages.",
+      "A letter that repeats a dividend already listed adds nothing, and never changes the exchange's own figures.",
+      "A scanned letter that could not be read is tried again.",
+    ],
+  },
+  {
+    version: "11.26.1",
+    date: "2026-10-20",
+    title: "Dividend letters read with care",
+    changes: [
+      "Only results, dividend, book-closure and AGM letters are read, first pages only. Reports, notices of dividends already paid and extraordinary meetings are skipped: they repeat old dividends.",
+      "A dividend counts only when the letter declares it, and book-closure dates only when they follow the letter. Dates written with the day's name are read.",
+      "Dividends read from letters stay when the exchange's payout list works again. The wrong ones from the first run were removed.",
+    ],
+  },
+  {
+    version: "11.26.0",
+    date: "2026-10-20",
+    title: "Dividends read from the companies' own letters",
+    changes: [
+      "The exchange's payout list refuses automated requests, so each results, payout or general-meeting letter of a company you hold is read for its cash dividend and book closure, with OCR for scanned letters. The ex-dividend message and the dividend recorded at book closure use what it finds.",
+      "Past T-bill rates live in the database with the rest of the auction history, not in the code.",
+    ],
+  },
+  {
+    version: "11.25.2",
+    date: "2026-10-20",
+    title: "Ex-dividend messages with the real ex-date",
+    changes: [
+      "The ex-dividend message gives the ex-date (two trading days before the book closure), the last day to hold, the rate a share and what your shares earn after tax. One found after the ex-date says it has gone ex.",
+      "The weekly refresh no longer resets every company's face value to Rs 10, which made Re 1 shares' dividends ten times too big.",
+      "AHCL's final dividend (Rs 1.25, book closure 21 Oct) added from its results letter.",
+    ],
+  },
   {
     version: "11.25.1",
     date: "2026-10-18",

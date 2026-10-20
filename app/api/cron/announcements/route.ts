@@ -5,6 +5,7 @@ import { getAllUserIds } from "@/lib/data";
 import { runAsUser } from "@/lib/auth/current-user";
 import { getFeedSnapshot, saveFeedSnapshot } from "@/lib/data";
 import { scanBoard, scanCompanyPages, heldSymbolsAll, backfillHeld, deliverDueForCurrentUser, nextBoardAt, nextPagesAt, shuffled, type BoardFile, type Delivery, type PagesScan } from "@/lib/announcements";
+import { readPayoutLetters } from "@/lib/payout-letters";
 
 // When the refused board and the company pages are next asked (ISO times).
 type Schedule = { boardAt?: string; pagesAt?: string };
@@ -70,6 +71,21 @@ export async function POST(req: Request) {
       deliveries.push(...r.deliveries);
     });
   }
+  // Dividends from the letters just collected (lib/payout-letters.ts), a few
+  // a run, reusing the files already fetched for delivery.
+  if (!dryRun) {
+    try {
+      report.payoutLetters = await readPayoutLetters({
+        files,
+        limit: typeof body?.lettersLimit === "number" ? body.lettersLimit : 4,
+        sinceDays: typeof body?.lettersSinceDays === "number" ? body.lettersSinceDays : 30,
+        symbols: Array.isArray(body?.lettersSymbols) ? body.lettersSymbols.map((s: unknown) => String(s).toUpperCase()) : undefined,
+      });
+    } catch (e) {
+      report.payoutLetters = { error: String(e instanceof Error ? e.message : e).slice(0, 200) };
+    }
+  }
+
   // Fine when the board answered, or the pages stood in for it this run (or
   // were not due); not when the pages, too, could not be read.
   const pages = report.pages as PagesScan | undefined;

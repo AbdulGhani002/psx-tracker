@@ -5,6 +5,7 @@ import { appOrigin } from "@/lib/auth/mailer";
 import { getAppSettings, getPortfolioSummary, getAllHoldings, getUpcomingExDates, getAllUserIds, getShariahStatus, getFeedSnapshot, saveFeedSnapshot, getNetWorth, getEffectiveInflationPct, getFixedIncomeValued, getFbrPack } from "@/lib/data";
 import { currentTaxYear } from "@/lib/dates";
 import { juneDue, juneMessage } from "@/lib/tax/june";
+import { exDividendMessage } from "@/lib/calculations/exdate";
 import { noteAlerts } from "@/lib/analytics/trade-review";
 import { pktToday } from "@/lib/quant/sheet-bars";
 import { getUsdPkr } from "@/lib/fx";
@@ -103,16 +104,20 @@ async function runAlertsForCurrentUser(forceDigest = false) {
   }
 
   // 3. Upcoming ex-dividend / book-closure (next 14 days). Deduped by symbol+date
-  //    so each entitlement is announced once, not every day.
+  //    so each entitlement is announced once, not every day. The ex-date is
+  //    two trading days before the book closure; one that only came to light
+  //    after it is still told, as gone ex, with what the shares held earn.
   let exDatesAhead: Awaited<ReturnType<typeof getUpcomingExDates>> = [];
   try {
     const exDates = await getUpcomingExDates(14);
     exDatesAhead = exDates;
+    const heldBy = new Map(summary.positions.map((p) => [p.symbol, p.shares]));
+    const divTax = settings.filerStatus === "non-filer" ? Number(settings.dividendWhtNonFiler ?? 30) : Number(settings.dividendWhtFiler ?? 15);
+    const pkToday = new Date(Date.now() + 5 * 3600_000).toISOString().slice(0, 10);
     for (const e of exDates) {
-      const dps = (e.pctOfFace / 100) * e.faceValue;
       candidates.push({
         key: `exdiv:${e.symbol}:${e.date}`,
-        message: `💰 <b>${e.symbol}</b> ex-dividend ${e.date} — ${e.pctOfFace}% (Rs ${dps.toFixed(2)}/share). Hold before book closure to qualify.`,
+        message: exDividendMessage({ symbol: e.symbol, bookClosure: e.date, pctOfFace: e.pctOfFace, faceValue: e.faceValue }, heldBy.get(e.symbol) ?? 0, divTax, pkToday),
       });
     }
   } catch {
