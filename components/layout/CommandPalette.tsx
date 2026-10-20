@@ -34,6 +34,7 @@ const PAGES: Item[] = [
   { id: "p-export", label: "Export", hint: "trades and dividends for a period, CSV or PDF", group: "Pages", href: "/export" },
   { id: "p-yearly", label: "Yearly", hint: "profit by financial year, by share, against the market", group: "Pages", href: "/portfolio?tab=yearly" },
   { id: "p-strategy", label: "Strategy", hint: "market phase, buying in steps, dry powder, monthly rates", group: "Pages", href: "/strategy" },
+  { id: "p-fair-pe", label: "Fair P/E", hint: "sector P/E and dividend yields by year, fair at your rates", group: "Pages", href: "/fair-pe" },
   { id: "p-rebalance", label: "Rebalance", hint: "target allocation, deployment", group: "Pages", href: "/rebalance" },
   { id: "p-analysis", label: "Model", hint: "KSE-100, KMI-30 and KSE-30 levels for the week and month ahead", group: "Pages", href: "/analysis" },
   { id: "p-changelog", label: "Changelog", hint: "what changed, and why", group: "Pages", href: "/changelog" },

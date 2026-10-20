@@ -1,7 +1,7 @@
 // Single source of truth for the app version + changelog.
 // Bump APP_VERSION and prepend a CHANGELOG entry on every release.
 
-export const APP_VERSION = "11.26.3";
+export const APP_VERSION = "11.27.0";
 
 export const BUILD_DATE =
   process.env.NEXT_PUBLIC_BUILD_DATE ?? "";
@@ -17,6 +17,15 @@ export type ChangelogEntry = {
 
 // Reverse-chronological. Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: "11.27.0",
+    date: "2026-10-20",
+    title: "Fair P/E",
+    changes: [
+      "Fair P/E (menu): each sector's P/E and dividend yield at every 30 June and now, and what they would be at the T-bill, policy rate and inflation you type: a line through each sector's past earnings yields against the rate. Your shares against their sector, any other share you add, and years you can leave out. Your numbers are kept; empty fields use the app's own.",
+      "The dividend record grows again each evening from the exchange's closing file (it stopped on 12 Oct).",
+    ],
+  },
   {
     version: "11.26.3",
     date: "2026-10-20",

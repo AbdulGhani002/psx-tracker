@@ -28,4 +28,5 @@ export { FixedIncomeModel, type FixedIncome } from "./FixedIncome";
 export { RateSnapshotModel, type RateSnapshot } from "./RateSnapshot";
 export { BuyListModel, type BuyList } from "./BuyList";
 export { PriceRulesModel, type PriceRules } from "./PriceRules";
+export { ShareEventModel, type ShareEvent } from "./ShareEvent";
 export { IndexForecastModel, type IndexForecast } from "./IndexForecast";
