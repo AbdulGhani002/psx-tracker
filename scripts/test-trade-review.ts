@@ -24,6 +24,8 @@ check("a dividend booked the day after the sale was yours: not counted, and one 
 check("selling cost: what the sale brought in less what the shares and dividends are worth now", near(r.diff, 143500 - 3000 * 48 * (53.02 / 48.2)), r.diff?.toFixed(0));
 const early = reviewSale({ ...sale, date: "2026-10-05" }, [{ date: "2026-10-05", close: 48 }, { date: "2026-11-20", close: 48 }], { date: "2026-11-20", close: 48 }, [{ bookClosure: "2026-10-14", dps: 2 }], 15);
 check("sold before the book closure: the dividend would have been the shares', after tax", near(early.dividends, 2 * 3000 * 0.85) && near(early.diff, 143500 - 144000 - 5100));
+const lastDay = reviewSale({ ...sale, date: "2026-10-12" }, closes, { date: "2026-11-20", close: 53.02 }, [{ bookClosure: "2026-10-14", dps: 2 }], 15);
+check("sold on the last day to hold (Mon for a Wed book closure, T+1): the buyer got it, so it counts", near(lastDay.dividends, 2 * 3000 * 0.85));
 const bonus = reviewSale({ ...sale, date: "2026-01-10" }, [{ date: "2026-01-10", close: 40 }, { date: "2026-11-20", close: 44 }], { date: "2026-11-20", close: 40 }, [], 15);
 check("a bonus since: the adjusted series' change, not today's price against the sale's", near(bonus.changePct, 10), bonus.changePct);
 const noBars = reviewSale(sale, [], { date: "2026-11-20", close: 50 }, [], 15);

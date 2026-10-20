@@ -7,15 +7,16 @@
 //   paid since, after tax. Against what the sale brought in, after fees.
 
 import { closeOn, type Close } from "./fy-extra";
+import { lastEntitledTradeDate } from "@/lib/calculations/corporate-actions";
 
 export type Sale = { id: string; symbol: string; date: string; shares: number; price: number; proceeds: number };
 export type Payout = { bookClosure: string; dps: number };
 export type SaleReview = Sale & { priceNow: number | null; changePct: number | null; worthNow: number | null; dividends: number; diff: number | null };
 
-// A dividend whose book closure is more than two trading days after the
-// sale was the buyer's: the shares sold would have been paid it.
-const DAY = 86400000;
-const after = (bookClosure: string, sale: string) => Date.parse(bookClosure + "T00:00:00Z") - Date.parse(sale + "T00:00:00Z") > 3 * DAY;
+// A sale on or before a dividend's last day to hold (two trading days before
+// the book closure, with T+1 settlement) handed it to the buyer: the shares
+// sold would have been paid it. The dividend job counts shares the same way.
+const after = (bookClosure: string, sale: string) => sale <= lastEntitledTradeDate(bookClosure);
 
 export function reviewSale(sale: Sale, closes: Close[], latest: { date: string; close: number } | null, payouts: Payout[], taxPct: number): SaleReview {
   const then = closeOn(closes, sale.date);

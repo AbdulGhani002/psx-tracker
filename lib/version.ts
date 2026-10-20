@@ -1,7 +1,7 @@
 // Single source of truth for the app version + changelog.
 // Bump APP_VERSION and prepend a CHANGELOG entry on every release.
 
-export const APP_VERSION = "11.26.2";
+export const APP_VERSION = "11.26.3";
 
 export const BUILD_DATE =
   process.env.NEXT_PUBLIC_BUILD_DATE ?? "";
@@ -17,6 +17,15 @@ export type ChangelogEntry = {
 
 // Reverse-chronological. Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: "11.26.3",
+    date: "2026-10-20",
+    title: "Ex-dates on T+1",
+    changes: [
+      "The ex-dividend message counts T+1 settlement, as your broker's notes and the dividend record do: the last day to hold is two trading days before the book closure, the ex-date one. It said a day earlier for both.",
+      "The sale review counts the same way: a sale on the last day to hold gave that dividend to the buyer.",
+    ],
+  },
   {
     version: "11.26.2",
     date: "2026-10-20",

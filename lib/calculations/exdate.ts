@@ -1,8 +1,11 @@
-// Ex-dividend dates on the PSX and the Telegram line for one. Trades settle
-// two working days after the deal (T+2), and the share register closes on the
-// book-closure day, so the last day to buy with the dividend is two trading
-// days before the book closure starts: from the next day the share trades
-// ex-dividend. Pure, so scripts/test-exdate.ts runs it.
+import { SETTLEMENT_DAYS } from "./corporate-actions";
+
+// Ex-dividend dates on the PSX and the Telegram line for one. A holder on the
+// register the day before the book closure is paid, and trades settle the
+// next working day (T+1, as the broker's notes print; SETTLEMENT_DAYS, the
+// rule the dividend job records by), so the last day to buy with the dividend
+// is two trading days before the book closure starts: from the next trading
+// day the share trades ex-dividend. Pure, so scripts/test-exdate.ts runs it.
 
 const DAY = 86400000;
 const iso = (ms: number) => new Date(ms).toISOString().slice(0, 10);
@@ -20,9 +23,15 @@ function tradingDaysBefore(date: string, n: number, holidays: Set<string>): stri
   return iso(d);
 }
 
+function nextTradingDay(date: string, holidays: Set<string>): string {
+  let d = t(date) + DAY;
+  while ([0, 6].includes(new Date(d).getUTCDay()) || holidays.has(iso(d))) d += DAY;
+  return iso(d);
+}
+
 export function exDateOf(bookClosureStart: string, holidays: Set<string> = new Set()): { exDate: string; lastCumDate: string } {
-  const exDate = tradingDaysBefore(bookClosureStart, 2, holidays);
-  return { exDate, lastCumDate: tradingDaysBefore(exDate, 1, holidays) };
+  const lastCumDate = tradingDaysBefore(bookClosureStart, 1 + SETTLEMENT_DAYS, holidays);
+  return { exDate: nextTradingDay(lastCumDate, holidays), lastCumDate };
 }
 
 const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
