@@ -42,7 +42,7 @@ eq("financial year label before July", financialYearLabel("2026-05-06"), "2025-2
 
 // Planning: due when the closure has arrived, once per key, not when already on the ledger.
 const boards = [
-  { symbol: "LUCK", faceValue: 10, payouts: [{ date: "2026-08-10", bookClosure: "2026-09-18", pctOfFace: 250, cycle: "F", payoutType: "cash" }, { date: "2025-08-11", bookClosure: "2025-09-19", pctOfFace: 200, cycle: "F", payoutType: "cash" }] },
+  { symbol: "LUCK", faceValue: 2, payouts: [{ date: "2026-08-10", bookClosure: "2026-09-18", pctOfFace: 250, cycle: "F", payoutType: "cash" }, { date: "2025-08-11", bookClosure: "2025-09-19", pctOfFace: 200, cycle: "F", payoutType: "cash" }] },
   { symbol: "MEBL", faceValue: 10, payouts: [{ date: "2026-04-23", bookClosure: "2026-05-06", pctOfFace: 75, cycle: "i", payoutType: "cash" }] },
   { symbol: "PTL", faceValue: 10, payouts: [{ date: "2026-09-01", bookClosure: "2026-09-10", pctOfFace: 20, cycle: "", payoutType: "bonus" }] },
 ];
@@ -61,7 +61,14 @@ eq("the MEBL dividend already on the ledger is skipped", before.skipped.find((s)
 const onDay = planDueActions({ ...base, today: "2026-09-18" });
 const luck = onDay.due.find((d) => d.symbol === "LUCK");
 check("LUCK is due on the closure day", !!luck);
-eq("LUCK shares entitled and figures", luck && [luck.shares, luck.rate, luck.gross, luck.net], [330, 25, 8250, 7012.5]);
+eq("LUCK shares entitled and figures: 250% of a Rs 2 face value", luck && [luck.shares, luck.rate, luck.gross, luck.net], [330, 5, 1650, 1402.5]);
+// The face value kept wrong (Rs 10, as every company had until October 2026):
+// the closing file's Rs 5 off the price on the ex-date sets the rate.
+const wrongFace = planDueActions({ ...base, today: "2026-09-18", boards: boards.map((b) => (b.symbol === "LUCK" ? { ...b, faceValue: 10, events: [{ date: "2026-09-17", cash: 5 }] } : b)) });
+const fixedLuck = wrongFace.due.find((d) => d.symbol === "LUCK");
+eq("a wrong face value kept: the ex-date shows the rate", fixedLuck && [fixedLuck.rate, fixedLuck.faceValue, fixedLuck.gross], [5, 2, 1650]);
+const noProof = planDueActions({ ...base, today: "2026-09-18", boards: boards.map((b) => (b.symbol === "LUCK" ? { ...b, faceValue: 10 } : b)) });
+eq("no ex-date shown: the kept face value", noProof.due.find((d) => d.symbol === "LUCK")?.rate, 25);
 eq("LUCK portfolio is the default", luck?.portfolioId, "p1");
 eq("action key", luck?.actionKey, actionKeyOf("LUCK", "DIVIDEND", "2026-09-18", 250));
 const ptl = onDay.due.find((d) => d.symbol === "PTL");

@@ -1,7 +1,7 @@
 // Single source of truth for the app version + changelog.
 // Bump APP_VERSION and prepend a CHANGELOG entry on every release.
 
-export const APP_VERSION = "11.27.1";
+export const APP_VERSION = "11.27.2";
 
 export const BUILD_DATE =
   process.env.NEXT_PUBLIC_BUILD_DATE ?? "";
@@ -17,6 +17,15 @@ export type ChangelogEntry = {
 
 // Reverse-chronological. Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: "11.27.2",
+    date: "2026-10-21",
+    title: "Face values from the exchange",
+    changes: [
+      "Each company's face value is read from what the exchange did: on a cash dividend's ex-date the closing file takes the rupees off the price, so face value = rupees ÷ the % declared. Checked every evening. LUCK is Rs 2.",
+      "Dividends recorded on a wrong face value are corrected the same way, and new ones take the rate the ex-date shows.",
+    ],
+  },
   {
     version: "11.27.1",
     date: "2026-10-21",

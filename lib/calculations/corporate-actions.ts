@@ -1,5 +1,6 @@
 import { deriveFromTransactions } from "@/lib/calculations/holding";
 import { taxYearOf } from "@/lib/dates";
+import { faceOf, type FaceEvent } from "@/lib/calculations/face-value";
 
 // Dividends and bonus shares recorded on their own.
 //
@@ -16,7 +17,9 @@ export const SETTLEMENT_DAYS = 1;
 export const LOOKBACK_DAYS = 180;
 
 export type Payout = { date: string | null; bookClosure: string | null; pctOfFace: number; cycle: string; payoutType: string };
-export type SymbolPayouts = { symbol: string; faceValue: number; payouts: Payout[] };
+// `events`: the cash dividends the closing files took off the price, which
+// show the face value a payout was paid on (lib/calculations/face-value).
+export type SymbolPayouts = { symbol: string; faceValue: number; payouts: Payout[]; events?: FaceEvent[] };
 
 export type AutoSettings = {
   autoDividends: boolean;
@@ -157,7 +160,9 @@ export function planDueActions(input: {
       if (type === "BONUS" && !settings.autoBonus) continue;
       const key = actionKeyOf(b.symbol, type, bc, p.pctOfFace);
       if (usedKeys.has(key)) continue;
-      const rate = round2((p.pctOfFace * b.faceValue) / 100);
+      // The face value the ex-date shows, else the one kept for the company.
+      const face = (type === "DIVIDEND" ? faceOf(p, b.events ?? [])?.face : null) ?? b.faceValue;
+      const rate = round2((p.pctOfFace * face) / 100);
       if (alreadyRecorded(liveTxs, { symbol: b.symbol, type, bookClosure: bc, rate })) {
         skipped.push({ symbol: b.symbol, type, bookClosure: bc, reason: "already on the ledger" });
         continue;
@@ -167,10 +172,10 @@ export function planDueActions(input: {
         const shares = sharesEntitled(txs, b.symbol, bc);
         if (shares <= 0) continue;
         any = true;
-        const d = type === "DIVIDEND" ? dividendFigures(shares, p.pctOfFace, b.faceValue, settings) : { rate: 0, gross: 0, tax: 0, zakat: 0, net: 0 };
+        const d = type === "DIVIDEND" ? dividendFigures(shares, p.pctOfFace, face, settings) : { rate: 0, gross: 0, tax: 0, zakat: 0, net: 0 };
         const bo = type === "BONUS" ? bonusFigures(shares, p.pctOfFace, settings) : { gross: 0, withheld: 0, credited: 0 };
         if (type === "BONUS" && bo.credited <= 0) continue;
-        due.push({ symbol: b.symbol, type, bookClosure: bc, pctOfFace: p.pctOfFace, cycle: p.cycle ?? "", faceValue: b.faceValue, portfolioId, shares, actionKey: key, ...d, bonusGross: bo.gross, bonusWithheld: bo.withheld, bonusCredited: bo.credited });
+        due.push({ symbol: b.symbol, type, bookClosure: bc, pctOfFace: p.pctOfFace, cycle: p.cycle ?? "", faceValue: face, portfolioId, shares, actionKey: key, ...d, bonusGross: bo.gross, bonusWithheld: bo.withheld, bonusCredited: bo.credited });
       }
       if (!any) skipped.push({ symbol: b.symbol, type, bookClosure: bc, reason: "no shares held on the record date" });
     }
