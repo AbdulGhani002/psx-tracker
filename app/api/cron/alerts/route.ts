@@ -5,7 +5,7 @@ import { appOrigin } from "@/lib/auth/mailer";
 import { getAppSettings, getPortfolioSummary, getAllHoldings, getUpcomingExDates, getAllUserIds, getShariahStatus, getFeedSnapshot, saveFeedSnapshot, getNetWorth, getEffectiveInflationPct, getFixedIncomeValued, getFbrPack } from "@/lib/data";
 import { currentTaxYear } from "@/lib/dates";
 import { juneDue, juneMessage } from "@/lib/tax/june";
-import { exDividendMessage } from "@/lib/calculations/exdate";
+import { exDateOf, exDividendMessage } from "@/lib/calculations/exdate";
 import { noteAlerts } from "@/lib/analytics/trade-review";
 import { pktToday } from "@/lib/quant/sheet-bars";
 import { getUsdPkr } from "@/lib/fx";
@@ -111,7 +111,7 @@ async function runAlertsForCurrentUser(forceDigest = false) {
   try {
     const exDates = await getUpcomingExDates(14);
     exDatesAhead = exDates;
-    const heldBy = new Map(summary.positions.map((p) => [p.symbol, p.shares]));
+    const heldBy = new Map([...summary.positions, ...summary.parked].map((p) => [p.symbol, p.shares]));
     const divTax = settings.filerStatus === "non-filer" ? Number(settings.dividendWhtNonFiler ?? 30) : Number(settings.dividendWhtFiler ?? 15);
     const pkToday = new Date(Date.now() + 5 * 3600_000).toISOString().slice(0, 10);
     for (const e of exDates) {
@@ -386,8 +386,9 @@ async function runAlertsForCurrentUser(forceDigest = false) {
       if (best && worst && best.symbol !== worst.symbol) {
         lines.push(`Best <b>${best.symbol}</b> ${best.unrealizedPct >= 0 ? "+" : ""}${(best.unrealizedPct * 100).toFixed(1)}% · worst <b>${worst.symbol}</b> ${(worst.unrealizedPct * 100).toFixed(1)}%`);
       }
-      const exWeek = exDatesAhead.filter((e: any) => e.date <= new Date(Date.now() + 7 * 86400000).toISOString().slice(0, 10));
-      lines.push(exWeek.length ? `Ex-dates (7d): ${exWeek.map((e: any) => `${e.symbol} ${e.date.slice(5)}`).join(", ")}` : "Ex-dates (7d): none");
+      const today = new Date(Date.now() + 5 * 3600_000).toISOString().slice(0, 10), weekOn = new Date(Date.now() + 5 * 3600_000 + 7 * 86400000).toISOString().slice(0, 10);
+      const exWeek = exDatesAhead.map((e) => ({ symbol: e.symbol, ex: exDateOf(e.date).exDate })).filter((e) => e.ex >= today && e.ex <= weekOn);
+      lines.push(exWeek.length ? `Ex-dates (7d): ${exWeek.map((e) => `${e.symbol} ${e.ex.slice(5)}`).join(", ")}` : "Ex-dates (7d): none");
       lines.push(boardAhead.length ? `Board meetings: ${boardAhead.map((e) => `${e.symbol} ${e.date.slice(5)}`).join(", ")}` : "Board meetings (7d): none");
       if (decisionCards > 0) lines.push(`⚠ <b>${decisionCards} decision${decisionCards === 1 ? "" : "s"} waiting</b> on the Decisions page — fired triggers and due reviews don't clear themselves.`);
       candidates.push({ key: `digest:${isoWeekKey(new Date())}`, message: lines.join("\n") });

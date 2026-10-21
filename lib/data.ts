@@ -209,10 +209,11 @@ export async function getFundamentals(symbols: string[]): Promise<Record<string,
 }
 
 // Upcoming ex-dividend / book-closure dates for held symbols (next `days` days),
-// from the cached PSX payouts. Powers the ex-dividend Telegram alert.
+// from the cached PSX payouts. Powers the ex-dividend Telegram alert. Parked
+// shares count: the dividend is paid on them all the same.
 export async function getUpcomingExDates(days = 14): Promise<Array<{ symbol: string; date: string; pctOfFace: number; faceValue: number }>> {
   if (!(await tryConnect())) return [];
-  const holdings = await HoldingModel.find({ userId: await meId(), currentShares: { $gt: 0 }, parked: { $ne: true } }).lean();
+  const holdings = await HoldingModel.find({ userId: await meId(), currentShares: { $gt: 0 } }).lean();
   const syms = holdings.map((h: any) => h.symbol);
   if (!syms.length) return [];
   const funds: any[] = await FundamentalModel.find({ symbol: { $in: syms } }).lean();
