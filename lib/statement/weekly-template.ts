@@ -37,6 +37,7 @@ export type WeeklyReportData = {
   fundEarnedPerDay: number;
   cashPlaces: Array<{ label: string; pkr: number; yieldPct: number | null }>; // where the available cash is
   cashLocked: Array<{ label: string; pkr: number; until: string }>; // deposits and bills not counted until they mature
+  cashComing?: { in90: number; dividends: number; fixed: number; needs: number; shortBy: number } | null; // the cash calendar, not counted as cash
   // Stocks above the allocation target: the week's answer is no buying,
   // whatever the ladder's next rung says.
   gateLine: string | null;
@@ -189,6 +190,8 @@ ${placeRows}
 ${d.cashReceivable >= 1 ? `Receivable & ${rs(d.cashReceivable)} \\\\` : ""}
 ${d.cashExpected >= 1 ? `Expected & ${rs(d.cashExpected)} \\\\` : ""}
 ${lockedRows}
+${d.cashComing && d.cashComing.in90 >= 1 ? `Coming in, 90 days (dividends ${rs(d.cashComing.dividends)}, bills and deposits ${rs(d.cashComing.fixed)}) & ${rs(d.cashComing.in90)} \\\\` : ""}
+${d.cashComing && d.cashComing.needs >= 1 ? `Price-rule adds would need & ${rs(d.cashComing.needs)} \\\\` : ""}
 \\midrule
 Equities at market & ${rs(d.equityValue)} \\\\
 Net worth & ${rs(d.netWorth)} \\\\

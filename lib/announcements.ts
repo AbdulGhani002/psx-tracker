@@ -1,6 +1,6 @@
 import { getCurrentUserId } from "@/lib/auth/current-user";
 import { connectDb } from "@/lib/db";
-import { AnnouncementModel, HoldingModel, UserModel } from "@/lib/models";
+import { AnnouncementModel, HoldingModel, UserModel, BuyListModel } from "@/lib/models";
 import { getAppSettings } from "@/lib/data";
 import { sendTelegram, sendTelegramDocument } from "@/lib/notify/telegram";
 import { sendEmail, appOrigin } from "@/lib/auth/mailer";
@@ -70,6 +70,15 @@ export async function heldSymbolsAll(): Promise<string[]> {
   await connectDb();
   const held = await HoldingModel.find({ currentShares: { $gt: 0 } }, { symbol: 1 }).lean();
   return [...new Set((held as any[]).map((h) => String(h.symbol).toUpperCase()))].sort();
+}
+
+// The held names and every buy-list name. Their pages are read so the letters
+// of a share you may buy are read too (lib/payout-letters) and its dividend
+// is known before the ex-date; only held names' announcements are delivered.
+export async function watchedSymbolsAll(): Promise<string[]> {
+  await connectDb();
+  const [held, listed] = await Promise.all([HoldingModel.distinct("symbol", { currentShares: { $gt: 0 } }), BuyListModel.distinct("symbol", {})]);
+  return [...new Set([...held, ...listed].map((s) => String(s).toUpperCase()))].sort();
 }
 
 export type PagesScan = { symbols: number; read: number; fetched: number; inserted: number; failed: string[] };

@@ -4,7 +4,7 @@ import { connectDb } from "@/lib/db";
 import { getAllUserIds } from "@/lib/data";
 import { runAsUser } from "@/lib/auth/current-user";
 import { getFeedSnapshot, saveFeedSnapshot } from "@/lib/data";
-import { scanBoard, scanCompanyPages, heldSymbolsAll, backfillHeld, deliverDueForCurrentUser, nextBoardAt, nextPagesAt, shuffled, type BoardFile, type Delivery, type PagesScan } from "@/lib/announcements";
+import { scanBoard, scanCompanyPages, watchedSymbolsAll, backfillHeld, deliverDueForCurrentUser, nextBoardAt, nextPagesAt, shuffled, type BoardFile, type Delivery, type PagesScan } from "@/lib/announcements";
 import { readPayoutLetters } from "@/lib/payout-letters";
 
 // When the refused board and the company pages are next asked (ISO times).
@@ -49,7 +49,7 @@ export async function POST(req: Request) {
   const refused = !!sched.boardAt && now < new Date(sched.boardAt);
   const pagesDue = body?.pages === true || (refused && body?.scan !== false && (!sched.pagesAt || now >= new Date(sched.pagesAt)));
   if (pagesDue) {
-    const pages = await scanCompanyPages(shuffled(await heldSymbolsAll()));
+    const pages = await scanCompanyPages(shuffled(await watchedSymbolsAll()));
     report.pages = pages;
     sched.pagesAt = nextPagesAt(now, pages.read > 0).toISOString();
   }

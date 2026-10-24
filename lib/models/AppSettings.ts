@@ -66,6 +66,7 @@ const AppSettingsSchema = new Schema(
     alertPrices: { type: Boolean, default: true }, // drift, foreign flows, KMI drop-outs, sell discipline
     alertLists: { type: Boolean, default: true }, // the buy list, the price rules and the week's index levels
     alertExDates: { type: Boolean, default: true }, // ex-dividend and book-closure reminders
+    alertDaily: { type: Boolean, default: true }, // the evening brief after the close (lib/daily-brief)
     alertBoardMeetings: { type: Boolean, default: true }, // a held name's board meeting, up to a week ahead
     alertWeeklyDigest: { type: Boolean, default: true }, // the Friday portfolio digest
     telegramQuant: { type: Boolean, default: true }, // the model's daily charts and next-day read
@@ -121,6 +122,7 @@ export const DEFAULT_SETTINGS = {
   alertPrices: true,
   alertLists: true,
   alertExDates: true,
+  alertDaily: true,
   alertBoardMeetings: true,
   alertWeeklyDigest: true,
   telegramQuant: true,

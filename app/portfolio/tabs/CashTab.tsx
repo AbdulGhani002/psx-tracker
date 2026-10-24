@@ -6,6 +6,8 @@ import { SavingsManager } from "@/app/funds/SavingsManager";
 import { FixedIncomeManager } from "@/app/funds/FixedIncomeManager";
 import { StatementCard } from "@/app/funds/StatementCard";
 import { CashForm } from "./CashForm";
+import { CashCalendarCard } from "./CashCalendarCard";
+import { getCashCalendar } from "@/lib/cash-calendar";
 import { getCashSummary, getCashEntries, getMutualFundsValued, getSavingsValued, getEffectiveInflationPct, getAppSettings, getFixedIncomeValued } from "@/lib/data";
 import { whtPct } from "@/lib/calculations/pk-tax";
 import { fmtRs, fmtSignedRs, fmtDate } from "@/lib/format";
@@ -15,7 +17,7 @@ import { fmtRs, fmtSignedRs, fmtDate } from "@/lib/format";
 // deposits, and T-bills and sukuks that are this portfolio's cash in all but
 // name. Each can be added from Add trade, under Cash.
 export async function CashTab() {
-  const [cash, entries, funds, savings, inf, settings, fixed] = await Promise.all([getCashSummary(), getCashEntries(), getMutualFundsValued(), getSavingsValued(), getEffectiveInflationPct(), getAppSettings(), getFixedIncomeValued().catch(() => [])]);
+  const [cash, entries, funds, savings, inf, settings, fixed, cal] = await Promise.all([getCashSummary(), getCashEntries(), getMutualFundsValued(), getSavingsValued(), getEffectiveInflationPct(), getAppSettings(), getFixedIncomeValued().catch(() => []), getCashCalendar().catch(() => null)]);
   const fundValue = funds.reduce((s, f) => s + f.value, 0);
   const fundCost = funds.reduce((s, f) => s + f.cost, 0);
   const fundRealized = funds.reduce((s, f) => s + (f.realized ?? 0), 0);
@@ -32,6 +34,8 @@ export async function CashTab() {
         <StatCard label="Total withdrawals" value={fmtRs(cash.withdrawals)} />
         <StatCard label="Brokerage balance" value={fmtRs(cash.balance)} tone={cash.balance < 0 ? "negative" : undefined} hint={cash.cgtWithheld > 0 ? `${fmtRs(cash.cgtWithheld)} of it is CGT held back` : `Deposits and sale proceeds less buys and withdrawals${cash.dividendsCollected > 0 ? `; dividends (${fmtRs(cash.dividendsCollected)}) go to your bank` : ""}`} />
       </div>
+
+      {cal && <CashCalendarCard cal={cal} />}
 
       <Card className="mt-3" title="Cash history" eyebrow={`${entries.length} entries`} action={<CashForm />}>
         {entries.length === 0 ? (

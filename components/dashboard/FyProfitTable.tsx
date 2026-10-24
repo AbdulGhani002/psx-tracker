@@ -95,8 +95,8 @@ export function FyProfitTable({ board }: { board: FyBoard }) {
               <tr>
                 <th>Year</th>
                 <th className="text-right">Your shares</th>
-                <th className="text-right" title="Price only: the index leaves dividends out">KSE-100</th>
-                <th className="text-right" title="Price only: the index leaves dividends out">KMI-30</th>
+                <th className="text-right" title="With dividends: PSX adds them back (a total return index; KSE100PR is its price-only twin)">KSE-100</th>
+                <th className="text-right" title="As PSX publishes it">KMI-30</th>
                 <th className="text-right" title="A 12-month T-bill bought on 1 July, before tax">12M T-bill</th>
               </tr>
             </thead>

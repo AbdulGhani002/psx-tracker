@@ -67,6 +67,15 @@ export async function assembleWeeklyReport(now = new Date()): Promise<WeeklyRepo
     cashAvailable: plan.cash.available,
     cashReceivable: plan.cash.receivable,
     cashExpected: plan.cash.expected,
+    cashComing: plan.calendar
+      ? {
+          in90: plan.calendar.in90,
+          dividends: plan.calendar.items.filter((x) => x.kind === "dividend").reduce((s, x) => s + x.pkr, 0),
+          fixed: plan.calendar.items.filter((x) => x.kind !== "dividend").reduce((s, x) => s + x.pkr, 0),
+          needs: plan.calendar.needsTotal,
+          shortBy: plan.calendar.shortBy,
+        }
+      : null,
     cashPct: plan.cashPct,
     cashCheckLine: plan.cashCheck.line,
     cashCheckOk: plan.cashCheck.ok,
@@ -127,7 +136,7 @@ export function weeklySummaryText(d: WeeklyReportData): string {
     `Favour: ${d.favour.join(", ")}`,
     `Avoid: ${d.avoid.join(", ")}`,
     "",
-    `Cash available ${rs(d.cashAvailable)}${d.cashPlaces.length ? ` (${d.cashPlaces.map((p) => `${p.label} ${rs(p.pkr)}`).join(", ")})` : ""}${d.cashReceivable >= 1 ? ` · receivable ${rs(d.cashReceivable)}` : ""}${d.cashExpected >= 1 ? ` · expected ${rs(d.cashExpected)}` : ""}${d.cashLocked.length ? ` · locked ${d.cashLocked.map((p) => `${p.label} ${rs(p.pkr)} to ${p.until}`).join(", ")}` : ""}`,
+    `Cash available ${rs(d.cashAvailable)}${d.cashPlaces.length ? ` (${d.cashPlaces.map((p) => `${p.label} ${rs(p.pkr)}`).join(", ")})` : ""}${d.cashReceivable >= 1 ? ` · receivable ${rs(d.cashReceivable)}` : ""}${d.cashExpected >= 1 ? ` · expected ${rs(d.cashExpected)}` : ""}${d.cashLocked.length ? ` · locked ${d.cashLocked.map((p) => `${p.label} ${rs(p.pkr)} to ${p.until}`).join(", ")}` : ""}${d.cashComing && d.cashComing.in90 >= 1 ? ` · coming in 90 days ${rs(d.cashComing.in90)}` : ""}${d.cashComing && d.cashComing.needs >= 1 ? ` · price-rule adds would need ${rs(d.cashComing.needs)}${d.cashComing.shortBy >= 1 ? `, short by ${rs(d.cashComing.shortBy)}` : ""}` : ""}`,
     `Equities ${rs(d.equityValue)} · net worth ${rs(d.netWorth)}`,
   ];
   if (d.fundEarnedPerDay > 0) {

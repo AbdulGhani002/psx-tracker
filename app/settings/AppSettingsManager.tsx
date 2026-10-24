@@ -42,6 +42,7 @@ type Settings = {
   alertPrices?: boolean;
   alertLists?: boolean;
   alertExDates?: boolean;
+  alertDaily?: boolean;
   alertBoardMeetings?: boolean;
   alertWeeklyDigest?: boolean;
   telegramQuant?: boolean;
@@ -181,7 +182,8 @@ export function AppSettingsManager({ initial, telegramConfigured }: { initial: S
           <Toggle label="Weekly portfolio digest" value={s.alertWeeklyDigest ?? true} onChange={(v) => set("alertWeeklyDigest", v)} hint="Friday: net worth, unrealised, XIRR, best and worst." />
           <Toggle label="Your lists and rules" value={s.alertLists ?? true} onChange={(v) => set("alertLists", v)} hint="Buy list and price rules when a price is reached, and Friday's index levels." />
           <Toggle label="Market and plan alerts" value={s.alertPrices ?? true} onChange={(v) => set("alertPrices", v)} hint="Rebalance drift, foreign flows, KMI changes, sell discipline." />
-          <Toggle label="Ex-dividend reminders" value={s.alertExDates ?? true} onChange={(v) => set("alertExDates", v)} hint="Book closures in the next two weeks." />
+          <Toggle label="Ex-dividend reminders" value={s.alertExDates ?? true} onChange={(v) => set("alertExDates", v)} hint="Book closures in the next two weeks, and dividends declared by shares on your buy list." />
+          <Toggle label="Evening brief" value={s.alertDaily ?? true} onChange={(v) => set("alertDaily", v)} hint="After the close: the market against a normal day, your shares, rates and the week's dates." />
           <Toggle label="Model charts and the next-day read" value={s.telegramQuant ?? true} onChange={(v) => set("telegramQuant", v)} hint="The daily album of charts and the model's verdict." />
         </div>
       </div>

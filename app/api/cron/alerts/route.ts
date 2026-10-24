@@ -1,11 +1,11 @@
 import { NextResponse } from "next/server";
 import { connectDb } from "@/lib/db";
-import { AlertLogModel, RateSnapshotModel } from "@/lib/models";
+import { AlertLogModel, BuyListModel, FundamentalModel, RateSnapshotModel } from "@/lib/models";
 import { appOrigin } from "@/lib/auth/mailer";
-import { getAppSettings, getPortfolioSummary, getAllHoldings, getUpcomingExDates, getAllUserIds, getShariahStatus, getFeedSnapshot, saveFeedSnapshot, getNetWorth, getEffectiveInflationPct, getFixedIncomeValued, getFbrPack } from "@/lib/data";
+import { getAppSettings, getCurrentPrices, getPortfolioSummary, getAllHoldings, getUpcomingExDates, getAllUserIds, getShariahStatus, getFeedSnapshot, saveFeedSnapshot, getNetWorth, getEffectiveInflationPct, getFixedIncomeValued, getFbrPack } from "@/lib/data";
 import { currentTaxYear } from "@/lib/dates";
 import { juneDue, juneMessage } from "@/lib/tax/june";
-import { exDateOf, exDividendMessage } from "@/lib/calculations/exdate";
+import { announcedDividendMessage, exDateOf, exDividendMessage } from "@/lib/calculations/exdate";
 import { noteAlerts } from "@/lib/analytics/trade-review";
 import { pktToday } from "@/lib/quant/sheet-bars";
 import { getUsdPkr } from "@/lib/fx";
@@ -22,6 +22,8 @@ import { buyListAlerts } from "@/lib/buy-list/data";
 import { ruleAlerts } from "@/lib/rules/data";
 import { getIndexForecasts, weekMessage, weekMessageDue } from "@/lib/index-week/data";
 import { cronAuthorised } from "@/lib/auth/cron";
+import { dailyBriefForCurrentUser } from "@/lib/daily-brief";
+import { missedReviewForCurrentUser } from "@/lib/missed-trades";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -35,13 +37,14 @@ type Candidate = { key: string; message: string };
 const PRICE_KEYS = ["drift", "near-ceiling", "near-buy", "fipi", "kmi-drop", "sellsig"];
 // The user's own lists and rules: they fire only for what was set on them,
 // so they have their own switch, apart from the market alerts above.
-const LIST_KEYS = ["buy-zone", "rule", "rules", "index-week"];
+const LIST_KEYS = ["buy-zone", "rule", "rules", "index-week", "missed"];
 
 function wanted(key: string, s: any): boolean {
   const prefix = key.split(":")[0];
   if (prefix === "board") return s.alertBoardMeetings !== false;
-  if (prefix === "exdiv") return s.alertExDates !== false;
+  if (prefix === "exdiv" || prefix === "divnew") return s.alertExDates !== false;
   if (prefix === "digest") return s.alertWeeklyDigest !== false;
+  if (prefix === "daily") return s.alertDaily !== false;
   if (PRICE_KEYS.includes(prefix)) return s.alertPrices !== false;
   if (LIST_KEYS.includes(prefix)) return s.alertLists !== false;
   return true;
@@ -122,6 +125,27 @@ async function runAlertsForCurrentUser(forceDigest = false) {
     }
   } catch {
     /* best-effort */
+  }
+
+  // 3b. A dividend declared by a share on the buy list that is not held,
+  //     while a day to buy it is left: once per book closure.
+  try {
+    const held = new Set([...summary.positions, ...summary.parked].filter((p) => p.shares > 0).map((p) => p.symbol));
+    const listed = ((await BuyListModel.find({ userId: await uid() }, { symbol: 1 }).lean()) as any[]).map((r) => String(r.symbol)).filter((s) => !held.has(s));
+    if (listed.length > 0) {
+      const pkDay = new Date(Date.now() + 5 * 3600_000).toISOString().slice(0, 10);
+      const end = new Date(Date.now() + 5 * 3600_000 + 60 * 86400000).toISOString().slice(0, 10);
+      const [funds, prices] = await Promise.all([FundamentalModel.find({ symbol: { $in: listed } }, { symbol: 1, faceValue: 1, payouts: 1 }).lean() as Promise<any[]>, getCurrentPrices(listed).catch(() => new Map<string, number>())]);
+      for (const f of funds) {
+        for (const p of f.payouts ?? []) {
+          if (p.payoutType !== "cash" || !p.bookClosure || !(p.pctOfFace > 0) || p.bookClosure < pkDay || p.bookClosure > end) continue;
+          const msg = announcedDividendMessage({ symbol: f.symbol, bookClosure: p.bookClosure, pctOfFace: p.pctOfFace, faceValue: f.faceValue ?? 10, cycle: p.cycle ?? "" }, prices.get(f.symbol) ?? null, pkDay);
+          if (msg) candidates.push({ key: `divnew:${f.symbol}:${p.bookClosure}`, message: msg });
+        }
+      }
+    }
+  } catch {
+    /* no buy-list dividend this run */
   }
 
   // 4. The buy list (lib/buy-list): a share whose day's low got to one of
@@ -395,6 +419,29 @@ async function runAlertsForCurrentUser(forceDigest = false) {
     }
   } catch {
     /* digest is best-effort — a feed being down must not sink the other alerts */
+  }
+
+  // The evening brief: once today's closing file is in, from 17:00 in Karachi
+  // (lib/daily-brief). And in a month's first week, the buy list looked back
+  // on over the month before (lib/missed-trades).
+  const pkNow = new Date(Date.now() + 5 * 3600_000);
+  const pkDay = pkNow.toISOString().slice(0, 10);
+  if (pkNow.getUTCHours() >= 17 && settings.alertDaily !== false) {
+    try {
+      const brief = await dailyBriefForCurrentUser(pkDay);
+      if (brief) candidates.push({ key: `daily:${pkDay}`, message: brief });
+    } catch {
+      /* no brief this run */
+    }
+  }
+  if (pkNow.getUTCDate() <= 7) {
+    try {
+      const prevMonth = new Date(Date.UTC(pkNow.getUTCFullYear(), pkNow.getUTCMonth() - 1, 1)).toISOString().slice(0, 7);
+      const review = await missedReviewForCurrentUser(prevMonth);
+      if (review) candidates.push({ key: `missed:${prevMonth}`, message: review });
+    } catch {
+      /* no review this run */
+    }
   }
 
   // Insert-only dedup: a successful insert means this key is fresh today.

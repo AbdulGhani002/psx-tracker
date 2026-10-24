@@ -29,4 +29,5 @@ export { RateSnapshotModel, type RateSnapshot } from "./RateSnapshot";
 export { BuyListModel, type BuyList } from "./BuyList";
 export { PriceRulesModel, type PriceRules } from "./PriceRules";
 export { ShareEventModel, type ShareEvent } from "./ShareEvent";
+export { MarketEventModel, type MarketEvent } from "./MarketEvent";
 export { IndexForecastModel, type IndexForecast } from "./IndexForecast";

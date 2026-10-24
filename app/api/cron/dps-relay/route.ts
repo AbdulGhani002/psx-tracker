@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { cronAuthorised } from "@/lib/auth/cron";
 import { connectDb } from "@/lib/db";
-import { FeedSnapshotModel, HoldingModel } from "@/lib/models";
+import { FeedSnapshotModel, HoldingModel, BuyListModel } from "@/lib/models";
 import { keepRelayedPages, dpsResting } from "@/lib/prices/dps";
 import { qualityUniverse, lastRead, readCompanies } from "@/lib/fundamentals/refresh";
 import { SHEET_PREFIX, pktToday } from "@/lib/quant/sheet-bars";
@@ -37,7 +37,9 @@ export async function POST(req: Request) {
     const latest: any = await FeedSnapshotModel.findOne({ key: { $regex: "^" + SHEET_PREFIX } }, { key: 1 }).sort({ key: -1 }).lean();
     const all = await qualityUniverse();
     const read = await lastRead(all);
-    const held = [...new Set(((await HoldingModel.find({ currentShares: { $gt: 0 } }, { symbol: 1 }).lean()) as any[]).map((h) => String(h.symbol)))];
+    // Held names first, then the buy list's (their letters say a dividend
+    // before the ex-date), then the rest, read longest ago first.
+    const held = [...new Set([...((await HoldingModel.find({ currentShares: { $gt: 0 } }, { symbol: 1 }).lean()) as any[]).map((h) => String(h.symbol)), ...((await BuyListModel.distinct("symbol", {})) as string[])])];
     const rest = all.filter((s) => !held.includes(s)).sort((a, b) => (read.get(a) ?? 0) - (read.get(b) ?? 0));
     return NextResponse.json({
       today: pktToday(),

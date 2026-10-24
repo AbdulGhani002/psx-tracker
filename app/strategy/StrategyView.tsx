@@ -7,6 +7,7 @@ import type { StrategyView as StrategyData, RatesPrefill } from "@/lib/strategy/
 import { PHASES, zoneRange, type StrategyName } from "@/lib/strategy/plan";
 import { fmtRs } from "@/lib/format";
 import { RatesForm } from "./RatesForm";
+import { DatesAhead } from "./DatesAhead";
 
 // The strategy page's body, from what lib/strategy/data.ts gathered (the
 // preview page draws it on sample figures): the plan for the index, the dry
@@ -136,6 +137,8 @@ function PlanTab({ s, prefill }: { s: StrategyData; prefill: RatesPrefill }) {
           </div>
         )}
       </Card>
+
+      <DatesAhead />
 
       <details className="mt-3 text-[12.5px] text-muted">
         <summary className="cursor-pointer select-none">Rules</summary>

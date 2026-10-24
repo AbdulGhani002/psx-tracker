@@ -42,6 +42,7 @@ const patchSchema = z.object({
   alertPrices: z.boolean().optional(),
   alertLists: z.boolean().optional(),
   alertExDates: z.boolean().optional(),
+  alertDaily: z.boolean().optional(),
   alertBoardMeetings: z.boolean().optional(),
   alertWeeklyDigest: z.boolean().optional(),
   telegramQuant: z.boolean().optional(),

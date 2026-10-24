@@ -6,6 +6,8 @@
 // numbers the rules would be worthless.
 
 import { connectDb } from "@/lib/db";
+import { getCashCalendar } from "@/lib/cash-calendar";
+import type { CashCalendar } from "@/lib/calculations/cash-calendar";
 import { PlaybookModel } from "@/lib/models/Playbook";
 import { getCurrentUserId } from "@/lib/auth/current-user";
 import {
@@ -78,6 +80,9 @@ export type PlanView = {
   // The pool the ladder was armed with, when more than the money there is now
   // (spent outside the ladder since): the rungs are cut from what is left.
   poolCut: { armed: number; armedAt: string; now: number } | null;
+  // The next 90 days of money in, dated (dividends, coupons, maturities), and
+  // what the price rules' next adds would need. Never counted as cash in hand.
+  calendar: CashCalendar | null;
   playbook: {
     indexName: string;
     poolAtArming: number;
@@ -251,6 +256,8 @@ export async function assemblePlan(): Promise<PlanView> {
   // rung shallow simply because the market has already fallen toward it.
   const refHigh = Math.max(falls?.peak ?? 0, auto.data?.indexLevel ?? 0);
 
+  const calendar = await getCashCalendar().catch(() => null);
+
   const ladder = planLadder({
     indexName: pb.indexName || "KSE-100",
     indexLevel: auto.data?.indexLevel ?? 0,
@@ -265,9 +272,12 @@ export async function assemblePlan(): Promise<PlanView> {
     // Only money with a claim on it can fund a rung. "Expected" is included
     // because it is dated and the plan should say WHEN a rung becomes payable,
     // but it is never counted as cash in hand.
-    fundingSources: manualRows
-      .filter((r) => r.kind === "receivable" || r.kind === "expected")
-      .map((r) => ({ label: r.label, pkr: r.pkr, expectedDate: r.expectedDate })),
+    // The cash calendar's dated money (dividends, coupons, maturities) is
+    // added on the same terms.
+    fundingSources: [
+      ...manualRows.filter((r) => r.kind === "receivable" || r.kind === "expected").map((r) => ({ label: r.label, pkr: r.pkr, expectedDate: r.expectedDate })),
+      ...(calendar?.items ?? []).map((x) => ({ label: x.label, pkr: x.pkr, expectedDate: x.date })),
+    ],
   });
 
   // The names the ready money buys, and how the rules have actually performed.
@@ -310,6 +320,7 @@ export async function assemblePlan(): Promise<PlanView> {
     netWorth: Number(netWorth?.total ?? 0),
     investable,
     poolCut,
+    calendar,
     playbook: {
       indexName: pb.indexName || "KSE-100",
       poolAtArming,

@@ -1,7 +1,7 @@
 // Single source of truth for the app version + changelog.
 // Bump APP_VERSION and prepend a CHANGELOG entry on every release.
 
-export const APP_VERSION = "11.27.2";
+export const APP_VERSION = "11.28.0";
 
 export const BUILD_DATE =
   process.env.NEXT_PUBLIC_BUILD_DATE ?? "";
@@ -17,6 +17,19 @@ export type ChangelogEntry = {
 
 // Reverse-chronological. Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: "11.28.0",
+    date: "2026-10-24",
+    title: "Evening brief, cash calendar, buy-list dividends",
+    changes: [
+      "Evening brief on Telegram after the close: the KSE-100 against a normal day (its median move), breadth and value traded, your shares, any share moving several normal days, rates with the real policy rate, the world, and the week's dates. Switch in Settings.",
+      "Dates ahead (Strategy page): MPC, CPI, results deadlines, futures expiries, holidays, index reviews, the FOMC, to December 2027. Add or remove your own.",
+      "Cash calendar (Cash tab): the next 90 days of dividends, coupons and maturities, and what your price rules' next adds would need. The weekly plan dates this money, never counts it as cash.",
+      "Buy list: a dividend declared by a share on it comes to Telegram with the last day to buy.",
+      "Buy list, monthly: which shares came to your price, which got away (up 10%+ while you waited), which are still above it.",
+      "Yearly: the KSE-100 already counts dividends (PSX adds them back); the label said otherwise.",
+    ],
+  },
   {
     version: "11.27.2",
     date: "2026-10-21",

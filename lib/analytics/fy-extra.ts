@@ -38,8 +38,9 @@ export function closeOn(closes: Close[], date: string): number | null {
 }
 
 // An index over a financial year: from the last close before it to the
-// year's last close (the latest, for the year under way). Price only: the
-// index leaves dividends out.
+// year's last close (the latest, for the year under way). The KSE-100 is a
+// total return index (PSX adds dividends back), so it compares with a return
+// that counts dividends; KSE100PR is its price-only twin.
 export function indexChangePct(closes: Close[], fy: FyWindow): number | null {
   const a = closeOn(closes, dayBefore(fy.start));
   const b = closeOn(closes, fy.end);

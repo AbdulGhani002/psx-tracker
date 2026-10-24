@@ -7,7 +7,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { extractText, getDocumentProxy } from "unpdf";
 import { connectDb } from "@/lib/db";
-import { AnnouncementModel, FundamentalModel, HoldingModel } from "@/lib/models";
+import { AnnouncementModel, BuyListModel, FundamentalModel, HoldingModel } from "@/lib/models";
 import { fetchBoardFile, type BoardFile } from "@/lib/calculations/announcements";
 import { isDividendLetter, mergeLetterPayout, parsePayoutLetter, type StoredPayout } from "@/lib/calculations/payout-letter";
 
@@ -67,7 +67,10 @@ export type LetterRead = { symbol: string; title: string; status: string; method
 // `symbols` narrows a run to some companies (an operator's re-read).
 export async function readPayoutLetters(opts: { files?: Map<string, BoardFile | null>; limit?: number; sinceDays?: number; symbols?: string[] } = {}): Promise<{ read: LetterRead[]; ocr: boolean }> {
   await connectDb();
-  const held = ((await HoldingModel.distinct("symbol", { currentShares: { $gt: 0 } })) as string[]).filter((s) => !opts.symbols?.length || opts.symbols.includes(s));
+  // Held names and the buy list's: a dividend on a share you may buy is
+  // worth knowing before its ex-date.
+  const watched = [...new Set([...((await HoldingModel.distinct("symbol", { currentShares: { $gt: 0 } })) as string[]), ...((await BuyListModel.distinct("symbol", {})) as string[])])];
+  const held = watched.filter((s) => !opts.symbols?.length || opts.symbols.includes(s));
   const since = new Date(Date.now() - (opts.sinceDays ?? 30) * 86400000);
   const todo = (await AnnouncementModel.find({
     symbol: { $in: held },

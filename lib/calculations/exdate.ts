@@ -51,3 +51,15 @@ export function exDividendMessage(e: { symbol: string; bookClosure: string; pctO
   const gross = dps * held;
   return `${head}\n   On your ${held.toLocaleString("en-US")} shares: ${rs(gross)}, about ${rs(gross * (1 - taxPct / 100))} after ${taxPct}% tax.`;
 }
+
+// A dividend declared by a share on the buy list, while a day to buy it is
+// left: the rate, the last day to buy, the ex-date and the book closure, and
+// what the rate is against today's price. None once the last day has gone.
+export function announcedDividendMessage(e: { symbol: string; bookClosure: string; pctOfFace: number; faceValue: number; cycle: string }, price: number | null, today: string, holidays: Set<string> = new Set()): string | null {
+  const { exDate, lastCumDate } = exDateOf(e.bookClosure, holidays);
+  if (lastCumDate < today) return null;
+  const dps = (e.pctOfFace * e.faceValue) / 100;
+  const kind = e.cycle === "F" ? "final " : e.cycle ? "interim " : "";
+  const onPrice = price != null && price > 0 ? ` ${((dps / price) * 100).toFixed(1)}% of today's Rs ${money(Math.round(price * 100) / 100)}.` : "";
+  return `📣 <b>${esc(e.symbol)}</b> (buy list): ${kind}dividend Rs ${money(dps)} a share (${e.pctOfFace}%). Last day to buy ${day(lastCumDate)}; ex-dividend ${day(exDate)}, book closure from ${day(e.bookClosure)}.${onPrice}`;
+}
