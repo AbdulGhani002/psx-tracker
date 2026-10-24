@@ -5,12 +5,14 @@ import { TransactionsView } from "@/app/transactions/TransactionsView";
 import { getAllTransactions, getAllHoldings, getCorporateActionSuggestions, getFbrPack } from "@/lib/data";
 import { currentTaxYear } from "@/lib/dates";
 import { getSaleReviews } from "@/lib/analytics/trade-review";
+import { getScorecard } from "@/lib/scorecard";
+import { ScorecardCard } from "./ScorecardCard";
 import { fmtRs, fmtSignedRs, fmtDate, fmtNum } from "@/lib/format";
 
 // Trade history: what was closed and what it made, then the whole ledger.
 export async function TradesTab() {
   const cur = currentTaxYear();
-  const [transactions, holdings, corpActions, pack, reviews] = await Promise.all([getAllTransactions(), getAllHoldings(), getCorporateActionSuggestions().catch(() => []), getFbrPack(cur.endYear).catch(() => null), getSaleReviews().catch(() => [])]);
+  const [transactions, holdings, corpActions, pack, reviews, score] = await Promise.all([getAllTransactions(), getAllHoldings(), getCorporateActionSuggestions().catch(() => []), getFbrPack(cur.endYear).catch(() => null), getSaleReviews().catch(() => []), getScorecard().catch(() => [])]);
   const reviewed = reviews.filter((r) => r.diff != null);
   const helped = reviewed.reduce((s, r) => s + (r.diff ?? 0), 0);
   const buys = transactions.filter((t) => t.type === "BUY" || t.type === "RIGHT");
@@ -89,6 +91,8 @@ export async function TradesTab() {
           </div>
         </Card>
       )}
+
+      <ScorecardCard rows={score} />
 
       {reviewed.length > 0 && (
         <Card className="mt-3" title="Sale review" eyebrow="What each sale's shares would be worth today, with the dividends they would have paid" action={<span className="pill" data-tone={helped >= 0 ? "positive" : "negative"}>Selling {helped >= 0 ? "helped" : "cost"} {fmtRs(Math.abs(helped))}</span>}>

@@ -26,6 +26,8 @@ export type BriefInput = {
   rates: { policy: number | null; tbill: number | null; cpi: number | null };
   world: Array<{ label: string; changePct: number; times: number | null; level?: string }>;
   next: Array<{ date: string; title: string }>;
+  // On a month's first trading day: how the KSE-100 has done in that month.
+  month?: { label: string; up: number; n: number; median: number } | null;
 };
 
 // A move several times a normal day earns a mention.
@@ -50,6 +52,7 @@ export function dailyBrief(i: BriefInput): string {
     const note = t != null && t >= BIG ? `, ${t.toFixed(1)}× a normal day` : i.kse.normalPct != null ? `, normal ±${i.kse.normalPct.toFixed(1)}%` : "";
     lines.push(`${head} · KSE-100 ${Math.round(i.kse.close).toLocaleString("en-US")} (${signed(i.kse.changePct, 2)}%${note})`);
   } else lines.push(head);
+  if (i.month) lines.push(`${i.month.label}: the KSE-100 rose in ${i.month.up} of ${i.month.n} years (median ${signed(i.month.median)}%). A tendency, not a rule.`);
   if (i.breadth) lines.push(`Breadth ${i.breadth.up} up, ${i.breadth.down} down · ${big(i.breadth.valueRs)} traded`);
   if (i.book) lines.push(`Your shares ${rs(i.book.value)}: ${i.book.changeRs >= 0 ? "+" : "−"}${rs(i.book.changeRs)} (${signed(i.book.changePct)}%)`);
   const movers = i.movers.filter((m) => m.times >= BIG).sort((a, b) => b.times - a.times).slice(0, 4);

@@ -3,6 +3,8 @@ import { Card } from "@/components/ui/Card";
 import type { IndexForecasts, IndexView } from "@/lib/index-week/data";
 import type { Levels, RecordSummary } from "@/lib/index-week/forecast";
 import { ZoneBar, money } from "./ZoneBar";
+import { MarketStudiesCards } from "./MarketStudiesCards";
+import type { MarketStudies } from "@/lib/market-history";
 
 // The model: where each index is likely to be a week and a month on, and how
 // often those levels have held (lib/index-week). Nothing about single shares.
@@ -103,7 +105,7 @@ function OtherIndex({ i }: { i: IndexView }) {
   );
 }
 
-export function AnalysisView({ f }: { f: IndexForecasts | null }) {
+export function AnalysisView({ f, studies = null }: { f: IndexForecasts | null; studies?: MarketStudies | null }) {
   const main = f?.indexes.find((i) => i.code === "KSE100") ?? f?.indexes[0] ?? null;
   const others = (f?.indexes ?? []).filter((i) => i !== main);
   return (
@@ -149,6 +151,11 @@ export function AnalysisView({ f }: { f: IndexForecasts | null }) {
               <li>Worked out again after every close. Telegram sends the week ahead each Friday evening.</li>
             </ul>
           </details>
+        </div>
+      )}
+      {studies && studies.patterns.months.length > 0 && (
+        <div className="space-y-3 mt-3">
+          <MarketStudiesCards s={studies} />
         </div>
       )}
     </div>

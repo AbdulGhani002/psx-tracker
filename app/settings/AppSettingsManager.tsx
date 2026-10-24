@@ -43,6 +43,7 @@ type Settings = {
   alertLists?: boolean;
   alertExDates?: boolean;
   alertDaily?: boolean;
+  alertEvents?: boolean;
   alertBoardMeetings?: boolean;
   alertWeeklyDigest?: boolean;
   telegramQuant?: boolean;
@@ -184,6 +185,7 @@ export function AppSettingsManager({ initial, telegramConfigured }: { initial: S
           <Toggle label="Market and plan alerts" value={s.alertPrices ?? true} onChange={(v) => set("alertPrices", v)} hint="Rebalance drift, foreign flows, KMI changes, sell discipline." />
           <Toggle label="Ex-dividend reminders" value={s.alertExDates ?? true} onChange={(v) => set("alertExDates", v)} hint="Book closures in the next two weeks, and dividends declared by shares on your buy list." />
           <Toggle label="Evening brief" value={s.alertDaily ?? true} onChange={(v) => set("alertDaily", v)} hint="After the close: the market against a normal day, your shares, rates and the week's dates." />
+          <Toggle label="Market dates" value={s.alertEvents ?? true} onChange={(v) => set("alertEvents", v)} hint="The evening before: MPC, CPI, futures expiry, results deadlines, index reviews, T-bill auctions, holidays." />
           <Toggle label="Model charts and the next-day read" value={s.telegramQuant ?? true} onChange={(v) => set("telegramQuant", v)} hint="The daily album of charts and the model's verdict." />
         </div>
       </div>

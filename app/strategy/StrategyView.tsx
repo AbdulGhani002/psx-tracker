@@ -8,6 +8,7 @@ import { PHASES, zoneRange, type StrategyName } from "@/lib/strategy/plan";
 import { fmtRs } from "@/lib/format";
 import { RatesForm } from "./RatesForm";
 import { DatesAhead } from "./DatesAhead";
+import type { CalEvent } from "@/lib/calculations/market-calendar";
 
 // The strategy page's body, from what lib/strategy/data.ts gathered (the
 // preview page draws it on sample figures): the plan for the index, the dry
@@ -16,16 +17,16 @@ import { DatesAhead } from "./DatesAhead";
 const pct = (v: number | null | undefined, d = 1) => (v == null || !Number.isFinite(v) ? "—" : `${v.toFixed(d)}%`);
 const monthLabel = (m: string) => new Date(m + "-01T00:00:00Z").toLocaleString("en-GB", { month: "long", year: "numeric", timeZone: "UTC" });
 
-export function StrategyView({ s, prefill }: { s: StrategyData; prefill: RatesPrefill }) {
+export function StrategyView({ s, prefill, events = [] }: { s: StrategyData; prefill: RatesPrefill; events?: CalEvent[] }) {
   return (
     <div className="fade-in">
       <PageHeader title="Strategy" subtitle="Buy the index in zones, keep dry powder." />
-      <PlanTab s={s} prefill={prefill} />
+      <PlanTab s={s} prefill={prefill} events={events} />
     </div>
   );
 }
 
-function PlanTab({ s, prefill }: { s: StrategyData; prefill: RatesPrefill }) {
+function PlanTab({ s, prefill, events }: { s: StrategyData; prefill: RatesPrefill; events: CalEvent[] }) {
   const p = s.plan;
   const withAmounts = p.tranches.some((t) => t.amount > 0);
   return (
@@ -138,7 +139,7 @@ function PlanTab({ s, prefill }: { s: StrategyData; prefill: RatesPrefill }) {
         )}
       </Card>
 
-      <DatesAhead />
+      <DatesAhead events={events} />
 
       <details className="mt-3 text-[12.5px] text-muted">
         <summary className="cursor-pointer select-none">Rules</summary>

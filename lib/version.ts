@@ -1,7 +1,7 @@
 // Single source of truth for the app version + changelog.
 // Bump APP_VERSION and prepend a CHANGELOG entry on every release.
 
-export const APP_VERSION = "11.28.0";
+export const APP_VERSION = "11.29.0";
 
 export const BUILD_DATE =
   process.env.NEXT_PUBLIC_BUILD_DATE ?? "";
@@ -17,6 +17,19 @@ export type ChangelogEntry = {
 
 // Reverse-chronological. Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: "11.29.0",
+    date: "2026-10-24",
+    title: "Month patterns, rate cycles, scorecard, principles, dates by themselves",
+    changes: [
+      "Model page: the KSE-100 month by month (how often each calendar month rose, its median, best and worst) and by the State Bank's rate cycle (months after a cut against months after a rise, and what followed each first cut or first rise). The State Bank's rate steps back to 1991 are kept in the database.",
+      "Before September 2021 the index is rebuilt from its current members' prices with dividends added back; the page says how closely it tracks the real one.",
+      "Trades tab: a scorecard of your sales (how many won, the average win and loss, the result a sale, costs against the gains), and a monthly Telegram line.",
+      "Principles (menu): eleven questions on how and why you invest, kept in the app; Telegram reminds you each July. The evening brief names the month's record on its first trading day.",
+      "Fair P/E: past years' policy rates filled in from the kept history.",
+      "Dates ahead fill themselves: futures expiry, CPI, results deadlines and index reviews by their rules, T-bill auctions from the last one, MPC days caught from news headlines. Telegram tells you the evening before (Settings: Market dates). Nothing to type.",
+    ],
+  },
   {
     version: "11.28.0",
     date: "2026-10-24",

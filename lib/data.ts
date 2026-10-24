@@ -1177,6 +1177,7 @@ async function _getAppSettings(): Promise<AppSettings> {
     alertLists: (doc as any)?.alertLists ?? DEFAULT_SETTINGS.alertLists,
     alertExDates: (doc as any)?.alertExDates ?? DEFAULT_SETTINGS.alertExDates,
     alertDaily: (doc as any)?.alertDaily ?? DEFAULT_SETTINGS.alertDaily,
+    alertEvents: (doc as any)?.alertEvents ?? DEFAULT_SETTINGS.alertEvents,
     alertBoardMeetings: (doc as any)?.alertBoardMeetings ?? DEFAULT_SETTINGS.alertBoardMeetings,
     alertWeeklyDigest: (doc as any)?.alertWeeklyDigest ?? DEFAULT_SETTINGS.alertWeeklyDigest,
     telegramQuant: (doc as any)?.telegramQuant ?? DEFAULT_SETTINGS.telegramQuant,

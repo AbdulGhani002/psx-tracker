@@ -23,6 +23,7 @@ const MENU: NavItem[] = [
   { href: "/rules", label: "Price rules", icon: "scale", title: "Price rules", subtitle: "Your steps to add and sell from each share's average price" },
   { href: "/strategy", label: "Strategy", icon: "compass", title: "Strategy", subtitle: "Buying a downturn in steps, dry powder and this month's rates" },
   { href: "/fair-pe", label: "Fair P/E", icon: "calculator", title: "Fair P/E", subtitle: "Sector P/E and dividend yields by year, and fair at the rates you enter" },
+  { href: "/principles", label: "Principles", icon: "book", title: "Principles", subtitle: "Your own rules for how and why you invest, read again each year" },
   { href: "/rebalance", label: "Rebalance", icon: "target", title: "Rebalance", subtitle: "Target allocation and the trades that reach it" },
   { href: "/analysis", label: "Model", icon: "brain", title: "Model", subtitle: "Where the indexes are likely to be next week and next month" },
   { href: "/announcements", label: "Announcements", icon: "bell", title: "Announcements", subtitle: "What your companies have posted on the exchange" },

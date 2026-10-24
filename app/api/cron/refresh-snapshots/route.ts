@@ -7,6 +7,7 @@ import { computeBenchmark, benchmarkKey, BENCHMARK_RANGES } from "@/lib/feeds/be
 import { getAutoSignalsCached } from "@/lib/feeds/regime";
 import { warmIndexSeries } from "@/lib/feeds/backtest";
 import { refreshTbillAuctions } from "@/lib/feeds/tbill-auctions";
+import { refreshMpcDates } from "@/lib/market-calendar";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -58,6 +59,13 @@ export async function POST() {
     report.tbillAuctions = await refreshTbillAuctions();
   } catch (e) {
     report.tbillAuctions = { status: "error", note: String(e).slice(0, 200) };
+  }
+
+  // MPC days from the same site's headlines (lib/market-calendar), every six hours.
+  try {
+    report.mpcDates = await refreshMpcDates();
+  } catch (e) {
+    report.mpcDates = { status: "error", note: String(e).slice(0, 200) };
   }
 
   // Pakistan CPI from PBS. Monthly data, but cheap to check — this is what makes

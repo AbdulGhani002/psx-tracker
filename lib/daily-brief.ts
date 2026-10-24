@@ -1,6 +1,7 @@
 import "server-only";
 import { connectDb } from "@/lib/db";
-import { FeedSnapshotModel, FundamentalModel, MarketEventModel } from "@/lib/models";
+import { FeedSnapshotModel, FundamentalModel } from "@/lib/models";
+import { marketEvents } from "@/lib/market-calendar";
 import { getInflationLive, getPortfolioSummary, getSbpRateSteps, getTbill12mPct } from "@/lib/data";
 import { getEarningsCalendar } from "@/lib/analytics";
 import { SHEET_PREFIX, loadStoredBars } from "@/lib/quant/sheet-bars";
@@ -9,6 +10,7 @@ import { MACRO_SERIES, fetchUsdPkrDaily, fetchYahooDaily } from "@/lib/timeserie
 import { policyRateOn } from "@/lib/timeseries/sbp-rate";
 import { exDateOf } from "@/lib/calculations/exdate";
 import { dailyBrief, normalDayPct, timesNormal, type BriefInput } from "@/lib/calculations/daily-brief";
+import { getMarketStudies } from "@/lib/market-history";
 import type { DayRow } from "@/lib/timeseries/psx-history";
 import type { EodBar } from "@/lib/timeseries/psx-eod";
 import listed from "@/lib/psx-symbols.json";
@@ -101,7 +103,7 @@ export async function dailyBriefForCurrentUser(today: string): Promise<string | 
   const rates = { policy: steps?.steps.length ? policyRateOn(today, steps.steps) : null, tbill, cpi: cpi?.yoyPct ?? null };
 
   const weekOn = addDays(today, 7);
-  const next: BriefInput["next"] = ((await MarketEventModel.find({ date: { $gte: today, $lte: weekOn } }, { date: 1, title: 1 }).lean()) as any[]).map((e) => ({ date: String(e.date), title: String(e.title) }));
+  const next: BriefInput["next"] = (await marketEvents(today, weekOn).catch(() => [])).map((e) => ({ date: e.date, title: e.title }));
   const heldSyms = new Set(held.map((p) => p.symbol));
   for (const f of (await FundamentalModel.find({ symbol: { $in: [...heldSyms] } }, { symbol: 1, payouts: 1 }).lean()) as any[]) {
     for (const p of f.payouts ?? []) {
@@ -114,5 +116,15 @@ export async function dailyBriefForCurrentUser(today: string): Promise<string | 
   for (const e of cal?.upcoming ?? []) if (heldSyms.has(e.symbol) && e.date >= today && e.date <= weekOn) next.push({ date: e.date, title: `${e.symbol} board meeting` });
 
   const world = await worldLine(today).catch(() => []);
-  return dailyBrief({ date: today, kse, breadth: { up, down, same, valueRs }, book, movers, rates, world, next });
+
+  // The month's first trading day: the closing file before today's is from
+  // an earlier month.
+  const prevFile: any = await FeedSnapshotModel.findOne({ key: { $lt: SHEET_PREFIX + today, $gte: SHEET_PREFIX + "2000" } }, { key: 1 }).sort({ key: -1 }).lean();
+  let month: BriefInput["month"] = null;
+  if (!prevFile || String(prevFile.key).slice(SHEET_PREFIX.length, SHEET_PREFIX.length + 7) < today.slice(0, 7)) {
+    const st = await getMarketStudies().catch(() => null);
+    const m = st?.patterns.months.find((x) => x.m === Number(today.slice(5, 7)));
+    if (m) month = { label: m.label, up: m.up, n: m.n, median: m.median };
+  }
+  return dailyBrief({ date: today, kse, breadth: { up, down, same, valueRs }, book, movers, rates, world, next, month });
 }

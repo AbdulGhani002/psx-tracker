@@ -6,6 +6,7 @@ import { getAllUserIds } from "@/lib/data";
 import { dailyBriefForCurrentUser } from "@/lib/daily-brief";
 import { missedReviewForCurrentUser } from "@/lib/missed-trades";
 import { getCashCalendar } from "@/lib/cash-calendar";
+import { getScorecard } from "@/lib/scorecard";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -26,6 +27,7 @@ export async function POST(req: Request) {
     brief: await dailyBriefForCurrentUser(date).catch((e) => `error: ${String(e).slice(0, 200)}`),
     review: await missedReviewForCurrentUser(month).catch((e) => `error: ${String(e).slice(0, 200)}`),
     calendar: await getCashCalendar().catch((e) => ({ error: String(e).slice(0, 200) })),
+    scorecard: await getScorecard().catch((e) => ({ error: String(e).slice(0, 200) })),
   }));
   return NextResponse.json({ ok: true, date, month, ...out });
 }

@@ -43,6 +43,7 @@ check("the week's dates in order, today's as today", lines[6] === "Next: today C
 check("a big index day says so", dailyBrief({ date: "2026-03-02", kse: { close: 150000, changePct: -9.57, normalPct: 0.9 }, breadth: null, book: null, movers: [], rates: { policy: null, tbill: null, cpi: null }, world: [], next: [] }).includes("10.6× a normal day"));
 check("a quiet day with nothing known is one line", dailyBrief({ date: "2026-10-24", kse: null, breadth: null, book: null, movers: [], rates: { policy: null, tbill: null, cpi: null }, world: [], next: [] }) === "📊 <b>Sat 24 Oct</b>");
 check("the threshold for a mention", BIG === 2.5);
+check("a month's first day says how that month has gone", dailyBrief({ date: "2026-11-02", kse: null, breadth: null, book: null, movers: [], rates: { policy: null, tbill: null, cpi: null }, world: [], next: [], month: { label: "November", up: 13, n: 21, median: 2.14 } }).split("\n")[1] === "November: the KSE-100 rose in 13 of 21 years (median +2.1%). A tendency, not a rule.");
 
 // The buy list in October: one came to its price, one rose 14% in the month
 // without coming down, one stayed well above the price but fell, one has no

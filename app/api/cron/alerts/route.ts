@@ -24,6 +24,11 @@ import { getIndexForecasts, weekMessage, weekMessageDue } from "@/lib/index-week
 import { cronAuthorised } from "@/lib/auth/cron";
 import { dailyBriefForCurrentUser } from "@/lib/daily-brief";
 import { missedReviewForCurrentUser } from "@/lib/missed-trades";
+import { monthScore } from "@/lib/scorecard";
+import { scoreMessage } from "@/lib/calculations/scorecard";
+import { getPrinciples } from "@/lib/principles";
+import { marketEvents, marketHolidays } from "@/lib/market-calendar";
+import { eventsMessage, nextTradingDay } from "@/lib/calculations/market-calendar";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -37,7 +42,7 @@ type Candidate = { key: string; message: string };
 const PRICE_KEYS = ["drift", "near-ceiling", "near-buy", "fipi", "kmi-drop", "sellsig"];
 // The user's own lists and rules: they fire only for what was set on them,
 // so they have their own switch, apart from the market alerts above.
-const LIST_KEYS = ["buy-zone", "rule", "rules", "index-week", "missed"];
+const LIST_KEYS = ["buy-zone", "rule", "rules", "index-week", "missed", "principles"];
 
 function wanted(key: string, s: any): boolean {
   const prefix = key.split(":")[0];
@@ -45,6 +50,8 @@ function wanted(key: string, s: any): boolean {
   if (prefix === "exdiv" || prefix === "divnew") return s.alertExDates !== false;
   if (prefix === "digest") return s.alertWeeklyDigest !== false;
   if (prefix === "daily") return s.alertDaily !== false;
+  if (prefix === "scorecard") return s.alertWeeklyDigest !== false;
+  if (prefix === "events") return s.alertEvents !== false;
   if (PRICE_KEYS.includes(prefix)) return s.alertPrices !== false;
   if (LIST_KEYS.includes(prefix)) return s.alertLists !== false;
   return true;
@@ -434,13 +441,43 @@ async function runAlertsForCurrentUser(forceDigest = false) {
       /* no brief this run */
     }
   }
+  // The market's dates up to the next trading day (lib/market-calendar), the
+  // evening before.
+  if (pkNow.getUTCHours() >= 17 && settings.alertEvents !== false) {
+    try {
+      const weekOn = new Date(Date.parse(pkDay + "T00:00:00Z") + 7 * 86400000).toISOString().slice(0, 10);
+      const holidays = await marketHolidays();
+      const msg = eventsMessage(await marketEvents(pkDay, weekOn), pkDay, holidays);
+      // Once for the trading day it leads up to: a Friday's message is not
+      // sent again on Saturday and Sunday.
+      if (msg) candidates.push({ key: `events:${nextTradingDay(pkDay, holidays)}`, message: msg });
+    } catch {
+      /* no dates this run */
+    }
+  }
   if (pkNow.getUTCDate() <= 7) {
     try {
       const prevMonth = new Date(Date.UTC(pkNow.getUTCFullYear(), pkNow.getUTCMonth() - 1, 1)).toISOString().slice(0, 7);
       const review = await missedReviewForCurrentUser(prevMonth);
       if (review) candidates.push({ key: `missed:${prevMonth}`, message: review });
+      const sc = await monthScore(prevMonth);
+      const line = scoreMessage(sc.label, sc.score);
+      if (line) candidates.push({ key: `scorecard:${prevMonth}`, message: line });
     } catch {
       /* no review this run */
+    }
+  }
+  // Each July: read your principles again (or write them).
+  if (pkNow.getUTCMonth() === 6) {
+    try {
+      const p = await getPrinciples();
+      const written = Object.values(p.answers).some((a) => a.trim().length > 0);
+      candidates.push({
+        key: `principles:${pkNow.getUTCFullYear()}`,
+        message: written ? `📜 <b>Your principles</b>: a year on, read them again and change what the year taught you. ${appOrigin()}/principles` : `📜 <b>Your principles</b>: eleven questions on how and why you invest, a sentence or two each. ${appOrigin()}/principles`,
+      });
+    } catch {
+      /* no reminder this run */
     }
   }
 

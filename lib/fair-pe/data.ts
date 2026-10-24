@@ -1,7 +1,8 @@
 import "server-only";
 import { connectDb } from "@/lib/db";
 import { FeedSnapshotModel, FundamentalModel, HoldingModel, ShareEventModel } from "@/lib/models";
-import { getCurrentPrices, getFeedSnapshot, getInflationLive, getSbpRateSteps, getTbill12mPct, saveFeedSnapshot } from "@/lib/data";
+import { getCurrentPrices, getFeedSnapshot, getInflationLive, getTbill12mPct, saveFeedSnapshot } from "@/lib/data";
+import { getPolicyHistory } from "@/lib/market-history";
 import { getCurrentUserId } from "@/lib/auth/current-user";
 import { getTbillAuctions } from "@/lib/feeds/tbill-auctions";
 import { auctionOn } from "@/lib/feeds/tbill-parse";
@@ -112,16 +113,16 @@ export async function saveFairPeInputs(userId: string, inputs: FairPeInputs): Pr
 }
 
 // What the app already holds for each 30 June and now: SBP's last 12-month
-// auction before the date, the policy rate (its steps go back to June 2023)
+// auction before the date, the policy rate (its kept steps go back to 1991)
 // and June's year-on-year CPI.
 async function knownMacro(dates: string[], today: string): Promise<FairPeBoard["known"]> {
   const [auctions, steps, cpi, tbillNow] = await Promise.all([
     getTbillAuctions().catch(() => []),
-    getSbpRateSteps().catch(() => null),
+    getPolicyHistory().catch(() => []),
     getInflationLive().catch(() => null),
     getTbill12mPct().catch(() => null),
   ]);
-  const st = steps?.steps ?? [];
+  const st = steps;
   const oldest = st.length ? st.map((s) => s.from).sort()[0] : null;
   const years: Record<string, Macro> = {};
   for (const d of dates) {
