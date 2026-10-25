@@ -29,7 +29,7 @@ export async function POST(req: Request) {
   if (!uid) return NextResponse.json({ ok: false, error: "no users" });
   const data = await runAsUser(uid, () => assembleWeeklyReport());
   if (body?.pdf !== true) {
-    return NextResponse.json({ ok: true, summary: weeklySummaryText(data), ladderAction: data.ladderAction, ladderLine: data.ladderLine, gateLine: data.gateLine, poolCutLine: data.poolCutLine, cashPlaces: data.cashPlaces, cashLocked: data.cashLocked, rungs: data.rungs, steps: data.strategy?.steps ?? [], signals: data.signals.map((s) => `${s.label} ${s.source} ${s.known ? s.score : "-"} ${s.reading}`) });
+    return NextResponse.json({ ok: true, summary: weeklySummaryText(data), action: data.action, actionLine: data.actionLine, gateLine: data.gateLine, cashPlaces: data.cashPlaces, cashLocked: data.cashLocked, steps: data.strategy?.steps ?? [], signals: data.signals.map((s) => `${s.label} ${s.source} ${s.known ? s.score : "-"} ${s.reading}`) });
   }
   const dir = await mkdtemp(join(tmpdir(), "psx-weekly-preview-"));
   try {

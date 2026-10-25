@@ -1,24 +1,8 @@
 import { Schema, model, models, type InferSchemaType, type Model } from "mongoose";
 
-// The written plan: one document per user holding the buying ladder, the money
-// that is not yet in the market, and the regime judgements that are yours to
-// make rather than the app's to fetch.
-//
-// It is one document on purpose. A ladder, the cash it draws on, and the
-// environment it operates in are a single decision, and splitting them across
-// collections would let them drift out of step — which is exactly the failure
-// the plan exists to prevent.
-
-const RungSchema = new Schema(
-  {
-    level: { type: Number, required: true }, // index level that arms this rung
-    pct: { type: Number, default: 0 }, // share of the ladder pool
-    label: { type: String, default: "" },
-    firedAt: { type: String, default: "" }, // ISO date; "" while still armed
-    firedAmount: { type: Number, default: 0 },
-  },
-  { _id: false }
-);
+// The written plan: one document per user holding the money that is not yet in
+// the market, the regime judgements that are yours to make rather than the
+// app's to fetch, and the weekly report's switch.
 
 // Money that is not in the market yet. Three kinds, because they are not
 // interchangeable: cash you could spend this morning, money owed to you that
@@ -53,20 +37,6 @@ const RegimeManualSchema = new Schema(
 const PlaybookSchema = new Schema(
   {
     userId: { type: String, default: "", index: true, unique: true },
-
-    // --- the ladder ---------------------------------------------------------
-    indexName: { type: String, default: "KSE-100" },
-    rungs: { type: [RungSchema], default: [] },
-    // The pool every rung is a slice of, frozen when the ladder was armed.
-    // Slices cut from a shrinking pool would get smaller exactly as the market
-    // got cheaper, so this is deliberately NOT recomputed from today's cash.
-    poolAtArming: { type: Number, default: 0 },
-    armedAt: { type: String, default: "" },
-    // Never spent by the ladder, whatever the levels say.
-    ladderReservePct: { type: Number, default: 10 },
-    // Share of the pool invested regardless of level. 0 keeps the old
-    // behaviour, where the ladder buys only on a fall.
-    ladderCorePct: { type: Number, default: 0 },
 
     // --- cash not yet in the market ------------------------------------------
     cashSources: { type: [CashSourceSchema], default: [] },

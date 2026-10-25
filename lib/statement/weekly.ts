@@ -5,7 +5,7 @@ import { assemblePlan } from "@/lib/plan";
 import { getPortfolioSummary } from "@/lib/data";
 import { getStrategy } from "@/lib/strategy/data";
 import { zoneRange } from "@/lib/strategy/plan";
-import { buildWeeklyTex, weekOf, type WeeklyReportData } from "./weekly-template";
+import { buildWeeklyTex, weekOf, weekAction, type WeeklyReportData } from "./weekly-template";
 
 export { buildWeeklyTex, weekOf, type WeeklyReportData };
 
@@ -13,6 +13,7 @@ export async function assembleWeeklyReport(now = new Date()): Promise<WeeklyRepo
   const [plan, summary, s] = await Promise.all([assemblePlan(), getPortfolioSummary().catch(() => null as any), getStrategy().catch(() => null)]);
   const wk = weekOf(now);
   const gate = gateLine(s);
+  const act = weekAction({ level: s?.kse?.level ?? null, tranches: s?.plan.tranches ?? [], allocationLine: s?.plan.allocation.line ?? "", gate });
   const r = s?.rates ?? null;
   const month = r ? new Date(r.month + "-01T00:00:00Z").toLocaleString("en-GB", { month: "long", year: "numeric", timeZone: "UTC" }) : "";
   const strategy: WeeklyReportData["strategy"] = s
@@ -84,28 +85,12 @@ export async function assembleWeeklyReport(now = new Date()): Promise<WeeklyRepo
     cashPlaces: plan.cash.places,
     cashLocked: plan.cash.locked,
     gateLine: gate,
-    poolCutLine: plan.poolCut
-      ? `Sized from the Rs ${Math.round(plan.poolCut.now).toLocaleString("en-PK")} you have now. The ladder was armed with Rs ${Math.round(plan.poolCut.armed).toLocaleString("en-PK")}${plan.poolCut.armedAt ? ` on ${plan.poolCut.armedAt}` : ""}; the rest has been spent since.`
-      : null,
 
-    indexName: plan.ladder.indexName,
-    indexLevel: plan.ladder.indexLevel,
-    indexAsOf: plan.ladder.indexAsOf,
-    // With stocks above their target the week's answer is no buying: the
-    // ladder's level is still shown, its deploy is not.
-    ladderAction: gate ? "WAIT" : plan.ladderVerdict.action,
-    ladderLine: gate
-      ? `${gate} ${plan.ladder.indexName} is ${Math.round(plan.ladder.indexLevel).toLocaleString("en-PK")}${plan.ladder.next ? `; your ladder's next rung is ${Math.round(plan.ladder.next.level).toLocaleString("en-PK")}, ${Math.abs(plan.ladder.next.moveRequiredPct).toFixed(1)}% away` : ""}.`
-      : plan.ladderVerdict.line,
-    rungs: plan.ladder.rows.map((r) => ({
-      level: r.level,
-      pct: r.pct,
-      label: r.label,
-      amount: r.amount,
-      status: r.status,
-      moveRequiredPct: r.moveRequiredPct,
-    })),
-    ladderWarnings: plan.ladder.warnings,
+    indexName: "KSE-100",
+    indexLevel: s?.kse?.level ?? 0,
+    indexAsOf: s?.kse?.asOf ?? "",
+    action: act.action,
+    actionLine: act.line,
 
     positions,
     parked,
@@ -114,7 +99,7 @@ export async function assembleWeeklyReport(now = new Date()): Promise<WeeklyRepo
 }
 
 // The strategy's allocation decides first: with stocks above their target the
-// week's answer is no buying, so the ladder cannot say deploy beside it.
+// week's answer is no buying, whatever the zones say.
 function gateLine(s: Awaited<ReturnType<typeof getStrategy>> | null): string | null {
   const a = s?.plan.allocation;
   if (!a || a.total <= 0 || a.stocksNowPct <= a.stocksTargetPct + 5) return null;
@@ -128,7 +113,7 @@ export function weeklySummaryText(d: WeeklyReportData): string {
   const lines = [
     `Weekly plan — ${d.weekLabel}`,
     "",
-    d.ladderAction === "DEPLOY" ? `ACTION: ${d.ladderLine}` : `No action. ${d.ladderLine}`,
+    d.action === "DEPLOY" ? `ACTION: ${d.actionLine}` : `No action. ${d.actionLine}`,
     "",
     ...(d.strategy ? ["Strategy:", ...d.strategy.steps, ""] : []),
     `Regime: ${d.regimeLabel} (${d.rawScore >= 0 ? "+" : ""}${d.rawScore} of ${d.maxScore}, ${d.confidence.toLowerCase()} confidence)`,
@@ -153,6 +138,6 @@ export function weeklyEmailHtml(d: WeeklyReportData): string {
 <h2 style="margin:0 0 4px;font-size:20px">Weekly plan</h2>
 <div style="color:#6b7280;font-size:13px;margin-bottom:14px">${esc(d.weekLabel)}</div>
 <div style="border:1px solid #d5d8dd;padding:14px 16px;font-size:14px">${body}</div>
-<p style="color:#6b7280;font-size:12px;margin-top:14px">The full one-page plan is attached as a PDF. The ladder is a rule, not a forecast: it reports what your own levels commit you to this week. Nothing here is advice.</p>
+<p style="color:#6b7280;font-size:12px;margin-top:14px">The full one-page plan is attached as a PDF. The buy zones come from the data, not from levels typed in. Nothing here is advice.</p>
 </div>`;
 }

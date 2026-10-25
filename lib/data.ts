@@ -1656,9 +1656,7 @@ export type DeploymentPlan = DeployPlan & {
 // weight is a candidate, sized by its gap to the target. Sale proceeds are
 // deliberately NOT added to the budget: a sale is not a fact until it goes
 // through the decision gate, and budgeting unsold shares would be spending
-// money you do not have yet. The Plan page asks the same question with a
-// different budget (the ladder decides HOW MUCH goes out today, this decides
-// WHICH names), so the candidates are gathered once.
+// money you do not have yet.
 export type DeployContext = {
   candidates: DeployCandidate[];
   unpriced: string[];
@@ -1729,28 +1727,3 @@ async function _getDeploymentPlan(): Promise<DeploymentPlan> {
 
 export const getDeploymentPlan = cache(_getDeploymentPlan);
 
-// The ladder says HOW MUCH goes out today. This says which names it buys.
-//
-// Before this existed the two halves of the plan never met: the ladder printed
-// "deploy Rs 52,758" and stopped, leaving the one question that actually costs
-// money — which shares, how many — to be answered from memory at the moment of
-// buying, which is exactly the moment the rules exist to protect you from.
-//
-// The budget is passed as FRESH cash with no reserve of its own, because the
-// ladder has already taken its reserve out of the pool. Charging a second
-// reserve here would quietly shrink every rung. Equity value is still real, so
-// target weights bind against the actual book.
-export async function getLadderBuys(budget: number): Promise<DeployPlan | null> {
-  if (!(budget > 0)) return null;
-  const { candidates, summary, unpriced } = await buildDeployContext();
-  if (candidates.length === 0) return null;
-  return planDeployment({
-    candidates,
-    equityValue: summary.totalValue,
-    fundsValue: 0,
-    brokerCash: 0,
-    reservePct: 0,
-    freshCash: budget,
-    unpriced,
-  });
-}

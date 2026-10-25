@@ -73,7 +73,7 @@ const BANDS: Array<{
     cashFloorPct: 5,
     favour: ["Banks", "Cement", "Autos", "Cyclicals", "Mid and small caps"],
     avoid: ["Holding large cash", "Defensives"],
-    instruction: "Deploy the ladder fully. Cash is the risk here, not the shelter.",
+    instruction: "Invest fully. Cash is the risk here, not the shelter.",
   },
   {
     band: "RISK_ON",
@@ -82,7 +82,7 @@ const BANDS: Array<{
     cashFloorPct: 10,
     favour: ["Banks", "Cement", "Cyclicals", "Quality growth"],
     avoid: ["Over-hedging", "Sitting out dips"],
-    instruction: "Buy dips on the normal schedule. Do not front-run the ladder.",
+    instruction: "Buy dips on the normal schedule. Do not jump ahead of the buy zones.",
   },
   {
     band: "NEUTRAL",
@@ -100,7 +100,7 @@ const BANDS: Array<{
     cashFloorPct: 40,
     favour: ["Oil and gas", "Fertiliser", "High-dividend banks", "Staples", "Cash"],
     avoid: ["Autos", "Cement", "Consumer discretionary", "High beta", "Leveraged names"],
-    instruction: "Hold cash. Deploy only at deep support, only the planned rung.",
+    instruction: "Hold cash. Buy only in the deeper zones, only planned sizes.",
   },
   {
     band: "CRISIS",
@@ -109,7 +109,7 @@ const BANDS: Array<{
     cashFloorPct: 60,
     favour: ["Cash", "Short duration", "USD earners", "Highest-quality dividend payers"],
     avoid: ["Growth", "Leverage", "Anything illiquid"],
-    instruction: "Capital preservation first. The ladder waits for its lowest rungs.",
+    instruction: "Capital preservation first. Wait for the deepest zones.",
   },
 ];
 

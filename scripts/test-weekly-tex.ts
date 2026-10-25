@@ -1,11 +1,13 @@
-// The weekly plan's LaTeX (lib/statement/weekly-template): the strategy
-// section and the month's rates, escaped; nothing when there is no strategy.
+// The weekly plan's LaTeX (lib/statement/weekly-template): the week's answer
+// from the buy zones, the strategy section and the month's rates, escaped;
+// nothing when there is no strategy.
 //
 //   npx tsx scripts/test-weekly-tex.ts                 # checks only
 //   npx tsx scripts/test-weekly-tex.ts --out week.tex  # also writes the full fixture
 
 import { writeFileSync } from "node:fs";
-import { buildWeeklyTex, type WeeklyReportData } from "../lib/statement/weekly-template";
+import { buildWeeklyTex, weekAction, type WeeklyReportData } from "../lib/statement/weekly-template";
+import type { Tranche } from "../lib/strategy/plan";
 
 let pass = 0, fail = 0;
 function check(name: string, cond: boolean, got?: unknown) {
@@ -41,14 +43,11 @@ const base: WeeklyReportData = {
   cashPlaces: [{ label: "MCB Cash Management Optimizer", pkr: 101000, yieldPct: 10.25 }],
   cashLocked: [{ label: "Bank Alfalah FD", pkr: 10000, until: "2027-01-12" }],
   gateLine: null,
-  poolCutLine: null,
   indexName: "KSE-100",
   indexLevel: 170_511,
-  indexAsOf: "10 Oct",
-  ladderAction: "WAIT",
-  ladderLine: "No rung reached.",
-  rungs: [],
-  ladderWarnings: [],
+  indexAsOf: "2026-10-10",
+  action: "WAIT",
+  actionLine: "KSE-100 170,511. Next zone 163,400–166,850: Rs 20,000.",
   positions: [{ symbol: "MEBL", weightPct: 21.8, value: 450_000, priceKnown: true }],
   parked: [],
   strategy: {
@@ -76,6 +75,25 @@ const none = buildWeeklyTex({ ...base, strategy: null });
 check("no strategy: no section", !none.includes("bfseries Strategy") && none.includes("bfseries Regime"));
 const noRates = buildWeeklyTex({ ...base, strategy: { ...base.strategy!, rates: null } });
 check("no rates: steps without the table", noRates.includes("bfseries Strategy") && !noRates.includes("Rates, "));
+check("no ladder section", !tex.includes("The ladder") && !tex.includes("rung"));
+check("the index beside the strategy heading, its date", tex.includes("{\\large\\bfseries Strategy}\\quad{\\small KSE-100 at 170,511 (10 Oct 2026)}"));
+check("waiting: the no-action box, the next zone, dashes safe", tex.includes("NO ACTION THIS WEEK") && tex.includes("Next zone 163,400--166,850: Rs 20,000."));
+const go = buildWeeklyTex({ ...base, action: "DEPLOY", actionLine: "Put Rs 30,000 to work: KSE-100 160,000 is in zone 1 (158,900–165,000)." });
+check("deploying: the action box", go.includes("{\\bfseries ACTION THIS WEEK") && go.includes("Put Rs 30,000 to work"));
+
+// The week's answer.
+const z = (n: number, low: number, high: number, amount: number, due: boolean): Tranche => ({ n, kind: "support", low, high, why: "", drawdownPct: 0, kseLevel: high, amount, due });
+const zones = [z(1, 158_900, 165_000, 30_000, false), z(2, 150_000, 156_000, 20_000, false), z(3, 139_000, 145_000, 10_000, false)];
+const a1 = weekAction({ level: 168_000, tranches: zones, allocationLine: "", gate: null });
+check("above every zone: wait for the next one", a1.action === "WAIT" && a1.line === "KSE-100 168,000. Next zone 158,900–165,000: Rs 30,000.", a1.line);
+const a2 = weekAction({ level: 155_000, tranches: zones.map((t) => ({ ...t, due: (t.high ?? 0) >= 155_000 })), allocationLine: "", gate: null });
+check("in zone 2: both reached zones' money, the next deeper zone not", a2.action === "DEPLOY" && a2.line === "Put Rs 50,000 to work: KSE-100 155,000 is in zones 1 (158,900–165,000), 2 (150,000–156,000).", a2.line);
+const a3 = weekAction({ level: 155_000, tranches: zones.map((t) => ({ ...t, due: true })), allocationLine: "", gate: "No buying: stocks are 98.0% of your book, above your 60% target." });
+check("stocks over target: no buying, whatever the zones", a3.action === "WAIT" && a3.line === "No buying: stocks are 98.0% of your book, above your 60% target. KSE-100 155,000.", a3.line);
+const a4 = weekAction({ level: 160_000, tranches: zones.map((t) => ({ ...t, amount: 0 })), allocationLine: "Stocks 60.0%: on target", gate: null });
+check("no room: the allocation line", a4.action === "WAIT" && a4.line === "KSE-100 160,000. Stocks 60.0%: on target.", a4.line);
+const a5 = weekAction({ level: null, tranches: zones, allocationLine: "", gate: null });
+check("no index level: says so", a5.action === "WAIT" && a5.line === "No KSE-100 level this week.", a5.line);
 
 const out = process.argv.indexOf("--out");
 if (out > 0 && process.argv[out + 1]) {

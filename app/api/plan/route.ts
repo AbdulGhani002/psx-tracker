@@ -7,14 +7,6 @@ import { getAutoSignalsCached } from "@/lib/feeds/regime";
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
-const rung = z.object({
-  level: z.number().positive(),
-  pct: z.number().min(0).max(100),
-  label: z.string().default(""),
-  firedAt: z.string().default(""),
-  firedAmount: z.number().min(0).default(0),
-});
-
 const cashSource = z.object({
   label: z.string().min(1),
   kind: z.enum(["available", "receivable", "expected"]),
@@ -35,12 +27,6 @@ const manual = z.object({
 
 const patchSchema = z
   .object({
-    indexName: z.string().min(1).optional(),
-    rungs: z.array(rung).optional(),
-    poolAtArming: z.number().min(0).optional(),
-    armedAt: z.string().optional(),
-    ladderReservePct: z.number().min(0).max(100).optional(),
-    ladderCorePct: z.number().min(0).max(100).optional(),
     cashSources: z.array(cashSource).optional(),
     regimeManual: z.array(manual).optional(),
     weeklyReportEnabled: z.boolean().optional(),
@@ -83,12 +69,6 @@ export async function POST(req: NextRequest) {
       (patch as any).regimeJournal = [...existing, journalEntry].sort((a: any, b: any) =>
         String(a.month).localeCompare(String(b.month))
       );
-    }
-
-    // Arming stamps the pool, because every rung is a slice of the money that
-    // existed at that moment. Re-arming later is a deliberate act.
-    if (patch.poolAtArming != null && !patch.armedAt) {
-      (patch as any).armedAt = new Date().toISOString().slice(0, 10);
     }
 
     if (Object.keys(patch).length === 0) {

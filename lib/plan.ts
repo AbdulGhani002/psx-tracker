@@ -1,5 +1,5 @@
-// The plan: one view combining what the market is doing, what money is free,
-// and what the written rules say to do about it.
+// The plan: one view combining what the market is doing and what money is
+// free.
 //
 // Every screen and the weekly report read from here, so the dashboard, the plan
 // page and the PDF can never disagree with each other. If they showed different
@@ -16,14 +16,10 @@ import {
   getMutualFundsValued,
   getCashSummary,
   getAppSettings,
-  getLadderBuys,
   getFixedIncomeValued,
 } from "@/lib/data";
-import { runRuleCheck, getFallDistribution, type RuleCheck } from "@/lib/feeds/backtest";
-import type { DeployPlan } from "@/lib/calculations/deploy-plan";
 import { getAutoSignalsCached } from "@/lib/feeds/regime";
 import { scoreRegime, cashCheck, SIGNAL_HINTS, MANUAL_SIGNALS, MANUAL_SIGNAL_DAYS, manualAgeDays, type RegimeSignal, type RegimeVerdict } from "@/lib/calculations/regime";
-import { planLadder, ladderVerdict, suggestLadder, reweightLadder, cappedPool, type LadderPlan } from "@/lib/calculations/ladder";
 import { fetchUsdPkrSpot } from "@/lib/timeseries/yahoo";
 
 export type CashBreakdown = {
@@ -58,40 +54,15 @@ export type PlanView = {
   cash: CashBreakdown;
   cashPct: number;
   cashCheck: ReturnType<typeof cashCheck>;
-  ladder: LadderPlan;
-  ladderVerdict: ReturnType<typeof ladderVerdict>;
-  // A ladder shape drawn from how often the index has actually visited each
-  // level, offered when the written one has money parked where the market
-  // rarely goes. Empty when there is nothing to say.
-  ladderSuggestion: ReturnType<typeof suggestLadder>;
-  // The gentler correction: your own levels, reweighted by how often each one
-  // actually turns up. Offered first, because the levels are usually the part
-  // that was thought about.
-  ladderReweight: ReturnType<typeof reweightLadder>;
-  // What the ready rupees actually buy. Null when nothing is armed, so the page
-  // shows an order list only when there is an order to place.
-  ladderBuys: DeployPlan | null;
-  // How these same rules would have done against the record. Null when the
-  // index history has not been collected yet.
-  ruleCheck: RuleCheck | null;
   equityValue: number;
   netWorth: number;
   investable: number;
-  // The pool the ladder was armed with, when more than the money there is now
-  // (spent outside the ladder since): the rungs are cut from what is left.
-  poolCut: { armed: number; armedAt: string; now: number } | null;
   // The next 90 days of money in, dated (dividends, coupons, maturities), and
   // what the price rules' next adds would need. Never counted as cash in hand.
   calendar: CashCalendar | null;
   playbook: {
-    indexName: string;
-    poolAtArming: number;
-    armedAt: string;
-    ladderReservePct: number;
-    ladderCorePct: number;
     weeklyReportEnabled: boolean;
     weeklyReportEmail: string;
-    rungs: Array<{ level: number; pct: number; label: string; firedAt: string; firedAmount: number }>;
     regimeManual: Array<{ key: string; score: number; note: string; setAt: string }>;
     cashSources: CashBreakdown["manualRows"];
   };
@@ -236,100 +207,21 @@ export async function assemblePlan(): Promise<PlanView> {
   const investable = equityValue + available;
   const cashPct = investable > 0 ? (available / investable) * 100 : 0;
 
-  // --- ladder ----------------------------------------------------------------
-  // The pool is frozen at arming, so the ladder's own buys never shrink the
-  // rungs still to come. But it is never more than the money there is: what
-  // has a claim on it now plus what the ladder has already spent. Money spent
-  // outside the ladder since arming is gone, and the rungs are cut from what
-  // is left. Never armed: the money free right now.
-  const firedTotal = ((pb.rungs ?? []) as any[]).reduce((s, r) => s + (r.firedAt ? Number(r.firedAmount) || 0 : 0), 0);
-  const withClaim = available + receivable + expected;
-  const poolAtArming = cappedPool(Number(pb.poolAtArming) || 0, withClaim, firedTotal);
-  const poolCut = pb.poolAtArming > 0 && pb.poolAtArming > poolAtArming + 1 ? { armed: Number(pb.poolAtArming), armedAt: String(pb.armedAt ?? ""), now: poolAtArming } : null;
-
-  // The record of how far the index has fallen below its own high, so each rung
-  // can be judged on how often its level actually turns up rather than on how
-  // decisive it felt to write down.
-  const falls = await getFallDistribution().catch(() => null);
-  // Measured from the index's own peak, which is the same peak the distribution
-  // counts falls from. Today's level is the wrong reference: it would call a
-  // rung shallow simply because the market has already fallen toward it.
-  const refHigh = Math.max(falls?.peak ?? 0, auto.data?.indexLevel ?? 0);
-
   const calendar = await getCashCalendar().catch(() => null);
-
-  const ladder = planLadder({
-    indexName: pb.indexName || "KSE-100",
-    indexLevel: auto.data?.indexLevel ?? 0,
-    indexAsOf: auto.data?.indexAsOf ?? "",
-    rungs: (pb.rungs ?? []) as any,
-    poolAtArming,
-    poolNow: available,
-    reservePct: pb.ladderReservePct ?? 10,
-    corePct: pb.ladderCorePct ?? 0,
-    referenceHigh: refHigh,
-    fallDistribution: falls?.dist,
-    // Only money with a claim on it can fund a rung. "Expected" is included
-    // because it is dated and the plan should say WHEN a rung becomes payable,
-    // but it is never counted as cash in hand.
-    // The cash calendar's dated money (dividends, coupons, maturities) is
-    // added on the same terms.
-    fundingSources: [
-      ...manualRows.filter((r) => r.kind === "receivable" || r.kind === "expected").map((r) => ({ label: r.label, pkr: r.pkr, expectedDate: r.expectedDate })),
-      ...(calendar?.items ?? []).map((x) => ({ label: x.label, pkr: x.pkr, expectedDate: x.date })),
-    ],
-  });
-
-  // The names the ready money buys, and how the rules have actually performed.
-  // Both are best-effort: a failure here must never take the plan down with it,
-  // because the ladder verdict above is the part you act on.
-  const [ladderBuys, ruleCheck] = await Promise.all([
-    ladder.readyAmount > 0 ? getLadderBuys(ladder.readyAmount).catch(() => null) : Promise.resolve(null),
-    runRuleCheck({
-      rungs: (pb.rungs ?? []) as any,
-      reservePct: pb.ladderReservePct ?? 10,
-      armedAt: pb.armedAt ?? "",
-      // Sized off the real book so the test is about this portfolio, not a
-      // textbook one. The monthly figure is what the fund has been growing by.
-      startCash: Math.max(50000, Math.round(available)),
-      monthlyContribution: Math.max(0, Math.round(fundEarnedPerDay * 30)),
-      cashYieldPct: 11,
-    }).catch(() => null),
-  ]);
-
-  // Only offered when the written ladder actually has a problem. A suggestion
-  // shown next to a sound ladder is noise, and noise is how a warning stops
-  // being read.
-  const offerFix = ladder.deadPct > 0 && !!falls?.dist?.length;
-  const ladderSuggestion = offerFix ? suggestLadder(falls!.dist, refHigh, Math.max(2, ladder.rows.length)) : [];
-  const ladderReweight = offerFix ? reweightLadder(ladder.rows, falls!.dist, refHigh) : [];
 
   return {
     regime,
     regimeStale: auto.stale,
-    ladderBuys,
-    ruleCheck,
-    ladderSuggestion,
-    ladderReweight,
     cash,
     cashPct,
     cashCheck: cashCheck(regime, cashPct),
-    ladder,
-    ladderVerdict: ladderVerdict(ladder),
     equityValue,
     netWorth: Number(netWorth?.total ?? 0),
     investable,
-    poolCut,
     calendar,
     playbook: {
-      indexName: pb.indexName || "KSE-100",
-      poolAtArming,
-      armedAt: pb.armedAt ?? "",
-      ladderReservePct: pb.ladderReservePct ?? 10,
-      ladderCorePct: pb.ladderCorePct ?? 0,
       weeklyReportEnabled: !!pb.weeklyReportEnabled,
       weeklyReportEmail: pb.weeklyReportEmail ?? "",
-      rungs: (pb.rungs ?? []) as any,
       regimeManual: (pb.regimeManual ?? []) as any,
       cashSources: manualRows,
     },

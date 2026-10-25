@@ -2,9 +2,11 @@
 // can be tested without a database.
 //
 // The monthly statement answers "what happened". This one answers "what should
-// I be doing on Monday", which is a different document: regime first, then the
-// money available, then the levels that would spend it. It is deliberately one
-// page of decisions rather than a page of performance.
+// I be doing on Monday", which is a different document: the week's answer
+// first, then the strategy behind it, the regime and the money available. It
+// is deliberately one page of decisions rather than a page of performance.
+
+import { zoneRange, type Tranche } from "../strategy/plan";
 
 export type WeeklyReportData = {
   weekKey: string; // FY26-27-W10
@@ -39,25 +41,15 @@ export type WeeklyReportData = {
   cashLocked: Array<{ label: string; pkr: number; until: string }>; // deposits and bills not counted until they mature
   cashComing?: { in90: number; dividends: number; fixed: number; needs: number; shortBy: number } | null; // the cash calendar, not counted as cash
   // Stocks above the allocation target: the week's answer is no buying,
-  // whatever the ladder's next rung says.
+  // whatever the buy zones say.
   gateLine: string | null;
-  poolCutLine: string | null; // the ladder re-cut from the money there is now
 
-  // ladder
+  // the week's answer, from the strategy's buy zones (weekAction)
   indexName: string;
   indexLevel: number;
   indexAsOf: string;
-  ladderAction: string; // DEPLOY | WAIT | SET_UP
-  ladderLine: string;
-  rungs: Array<{
-    level: number;
-    pct: number;
-    label: string;
-    amount: number;
-    status: string;
-    moveRequiredPct: number;
-  }>;
-  ladderWarnings: string[];
+  action: string; // DEPLOY | WAIT
+  actionLine: string;
 
   // positions
   positions: Array<{ symbol: string; weightPct: number; value: number; priceKnown: boolean }>;
@@ -80,6 +72,25 @@ const esc = (s: string): string =>
 
 const rs = (v: number): string => `Rs ${Math.round(v).toLocaleString("en-PK")}`;
 const sgn = (v: number): string => (v >= 0 ? `+${v}` : `$-$${Math.abs(v)}`);
+const dashed = (s: string): string => esc(s).replace(/–/g, "--");
+
+// The week's answer from the strategy alone: no buying with stocks above their
+// target; the money due when the KSE-100 is in a buy zone; otherwise the next
+// zone and what it would put to work.
+export function weekAction(i: { level: number | null; tranches: Tranche[]; allocationLine: string; gate: string | null }): { action: "DEPLOY" | "WAIT"; line: string } {
+  if (i.level == null || !(i.level > 0)) return { action: "WAIT", line: "No KSE-100 level this week." };
+  const at = `KSE-100 ${Math.round(i.level).toLocaleString("en-PK")}`;
+  if (i.gate) return { action: "WAIT", line: `${i.gate} ${at}.` };
+  const live = i.tranches.filter((t) => t.amount >= 1);
+  const due = live.filter((t) => t.due);
+  const next = live.find((t) => !t.due);
+  if (due.length) {
+    const amount = due.reduce((s, t) => s + t.amount, 0);
+    return { action: "DEPLOY", line: `Put ${rs(amount)} to work: ${at} is in zone${due.length > 1 ? "s" : ""} ${due.map((t) => `${t.n} (${zoneRange(t)})`).join(", ")}.` };
+  }
+  if (next) return { action: "WAIT", line: `${at}. Next zone ${zoneRange(next)}: ${rs(next.amount)}.` };
+  return { action: "WAIT", line: `${at}. ${i.allocationLine.replace(/\.$/, "")}.` };
+}
 
 // Weeks of the financial year (July to June), counted in Karachi: week 1 is
 // 1 to 7 July, week 2 from 8 July, and so on to week 53 at the end of June.
@@ -104,15 +115,6 @@ export function buildWeeklyTex(d: WeeklyReportData): string {
     )
     .join("\n");
 
-  const rungRows = d.rungs
-    .map(
-      (r) =>
-        `${Math.round(r.level).toLocaleString("en-PK")} & ${r.pct.toFixed(0)}\\% & ${rs(r.amount)} & ${esc(
-          r.label || "---"
-        )} & ${r.status === "READY" ? "\\bfseries READY" : r.status === "FIRED" ? "fired" : `${r.moveRequiredPct.toFixed(1)}\\%`} \\\\`
-    )
-    .join("\n");
-
   const posRows = d.positions
     .map(
       (p) =>
@@ -122,12 +124,13 @@ export function buildWeeklyTex(d: WeeklyReportData): string {
     )
     .join("\n");
 
+  const day = (iso: string) => (/^\d{4}-\d{2}-\d{2}/.test(iso) ? new Date(iso.slice(0, 10) + "T00:00:00Z").toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" }) : iso);
   const st = d.strategy;
   const strategyBlock = st
     ? `\\vspace{12pt}
-{\\large\\bfseries Strategy}\\par
+{\\large\\bfseries Strategy}${d.indexLevel > 0 ? `\\quad{\\small ${esc(d.indexName)} at ${Math.round(d.indexLevel).toLocaleString("en-PK")}${d.indexAsOf ? ` (${esc(day(d.indexAsOf))})` : ""}}` : ""}\\par
 \\vspace{3pt}
-${st.steps.map((x) => `\\textbullet\\ ${esc(x)}\\par`).join("\n")}
+${st.steps.map((x) => `\\textbullet\\ ${dashed(x)}\\par`).join("\n")}
 ${st.zones.length ? `\\vspace{2pt}{\\footnotesize Buy zones: ${st.zones.map((z, k) => `${k + 1}) ${esc(z.range).replace(/–/g, "--")} ${esc(z.why).replace(/·/g, "/")}${z.reached ? ", reached" : ""}`).join("; ")}.}\\par` : ""}
 ${
   st.rates
@@ -140,12 +143,8 @@ ${st.rates.values.map(([, v]) => (v == null ? "---" : `${v.toFixed(2)}\\%`)).joi
 }`
     : "";
 
-  const deploy = d.ladderAction === "DEPLOY";
-  const actionText = d.ladderLine;
-  const actionBox = deploy
-    ? `\\fbox{\\parbox{\\dimexpr\\textwidth-2\\fboxsep-2\\fboxrule}{\\bfseries ACTION THIS WEEK\\par\\vspace{3pt}\\normalfont ${esc(actionText)}}}`
-    : `\\fbox{\\parbox{\\dimexpr\\textwidth-2\\fboxsep-2\\fboxrule}{\\bfseries NO ACTION THIS WEEK\\par\\vspace{3pt}\\normalfont ${esc(actionText)}}}`;
-  const day = (iso: string) => (/^\d{4}-\d{2}-\d{2}/.test(iso) ? new Date(iso.slice(0, 10) + "T00:00:00Z").toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" }) : iso);
+  const deploy = d.action === "DEPLOY";
+  const actionBox = `\\fbox{\\parbox{\\dimexpr\\textwidth-2\\fboxsep-2\\fboxrule}{\\bfseries ${deploy ? "ACTION THIS WEEK" : "NO ACTION THIS WEEK"}\\par\\vspace{3pt}\\normalfont ${dashed(d.actionLine)}}}`;
   const placeRows = d.cashPlaces.map((p) => `\\quad ${esc(p.label)}${p.yieldPct != null ? ` (${p.yieldPct.toFixed(2)}\\%)` : ""} & ${rs(p.pkr)} \\\\`).join("\n");
   const lockedRows = d.cashLocked.map((p) => `${esc(p.label)}, locked to ${esc(day(p.until))} & ${rs(p.pkr)} \\\\`).join("\n");
 
@@ -201,19 +200,6 @@ Cash is ${d.cashPct.toFixed(0)}\\% of investable. ${esc(d.cashCheckLine)}\\par
 ${d.fundEarnedPerDay > 0 ? `\\vspace{2pt}{\\footnotesize The money-market fund earns about ${rs(d.fundEarnedPerDay)} a day: ${rs(d.fundEarnedWeek)} over the past week, for the days it was held.}\\par` : ""}
 
 \\vspace{12pt}
-{\\large\\bfseries The ladder}\\quad{\\small ${esc(d.indexName)} at ${Math.round(d.indexLevel).toLocaleString("en-PK")}${
-    d.indexAsOf ? ` (${esc(d.indexAsOf)})` : ""
-  }}\\par
-\\vspace{4pt}
-${d.poolCutLine ? `{\\footnotesize ${esc(d.poolCutLine)}}\\par\\vspace{3pt}` : ""}
-${
-  d.rungs.length
-    ? `\\begin{tabular}{@{}rrrll@{}}\\toprule Level & Share & Amount & Note & Status \\\\\\midrule\n${rungRows}\n\\bottomrule\\end{tabular}`
-    : "{\\footnotesize No ladder set. Until the levels are written down there is no rule, only mood.}"
-}
-${d.ladderWarnings.length ? `\\vspace{4pt}\\par{\\footnotesize ${esc(d.ladderWarnings.join(" "))}}\\par` : ""}
-
-\\vspace{12pt}
 {\\large\\bfseries Positions}\\par
 \\vspace{4pt}
 ${
@@ -224,7 +210,7 @@ ${
 ${d.parked.length ? `\\par\\vspace{3pt}{\\footnotesize Parked, in net worth but not in these weights: ${esc(d.parked.map((p) => `${p.symbol} ${p.shares.toLocaleString()}`).join(", "))}.}` : ""}
 
 \\vspace{14pt}\\hrule\\vspace{4pt}
-{\\footnotesize The ladder is a rule, not a forecast. It tells you what your own levels commit you to this week and nothing more. Nothing here is advice, and nothing trades itself.}
+{\\footnotesize The buy zones come from the data, not from levels typed in. Nothing here is advice, and nothing trades itself.}
 
 \\end{document}
 `;
