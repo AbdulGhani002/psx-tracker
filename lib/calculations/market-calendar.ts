@@ -6,7 +6,8 @@
 // April, May, September and October, and November. T-bill auctions follow
 // the last one kept, a fortnight apart. MPC days are caught from the news
 // headlines that announce them (and SBP's yearly schedule when it is
-// published). Pure, so scripts/test-market-calendar.ts runs it.
+// published), and the policy rate decided from the articles that report it.
+// Pure, so scripts/test-market-calendar.ts runs it.
 
 export type CalEvent = { date: string; title: string; kind: string; about: boolean; source: string };
 
@@ -118,6 +119,85 @@ export function mpcFromSchedule(text: string, today: string): string[] {
   }
   const ahead = [...found].filter((d) => d > today && t(d) - t(today) <= 400 * DAY).sort();
   return ahead.length >= 4 ? ahead : [];
+}
+
+// A headline that reports the State Bank's decision on its policy rate: "SBP
+// hikes policy rate by 0.5% to 12%", "SBP keeps policy rate unchanged at
+// 11%". Not a forecast, a poll or the market's reaction.
+export function policyDecisionHeadline(headline: string): boolean {
+  const h = headline.replace(/-/g, " ").replace(/\s+/g, " ").toLowerCase();
+  if (!/\b(sbp|mpc|state bank)\b/.test(h) || !/\b(policy|interest|discount|key) rate\b/.test(h)) return false;
+  if (!/\b(hikes?|hiked|raises?|raised|increases?|increased|cuts?|slash(es|ed)?|reduces?|reduced|lowers?|lowered|keeps?|kept|maintains?|maintained|holds?|held|unchanged|leaves?|left)\b/.test(h)) return false;
+  return !/\b(expect\w*|likely|poll|survey\w*|analysts?|may|might|could|should|seen|forecast\w*|preview|ahead|will|what|how|why|before|after|if)\b/.test(h);
+}
+
+export type PolicyDecision = { decided: string; from: string; rate: number; move: "up" | "down" | "same" };
+
+const rateIn = (s: string): number | null => {
+  const m = s.match(/\b(?:to|at)\s+(\d{1,2}(?:\.\d{1,2})?)\s*(?:%|per\s?cent\b|pc\b)/i);
+  const v = m ? Number(m[1]) : NaN;
+  return v >= 1 && v <= 40 ? v : null;
+};
+
+function dateAfter(text: string, lead: string): string | null {
+  let m = text.match(new RegExp(`${lead} (?:[a-z]+day,? )?${MONTH_RE} (\\d{1,2})(?:st|nd|rd|th)?,? (\\d{4})`, "i"));
+  if (m) return dateFrom(Number(m[2]), monthNo(m[1]), "2000-01-01", Number(m[3]));
+  m = text.match(new RegExp(`${lead} (?:[a-z]+day,? )?(\\d{1,2})(?:st|nd|rd|th)? ${MONTH_RE},? (\\d{4})`, "i"));
+  return m ? dateFrom(Number(m[1]), monthNo(m[2]), "2000-01-01", Number(m[3])) : null;
+}
+
+// The decision such an article reports: the rate (from the headline, else the
+// sentence on the policy rate), the meeting day (else the day it was
+// published) and the day it takes effect (stated, else the next day, as
+// SBP's own history dates every step).
+export function policyDecisionFrom(headline: string, text: string, published: string | null): PolicyDecision | null {
+  if (!policyDecisionHeadline(headline)) return null;
+  const h = headline.toLowerCase();
+  const move = /\b(hike|raise|increase)/.test(h) ? "up" : /\b(cut|slash|reduce|lower)/.test(h) ? "down" : "same";
+  const at = text.search(/policy rate/i);
+  const rate = rateIn(headline) ?? (at >= 0 ? rateIn(text.slice(at, at + 300)) : null);
+  const decided = dateAfter(text, "meeting(?: held)? on") ?? (published && /^\d{4}-\d{2}-\d{2}/.test(published) ? published.slice(0, 10) : null);
+  if (rate == null || !decided) return null;
+  const stated = dateAfter(text, "(?:with )?effect(?:ive)? (?:from|on)");
+  const from = stated && stated >= decided ? stated : iso(t(decided) + DAY);
+  return { decided, from, rate, move };
+}
+
+// Mettis Global's policy-rate chart: a row a meeting month ("Oct ,26", 12),
+// oldest first. Each month is dated by its MPC day kept, and the decision
+// takes effect the next day; a month with no MPC day kept is left out.
+export function chartDecisions(rows: Array<{ Value?: unknown; DateTime?: unknown }>, mpcDays: string[], today: string): PolicyDecision[] {
+  const out: PolicyDecision[] = [];
+  let prev: number | null = null;
+  for (const r of rows) {
+    const m = String(r.DateTime ?? "").trim().match(/^([A-Za-z]{3})[a-z]*\s*,\s*(\d{2})$/);
+    const rate = Number(r.Value);
+    if (!m || monthNo(m[1]) < 1 || !(rate >= 1 && rate <= 40)) continue;
+    const month = `20${m[2]}-${pad(monthNo(m[1]))}`;
+    const day = mpcDays.filter((d) => d.startsWith(month) && d <= today).sort().pop();
+    if (day) out.push({ decided: day, from: iso(t(day) + DAY), rate, move: prev == null || rate === prev ? "same" : rate > prev ? "up" : "down" });
+    prev = rate;
+  }
+  return out;
+}
+
+// The last MPC day two to seven days gone with no decision read within a day
+// of it: the rate may have moved without the app knowing.
+export function missedMpc(mpcDays: string[], decided: string[], today: string): string | null {
+  const day = mpcDays.filter((d) => t(today) - t(d) >= 2 * DAY && t(today) - t(d) <= 7 * DAY).sort().pop();
+  if (!day) return null;
+  return decided.some((d) => Math.abs(t(d) - t(day)) <= DAY) ? null : day;
+}
+
+export function missedMpcMessage(day: string): string {
+  const d = new Date(t(day)).toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short", timeZone: "UTC" });
+  return `⚠️ <b>MPC of ${d}</b>: no decision found in the news. The policy rate may be out of date.`;
+}
+
+export function policyMessage(step: { from: string; rate: number }, before: number | null): string {
+  const d = new Date(t(step.from)).toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short", timeZone: "UTC" });
+  const ch = before == null || before === step.rate ? "" : `, ${step.rate > before ? "up" : "down"} ${Math.abs(step.rate - before).toFixed(2)}`;
+  return `🏦 <b>Policy rate ${step.rate}%</b>${ch}, from ${d}.`;
 }
 
 // The rule's dates where nothing announced covers the same kind that day.

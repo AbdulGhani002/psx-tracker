@@ -1,9 +1,11 @@
-// The market's dates worked out by rule and caught from headlines
-// (lib/calculations/market-calendar).
+// The market's dates worked out by rule and caught from headlines, and the
+// policy rate's decisions read from the articles
+// (lib/calculations/market-calendar, lib/timeseries/sbp-rate).
 //
 //   npx tsx scripts/test-market-calendar.ts
 
-import { auctionEvents, eventsMessage, firstWorkingDay, futuresExpiry, mergeEvents, mpcFromHeadline, mpcFromSchedule, nextTradingDay, ruleEvents } from "../lib/calculations/market-calendar";
+import { auctionEvents, chartDecisions, eventsMessage, firstWorkingDay, futuresExpiry, mergeEvents, missedMpc, missedMpcMessage, mpcFromHeadline, mpcFromSchedule, nextTradingDay, policyDecisionFrom, policyDecisionHeadline, policyMessage, ruleEvents } from "../lib/calculations/market-calendar";
+import { policyRateOn, withNewerSteps } from "../lib/timeseries/sbp-rate";
 
 let pass = 0, fail = 0;
 function check(name: string, cond: boolean, got?: unknown) {
@@ -48,6 +50,40 @@ const fri = eventsMessage(all, "2026-10-23", holidays);
 check("Friday evening: Monday's dates", fri === "📅 <b>Coming up</b>\nMonday 26 Oct: MPC decision", fri);
 check("the evening before: tomorrow", eventsMessage(all, "2026-10-29", holidays) === "📅 <b>Coming up</b>\nTomorrow: PSX futures expiry · Results due: quarters to September");
 check("nothing due: no message", eventsMessage(all, "2026-10-26", holidays) === null);
+
+// The policy rate's decisions.
+const yes = ["SBP-hikes-policy-rate-by-05", "SBP keeps policy rate unchanged at 11%", "SBP cuts policy rate by 100bps to 10.5%", "MPC maintains policy rate at 11.5pc", "State Bank slashes interest rate by 150bps to 13%"];
+check("decision headlines", yes.every(policyDecisionHeadline), yes.filter((h) => !policyDecisionHeadline(h)));
+const no = ["Analysts expect SBP to hike policy rate by 50bps", "SBP likely to keep policy rate unchanged: poll", "SBP-raises-Rs880bn-through-MTB-auction", "KSE-100 falls after SBP hikes policy rate", "MPC-How-the-SBPs-language-has-changed-over-21-years", "SBP-sees-forex-reserves-at-25bn-by-June-2027", "Will SBP cut the policy rate?"];
+check("not decisions: forecasts, polls, auctions, reactions", !no.some(policyDecisionHeadline), no.filter(policyDecisionHeadline));
+const body = "SBP hikes policy rate by 0.5% to 12% MG News | October 26, 2026 at 03:55 PM October 26, 2026 (MLN): The Monetary Policy Committee (MPC) raised the policy rate by 50 basis points to 12% at its meeting on October 26, 2026. The move was in line with market expectations.";
+const hike = policyDecisionFrom("SBP hikes policy rate by 0.5% to 12%", body, "2026-10-26T15:55:11Z");
+check("a hike: the rate, the meeting, in force the next day", JSON.stringify(hike) === JSON.stringify({ decided: "2026-10-26", from: "2026-10-27", rate: 12, move: "up" }), hike);
+const slugOnly = policyDecisionFrom("SBP hikes policy rate by 05", body, null);
+check("the rate from the article when the headline lacks it", slugOnly?.rate === 12 && slugOnly.decided === "2026-10-26", slugOnly);
+const stated = policyDecisionFrom("SBP cuts policy rate by 100bps to 10.5%", "The MPC decided to cut the policy rate by 100 bps to 10.5 percent, effective from December 17, 2025.", "2025-12-15T16:10:00Z");
+check("a stated day of effect; the day published when no meeting is named", stated?.from === "2025-12-17" && stated.decided === "2025-12-15" && stated.move === "down" && stated.rate === 10.5, stated);
+const hold = policyDecisionFrom("SBP keeps policy rate unchanged at 11%", "The MPC kept the policy rate at 11% at its meeting held on Monday, 15 September 2025.", "2025-09-15T15:00:00Z");
+check("a hold", hold?.move === "same" && hold.rate === 11 && hold.decided === "2025-09-15", hold);
+check("no rate, no decision", policyDecisionFrom("SBP hikes policy rate", "The MPC raised the policy rate by 50 basis points.", "2026-10-26T15:55:11Z") === null);
+check("the message", policyMessage({ from: "2026-10-27", rate: 12 }, 11.5) === "🏦 <b>Policy rate 12%</b>, up 0.50, from Tue 27 Oct.", policyMessage({ from: "2026-10-27", rate: 12 }, 11.5));
+
+// Mettis's policy-rate chart, dated by the MPC days kept.
+const chartRows = [{ Value: 11.5, DateTime: "Apr ,26" }, { Value: 11.5, DateTime: "Jun ,26" }, { Value: 11.5, DateTime: "Jul ,26" }, { Value: 11.5, DateTime: "Sep ,26" }, { Value: 12.0, DateTime: "Oct ,26" }];
+const fromChart = chartDecisions(chartRows, ["2026-04-27", "2026-10-26", "2026-12-14"], "2026-10-27");
+check("chart: each month with an MPC day kept, in force the next day; the rise marked", JSON.stringify(fromChart) === JSON.stringify([{ decided: "2026-04-27", from: "2026-04-28", rate: 11.5, move: "same" }, { decided: "2026-10-26", from: "2026-10-27", rate: 12, move: "up" }]), fromChart);
+check("chart: a meeting still to come is not dated from it", chartDecisions(chartRows, ["2026-10-26"], "2026-10-25").length === 0);
+check("chart: rows it cannot read are left out", chartDecisions([{ Value: "x", DateTime: "Oct ,26" }, { Value: 12, DateTime: "October" }], ["2026-10-26"], "2026-10-27").length === 0);
+check("missed: an MPC day 2 to 7 days gone with no decision read", missedMpc(["2026-12-14"], [], "2026-12-16") === "2026-12-14" && missedMpc(["2026-12-14"], ["2026-12-14"], "2026-12-16") === null && missedMpc(["2026-12-14"], [], "2026-12-15") === null && missedMpc(["2026-12-14"], [], "2026-12-22") === null);
+check("missed: the message", missedMpcMessage("2026-12-14") === "⚠️ <b>MPC of Mon 14 Dec</b>: no decision found in the news. The policy rate may be out of date.", missedMpcMessage("2026-12-14"));
+
+// The kept record and newer word.
+const record = [{ from: "2025-05-06", rate: 11 }, { from: "2025-12-16", rate: 10.5 }, { from: "2026-04-28", rate: 11.5 }, { from: "2026-10-27", rate: 12 }];
+const old = withNewerSteps(record, [{ from: "2026-07-16", rate: 11.5, src: "live" }, { from: "2026-10-01", rate: 11.5, src: "monthly" }]);
+check("older or equal word adds nothing", old.steps.length === 4 && old.steps[0].from === "2026-10-27" && old.src === null, old);
+const later = withNewerSteps(record, [{ from: "2026-12-01", rate: 12, src: "monthly" }, { from: "2027-02-01", rate: 11, src: "monthly" }]);
+check("a later change is added, newest first", later.steps[0].from === "2027-02-01" && later.steps[0].rate === 11 && later.steps.length === 5 && later.src === "monthly", later.steps.slice(0, 2));
+check("in force: the old rate on the day, the new one the day after", policyRateOn("2026-10-26", record) === 11.5 && policyRateOn("2026-10-27", record) === 12 && policyRateOn("2026-04-24", record) === 10.5);
 
 console.log(`\n${pass} passed, ${fail} failed`);
 if (fail > 0) process.exit(1);

@@ -2,7 +2,7 @@
 // Fixture values are the REAL published PBS index (base 2015/2016).
 // Run: npx tsx scripts/test-inflation.ts     (LIVE=1 also hits pbs.gov.pk)
 
-import { parseCpiSdmx, shiftMonths, realReturnPct, fetchInflation } from "../lib/feeds/inflation";
+import { parseCpiSdmx, shiftMonths, realReturnPct, fetchInflation, extendCpi } from "../lib/feeds/inflation";
 
 let pass = 0;
 let fail = 0;
@@ -80,6 +80,21 @@ near("naive would have said", 11.5 - 11.07, 0.43);
 near("zero inflation → unchanged", realReturnPct(11.5, 0), 11.5);
 // High inflation is where naive subtraction lies most.
 near("30% nominal vs 25% inflation", realReturnPct(30, 25), 4.0, 0.001);
+
+console.log("\nMettis CPI chart extends the kept index (PBS feed gone)");
+// The server's kept PBS index to August 2026, and Mettis's chart on 27 Oct.
+const kept = [["2025-07", 271.94091051384737], ["2025-08", 270.35], ["2025-09", 276.01], ["2025-10", 280.66], ["2026-03", 285.72761295053306], ["2026-04", 292.8060801511648], ["2026-05", 294.3417001804952], ["2026-06", 293.471797760731], ["2026-07", 296.97135188109877], ["2026-08", 300.49612668509224]].map(([period, index]) => ({ period: period as string, index: index as number }));
+const chartRows = [{ Value: 9.2, Date: "Jul 31" }, { Value: 11.1, Date: "Aug 31" }, { Value: 10.3, Date: "Sep 30" }];
+const ext = extendCpi(kept, chartRows, "2026-10-27");
+is("one month added: September", ext ? ext.length - kept.length : null, 1);
+near("September's index from a year before at 10.3%", ext ? ext[ext.length - 1].index : null, 276.01 * 1.103, 1e-9);
+is("dated 2026-09", ext ? ext[ext.length - 1].period : null, "2026-09");
+is("nothing newer: nothing added", extendCpi(ext ?? kept, chartRows, "2026-10-27"), null);
+is("a month that disagrees with the kept index: refused", extendCpi(kept, [{ Value: 13.5, Date: "Aug 31" }, { Value: 10.3, Date: "Sep 30" }], "2026-10-27"), null);
+is("months out of order: refused", extendCpi(kept, [{ Value: 11.1, Date: "Aug 31" }, { Value: 9.2, Date: "Jul 31" }], "2026-10-27"), null);
+// Made-up figures: only the year matters here.
+const january = extendCpi([{ period: "2025-12", index: 280.53 }, { period: "2026-11", index: 300 }, { period: "2025-11", index: 281.78 }], [{ Value: (300 / 281.78 - 1) * 100, Date: "Nov 30" }, { Value: 8, Date: "Dec 31" }], "2027-01-03");
+is("in January, December is last year's", january ? january[january.length - 1].period : null, "2026-12");
 
 async function main() {
   if (process.env.LIVE === "1") {

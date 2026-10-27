@@ -1,10 +1,11 @@
 // SBP (State Bank of Pakistan) policy-rate history as a step function.
 //
-// This table is HISTORY ONLY — every entry is a real, past MPC decision. The
-// CURRENT rate is never hardcoded here: it is fetched live from SBP by
-// `lib/feeds/sbp.ts` and prepended to this list by `getSbpRateSteps()`.
-// The user can still override the whole curve from Settings (SbpRate
-// collection); when the DB has entries, those win.
+// The record the app works from is kept in the database (`rates:policy-
+// history`: SBP's own history back to 1991, extended by each decision read
+// from the news, lib/market-calendar). This table is only the last resort
+// when nothing is kept, and HISTORY ONLY — every entry is a real, past MPC
+// decision. The user can still override the whole curve from Settings
+// (SbpRate collection); when the DB has entries, those win.
 //
 // NEVER add a future-dated or guessed entry to this table. It previously held
 // two steps commented "illustrative"; their dates passed, so a placeholder
@@ -27,6 +28,25 @@ export const SBP_POLICY_RATE_DEFAULTS: RateStep[] = [
   { from: "2024-06-10", rate: 20.5 },
   { from: "2023-06-26", rate: 22.0 },
 ];
+
+// The kept record, then whatever newer word there is (the month's rate as
+// entered, SBP's own page): each only when it starts after the record's last
+// step and changes the rate. Newest first; `src` names where the newest step
+// came from, null when it is the record's own.
+export function withNewerSteps(kept: RateStep[], newer: Array<RateStep & { src: string }>): { steps: RateStep[]; src: string | null } {
+  const base = [...kept].sort((a, b) => b.from.localeCompare(a.from));
+  const last = base[0];
+  let rate = last?.rate;
+  let src: string | null = null;
+  const add: RateStep[] = [];
+  for (const s of newer.filter((s) => !last || s.from > last.from).sort((a, b) => a.from.localeCompare(b.from))) {
+    if (s.rate === rate) continue;
+    add.unshift({ from: s.from, rate: s.rate });
+    rate = s.rate;
+    src = s.src;
+  }
+  return { steps: [...add, ...base], src };
+}
 
 // Most recent rate effective on or before the given ISO date.
 // `steps` may be in any order; we copy + sort descending so callers don't have to.

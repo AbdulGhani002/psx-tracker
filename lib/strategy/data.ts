@@ -4,7 +4,8 @@ import { cache } from "react";
 import { connectDb } from "@/lib/db";
 import { RateSnapshotModel } from "@/lib/models";
 import { getCurrentUserId } from "@/lib/auth/current-user";
-import { getAppSettings, getPortfolioSummary, getMutualFundsValued, getSavingsValued, getFixedIncomeValued, getSbpLive, getInflationLive } from "@/lib/data";
+import { getAppSettings, getPortfolioSummary, getMutualFundsValued, getSavingsValued, getFixedIncomeValued, getSbpLive, getInflationLive, getSbpRateSteps } from "@/lib/data";
+import { policyRateOn } from "@/lib/timeseries/sbp-rate";
 import { eodSeriesCached } from "@/lib/timeseries/eod-cache";
 import { getQualityBoard } from "@/lib/fundamentals/board";
 import { whtPct } from "@/lib/calculations/pk-tax";
@@ -40,7 +41,7 @@ export const getRateSnapshots = cache(_getRateSnapshots);
 // carried forward with whatever SBP, PBS and your own accounts say now.
 async function _getRatesPrefill(): Promise<RatesPrefill> {
   const month = monthOf();
-  const [snaps, sbp, infl, savings, funds, settings, auction] = await Promise.all([getRateSnapshots(), getSbpLive().catch(() => null), getInflationLive().catch(() => null), getSavingsValued().catch(() => []), getMutualFundsValued().catch(() => []), getAppSettings(), latestTbillAuction().catch(() => null)]);
+  const [snaps, sbp, infl, savings, funds, settings, auction, policy] = await Promise.all([getRateSnapshots(), getSbpLive().catch(() => null), getInflationLive().catch(() => null), getSavingsValued().catch(() => []), getMutualFundsValued().catch(() => []), getAppSettings(), latestTbillAuction().catch(() => null), getSbpRateSteps().catch(() => null)]);
   const mine = snaps.find((s) => s.month === month);
   if (mine) return { values: mine, sources: {}, entered: true };
   const last = snaps[0];
@@ -65,16 +66,19 @@ async function _getRatesPrefill(): Promise<RatesPrefill> {
     if (last && last[k] != null) { sources[k] = `as you entered for ${last.month}`; return last[k]; }
     return null;
   };
+  // The policy rate: the newest decision kept (its day of effect may be
+  // tomorrow), else SBP's own page.
+  const decided = policy?.steps[0] ?? null;
   const values: Rates = {
     month,
-    policyPct: pick("policyPct", r?.policyRatePct ?? null, `SBP, ${sbpDate}`),
+    policyPct: pick("policyPct", decided?.rate ?? r?.policyRatePct ?? null, decided ? `SBP, from ${decided.from}` : `SBP, ${sbpDate}`),
     tbill3mPct: pick("tbill3mPct", cut("3M"), cutSource("3M")),
     tbill6mPct: pick("tbill6mPct", cut("6M"), cutSource("6M")),
     tbill12mPct: pick("tbill12mPct", cut("12M"), cutSource("12M")),
     sukukPct: pick("sukukPct", last?.sukukPct != null ? null : pib5, "the 5-year PIB yield, as a stand-in: enter the sukuk's own"),
     savingsPct: pick("savingsPct", bestSavings && bestSavings > 0 ? bestSavings : null, "your best savings account"),
     moneyMarketPct: pick("moneyMarketPct", mmf.length ? Math.max(...mmf) : null, "your money market fund, its last year"),
-    inflationPct: pick("inflationPct", infl?.yoyPct != null ? Math.round(infl.yoyPct * 100) / 100 : null, `PBS CPI, ${infl?.latest?.period ?? ""}`),
+    inflationPct: pick("inflationPct", infl?.yoyPct != null ? Math.round(infl.yoyPct * 100) / 100 : null, `${infl?.sourceUrl?.includes("mettis") ? "CPI via Mettis" : "PBS CPI"}, ${infl?.latest?.period ?? ""}`),
     taxPct: whtPct("profit-on-debt", settings as any),
   } as Rates;
   return { values, sources, entered: false };
@@ -94,7 +98,7 @@ export type StrategyView = {
 };
 
 async function _getStrategy(): Promise<StrategyView> {
-  const [settings, prefill, history, summary, funds, savings, fixed, kseSeries, board, forecasts] = await Promise.all([
+  const [settings, prefill, history, summary, funds, savings, fixed, kseSeries, board, forecasts, policy] = await Promise.all([
     getAppSettings(),
     getRatesPrefill(),
     getRateSnapshots(),
@@ -105,6 +109,7 @@ async function _getStrategy(): Promise<StrategyView> {
     eodSeriesCached("KSE100").catch(() => []),
     getQualityBoard().catch(() => null),
     getIndexForecasts().catch(() => null),
+    getSbpRateSteps().catch(() => null),
   ]);
   const profile = { risk: (["defensive", "balanced", "aggressive"].includes((settings as any).strategyRisk) ? (settings as any).strategyRisk : "balanced") as RiskProfile, horizon: (["short", "medium", "long"].includes((settings as any).strategyHorizon) ? (settings as any).strategyHorizon : "long") as Horizon };
 
@@ -143,8 +148,11 @@ async function _getStrategy(): Promise<StrategyView> {
   const names: StrategyName[] = (board?.rows ?? []).map((r) => ({ symbol: r.symbol, held: r.held, value: r.value, grade: r.q.grade, quadrant: r.q.quadrant, roeSpreadPp: r.q.spreadPp, dividendYieldPct: r.q.dividendYieldPct, marginOfSafetyPct: null }));
 
   const rates = prefill.values.policyPct != null || prefill.values.tbill12mPct != null ? prefill.values : null;
-  const prevRates = history.find((h) => h.month < (rates?.month ?? "9999")) ?? null;
   const today = new Date(Date.now() + 5 * 3600_000).toISOString().slice(0, 10);
+  // Which way the rate is going: today's against the one in force a quarter
+  // ago, from the kept decisions (the months entered are among them).
+  const quarterAgo = new Date(Date.parse(today + "T00:00:00Z") - 92 * 86400000).toISOString().slice(0, 10);
+  const prevRates = rates && policy?.steps.length ? { ...rates, month: quarterAgo.slice(0, 7), policyPct: policyRateOn(quarterAgo, policy.steps) } : history.find((h) => h.month < (rates?.month ?? "9999")) ?? null;
   // Where to buy the index: the model's buy zone for the month ahead (the
   // Model page's), past lows, a bad quarter, cheap against T-bills
   // (lib/strategy/zones.ts).

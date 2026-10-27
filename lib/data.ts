@@ -9,9 +9,9 @@ import { valueFixedIncome, fixedIncomeEvents, type FixedIncomeValue } from "./fi
 import { fetchFundamentals } from "./prices/fundamentals";
 import { fetchPayouts } from "./prices/payouts";
 import type { FundamentalsInput } from "./calculations/dividend-forecast";
-import { SBP_POLICY_RATE_DEFAULTS, policyRateOn, type RateStep } from "./timeseries/sbp-rate";
+import { SBP_POLICY_RATE_DEFAULTS, policyRateOn, withNewerSteps, type RateStep } from "./timeseries/sbp-rate";
 import { fetchSbpRatesDetailed, corridorAgrees, tbill12mPct, type SbpRates } from "./feeds/sbp";
-import { fetchInflation, type InflationData } from "./feeds/inflation";
+import { fetchInflation, fetchMettisCpi, type InflationData } from "./feeds/inflation";
 
 import { computeAttribution, type Attribution } from "./calculations/attribution";
 
@@ -712,26 +712,35 @@ export async function refreshSbpRates(): Promise<Record<string, unknown>> {
 // --- Inflation: fetched from PBS, never assumed ------------------------------
 // CPI is GLOBAL data. PBS publishes monthly, so a 24h TTL is generous. The app
 // used to default inflation to 0 (making every "real return" wrong by the whole
-// rate of inflation) and the income planner hardcoded 10.
+// rate of inflation) and the income planner hardcoded 10. PBS's feed went with
+// its old site in October 2026; Mettis Global's CPI chart then extends the kept
+// index month by month (feeds/inflation fetchMettisCpi).
 const INFLATION_TTL_MS = 24 * 60 * 60 * 1000;
 const INFLATION_KEY = "inflationPk";
+const cpiNote = (d: InflationData) => `CPI ${d.latest?.period} YoY ${d.yoyPct?.toFixed(2)}%${d.sourceUrl.includes("mettis") ? " (Mettis)" : ""}`;
+const pkDay = () => new Date(Date.now() + 5 * 3600_000).toISOString().slice(0, 10);
 
 async function _getInflationLive(): Promise<InflationData | null> {
   const snap = await getFeedSnapshot<InflationData>(INFLATION_KEY);
   const age = snap.updatedAt ? Date.now() - new Date(snap.updatedAt).getTime() : Infinity;
   if (snap.data != null && age < INFLATION_TTL_MS) return snap.data;
-  const live = await fetchInflation();
-  if (!live) return snap.data ?? null; // keep last-known-good rather than guess
-  await saveFeedSnapshot(INFLATION_KEY, live, "ok", `CPI ${live.latest?.period} YoY ${live.yoyPct?.toFixed(2)}%`).catch(() => {});
+  const live = (await fetchInflation()) ?? (await fetchMettisCpi(snap.data ?? null, pkDay()));
+  if (!live) {
+    // Keep last-known-good rather than guess, and ask again in a day.
+    await saveFeedSnapshot(INFLATION_KEY, null, "stale", "no newer month from PBS or Mettis").catch(() => {});
+    return snap.data ?? null;
+  }
+  await saveFeedSnapshot(INFLATION_KEY, live, "ok", cpiNote(live)).catch(() => {});
   return live;
 }
 export const getInflationLive = cache(_getInflationLive);
 
 export async function refreshInflation(): Promise<Record<string, unknown>> {
   if (!(await tryConnect())) return { status: "no-db" };
-  const live = await fetchInflation();
-  if (!live || live.yoyPct == null) return { status: "error", note: "PBS unreachable or unparseable" };
-  await saveFeedSnapshot(INFLATION_KEY, live, "ok", `CPI ${live.latest?.period} YoY ${live.yoyPct.toFixed(2)}%`).catch(() => {});
+  const prev = await getFeedSnapshot<InflationData>(INFLATION_KEY);
+  const live = (await fetchInflation()) ?? (await fetchMettisCpi(prev.data ?? null, pkDay()));
+  if (!live || live.yoyPct == null) return { status: "unchanged", note: "no newer month from PBS or Mettis" };
+  await saveFeedSnapshot(INFLATION_KEY, live, "ok", cpiNote(live)).catch(() => {});
   return { status: "ok", yoyPct: live.yoyPct, period: live.latest?.period, months: live.history.length };
 }
 
@@ -803,20 +812,25 @@ export const getAttribution = cache(_getAttribution);
 
 // SBP policy-rate steps, in priority order:
 //   user  — the user's own curve from Settings (they override everything)
-//   live  — SBP's published current rate, prepended to the real history
-//   stale — live feed down: newest REAL past step, flagged so the UI can say so
-// `isCustom` tells the UI the user's curve is active; `source` tells it whether
-// today's number came from SBP or is a stale fallback.
+//   kept  — the record kept in the database: SBP's history back to 1991,
+//           extended by each decision read from the news (lib/market-calendar)
+//   then newer word than the record, when it starts after the record's last
+//   step and changes the rate: the month's rate as entered on the strategy
+//   page (from the 1st) or SBP's own page ("monthly", "live")
+//   stale — nothing kept: the built-in history only
+// `isCustom` tells the UI the user's curve is active; `liveAsOf` is the day
+// the newest step began.
 // SBP's copy is old when it was read more than 20 days ago (its site has
-// refused the server since September 2026); the month's rates entered on the
-// strategy page then speak for the policy rate and the T-bill.
+// refused the server since September 2026); the month's T-bill entered on the
+// strategy page then speaks for it.
 const SBP_STALE_MS = 20 * 86400000;
 const sbpStale = (live: StoredSbp | null) => !live?.rates.fetchedAt || Date.now() - Date.parse(live.rates.fetchedAt) > SBP_STALE_MS;
+export const POLICY_HISTORY_KEY = "rates:policy-history";
 
 async function _getSbpRateSteps(): Promise<{
   steps: RateStep[];
   isCustom: boolean;
-  source: "user" | "monthly" | "live" | "stale";
+  source: "user" | "kept" | "monthly" | "live" | "stale";
   liveAsOf: string | null;
 }> {
   if (!(await tryConnect())) {
@@ -831,24 +845,18 @@ async function _getSbpRateSteps(): Promise<{
       liveAsOf: null,
     };
   }
-  const live = await getSbpLive();
-  // The policy rate as entered each month, from the 1st, when it is as new as
-  // SBP's copy or SBP's copy is old.
-  const months = (await RateSnapshotModel.find({ userId: await meId(), policyPct: { $ne: null } }, { month: 1, policyPct: 1 }).sort({ month: -1 }).lean()) as any[];
-  if (months.length > 0 && (months[0].month >= (live?.rates.fetchedAt ?? "").slice(0, 7) || sbpStale(live))) {
-    const steps = months.map((m) => ({ from: `${m.month}-01`, rate: Number(m.policyPct) }));
-    const first = steps[steps.length - 1].from;
-    return { steps: [...steps, ...SBP_POLICY_RATE_DEFAULTS.filter((d) => d.from < first)], isCustom: false, source: "monthly", liveAsOf: months[0].month };
-  }
-  if (live?.rates.policyRatePct != null) {
-    return {
-      steps: [{ from: live.firstSeenFrom, rate: live.rates.policyRatePct }, ...SBP_POLICY_RATE_DEFAULTS],
-      isCustom: false,
-      source: "live",
-      liveAsOf: live.rates.fetchedAt.slice(0, 10),
-    };
-  }
-  return { steps: SBP_POLICY_RATE_DEFAULTS, isCustom: false, source: "stale", liveAsOf: null };
+  const [kept, live, months] = await Promise.all([
+    getFeedSnapshot<{ steps: RateStep[] }>(POLICY_HISTORY_KEY).catch(() => null),
+    getSbpLive(),
+    RateSnapshotModel.find({ userId: await meId(), policyPct: { $ne: null } }, { month: 1, policyPct: 1 }).lean() as Promise<any[]>,
+  ]);
+  const record = (kept?.data?.steps ?? []).filter((s) => s?.from && Number.isFinite(Number(s.rate))).map((s) => ({ from: String(s.from), rate: Number(s.rate) }));
+  const newer = [
+    ...months.map((m) => ({ from: `${m.month}-01`, rate: Number(m.policyPct), src: "monthly" })),
+    ...(live?.rates.policyRatePct != null ? [{ from: live.firstSeenFrom, rate: live.rates.policyRatePct, src: "live" }] : []),
+  ];
+  const { steps, src } = withNewerSteps(record.length ? record : SBP_POLICY_RATE_DEFAULTS, newer);
+  return { steps, isCustom: false, source: (src ?? (record.length ? "kept" : "stale")) as "kept" | "monthly" | "live" | "stale", liveAsOf: steps[0]?.from ?? null };
 }
 export const getSbpRateSteps = cache(_getSbpRateSteps);
 

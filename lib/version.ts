@@ -1,7 +1,7 @@
 // Single source of truth for the app version + changelog.
 // Bump APP_VERSION and prepend a CHANGELOG entry on every release.
 
-export const APP_VERSION = "11.29.1";
+export const APP_VERSION = "11.30.0";
 
 export const BUILD_DATE =
   process.env.NEXT_PUBLIC_BUILD_DATE ?? "";
@@ -17,6 +17,18 @@ export type ChangelogEntry = {
 
 // Reverse-chronological. Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: "11.30.0",
+    date: "2026-10-27",
+    title: "Policy rate by itself; rules count dividends",
+    changes: [
+      "Policy rate 12% from 27 Oct (SBP's rise of 26 Oct). Each new decision is read from Mettis Global (its policy-rate chart and headlines) and kept by itself; Telegram tells you, and warns if an MPC day passes with none found (Settings: Market dates).",
+      "CPI: PBS's data feed went with its old site, so inflation was stuck at August (11.15%). It now comes from Mettis Global's CPI chart: September 10.3%.",
+      "Every page now uses SBP's full rate history from the database. The old built-in list had missed the cut to 10.5% (Dec 2025) and dated the rise to 11.5% in July, not 28 April.",
+      "Strategy: rates rising or falling comes from the decisions, with nothing to enter. The monthly \"enter your rates\" reminder is gone.",
+      "Price rules add the dividends your shares were paid (after tax) to the close, so the fall on an ex-date is not a loss. Your average stays what you paid: the dividend is already counted once, as cash.",
+    ],
+  },
   {
     version: "11.29.1",
     date: "2026-10-25",

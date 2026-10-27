@@ -27,8 +27,9 @@ import { missedReviewForCurrentUser } from "@/lib/missed-trades";
 import { monthScore } from "@/lib/scorecard";
 import { scoreMessage } from "@/lib/calculations/scorecard";
 import { getPrinciples } from "@/lib/principles";
-import { marketEvents, marketHolidays } from "@/lib/market-calendar";
-import { eventsMessage, nextTradingDay } from "@/lib/calculations/market-calendar";
+import { marketEvents, marketHolidays, missedDecision } from "@/lib/market-calendar";
+import { eventsMessage, missedMpcMessage, nextTradingDay, policyMessage } from "@/lib/calculations/market-calendar";
+import { freshPolicyStep } from "@/lib/market-history";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -51,7 +52,7 @@ function wanted(key: string, s: any): boolean {
   if (prefix === "digest") return s.alertWeeklyDigest !== false;
   if (prefix === "daily") return s.alertDaily !== false;
   if (prefix === "scorecard") return s.alertWeeklyDigest !== false;
-  if (prefix === "events") return s.alertEvents !== false;
+  if (prefix === "events" || prefix === "policy" || prefix === "policy-missed") return s.alertEvents !== false;
   if (PRICE_KEYS.includes(prefix)) return s.alertPrices !== false;
   if (LIST_KEYS.includes(prefix)) return s.alertLists !== false;
   return true;
@@ -372,23 +373,6 @@ async function runAlertsForCurrentUser(forceDigest = false) {
     /* no maturity reminder this run */
   }
 
-  // The month's interest rates, from the rates day set in Settings until
-  // they are entered on the strategy page (which then works the strategy out
-  // again and sends it). Once a month.
-  try {
-    const pk = new Date(Date.now() + 5 * 3600_000);
-    const month = pk.toISOString().slice(0, 7);
-    if (pk.getUTCDate() >= Math.max(1, Math.min(28, Number(settings.ratesDay ?? 1)))) {
-      const entered = await RateSnapshotModel.exists({ userId: await uid(), month });
-      if (!entered) {
-        const label = pk.toLocaleString("en-GB", { month: "long", timeZone: "UTC" });
-        candidates.push({ key: `rates:${month}`, message: `🗓 <b>${label}'s rates</b>: enter the policy rate, T-bill, sukuk and savings rates and the strategy is worked out again. ${appOrigin()}/strategy` });
-      }
-    }
-  } catch {
-    /* no reminder this run */
-  }
-
   // 8. Friday weekly digest (Pakistan time) — the portfolio's week in one
   //    message. Every number is the same live figure the site shows; the real
   //    return uses the PBS CPI feed. Deduped by ISO week.
@@ -454,6 +438,16 @@ async function runAlertsForCurrentUser(forceDigest = false) {
     } catch {
       /* no dates this run */
     }
+  }
+  // A policy-rate decision caught from the news (lib/market-calendar), once;
+  // and a word when an MPC day went by with none found.
+  try {
+    const step = await freshPolicyStep();
+    if (step) candidates.push({ key: `policy:${step.from}`, message: policyMessage(step, step.before) });
+    const missed = await missedDecision(pkDay);
+    if (missed) candidates.push({ key: `policy-missed:${missed}`, message: missedMpcMessage(missed) });
+  } catch {
+    /* no decision this run */
   }
   if (pkNow.getUTCDate() <= 7) {
     try {

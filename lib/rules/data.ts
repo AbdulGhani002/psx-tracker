@@ -1,13 +1,14 @@
 import "server-only";
 import { connectDb } from "@/lib/db";
-import { PriceRulesModel, FundamentalModel } from "@/lib/models";
+import { PriceRulesModel, FundamentalModel, ShareEventModel } from "@/lib/models";
 import { getCurrentUserId } from "@/lib/auth/current-user";
-import { getPortfolioSummary, getAllTransactions, getDividendForecast, getSbpRateSteps } from "@/lib/data";
+import { getPortfolioSummary, getAllTransactions, getDividendForecast, getSbpRateSteps, getAppSettings } from "@/lib/data";
 import { getUsdPkrSeries } from "@/lib/analytics/dashboard";
 import { rateOn } from "@/lib/analytics/dollarized";
 import { policyRateOn } from "@/lib/timeseries/sbp-rate";
+import { whtPct } from "@/lib/calculations/pk-tax";
 import { latestCloses, loadSheets, pktToday } from "@/lib/quant/sheet-bars";
-import { advanceShare, cleanSteps, DEFAULT_STEPS, holdingSince, movePct, ruleMessage, signedPct, stepText, type Fired, type Step } from "./ladder";
+import { advanceShare, cleanSteps, DEFAULT_STEPS, dividendsOn, holdingSince, movePct, ruleMessage, signedPct, stepText, type Fired, type Step } from "./ladder";
 import { checksLine, combine, dividendCheck, moveCheck, profitCheck, usualEpsMove, type Checks } from "./checks";
 
 // The price rules (app/rules): the user's steps applied to every share held
@@ -53,10 +54,33 @@ function checksFor(ctx: Ctx, s: RuleSettings, symbol: string, since: string | nu
   });
 }
 
+// Each held share's dividends a share, after tax, as of any day (ladder
+// dividendsOn): the ledger's, and any gone ex in the last 45 days that is not
+// on it yet.
+async function dividendCredits(positions: Array<{ symbol: string; shares: number; heldDividends?: number }>, txs: any[], today: string): Promise<Map<string, (date: string) => number>> {
+  const tax = whtPct("dividend", (await getAppSettings()) as any);
+  const from = new Date(Date.parse(today + "T00:00:00Z") - 45 * 86400000).toISOString().slice(0, 10);
+  const events = (await ShareEventModel.find({ symbol: { $in: positions.map((p) => p.symbol) }, kind: "cash", date: { $gt: from } }, { symbol: 1, date: 1, cash: 1 }).lean()) as any[];
+  return new Map(
+    positions.map((p) => [
+      p.symbol,
+      dividendsOn({
+        shares: p.shares,
+        ledger: Number(p.heldDividends ?? 0),
+        txs: txs.filter((t) => t.symbol === p.symbol).map((t) => ({ date: new Date(t.date).toISOString().slice(0, 10), type: t.type, shares: t.shares, ratio: t.ratio ?? "" })),
+        events: events.filter((e) => e.symbol === p.symbol).map((e) => ({ date: String(e.date), cash: Number(e.cash) })),
+        taxPct: tax,
+        today,
+      }),
+    ])
+  );
+}
+
 export type RuleShare = {
   symbol: string;
   shares: number;
   avgCost: number;
+  dividends: number; // a share, after tax, added back to the close
   close: number | null;
   closeDate: string | null;
   move: number | null;
@@ -76,11 +100,13 @@ export async function getRuleBoard(): Promise<{ settings: RuleSettings; shares: 
   const targetsInUse = summary.positions.some((p) => p.targetPercent > 0);
   const falls = settings.steps.filter((s) => s.move < 0).sort((a, b) => b.move - a.move);
   const rises = settings.steps.filter((s) => s.move > 0).sort((a, b) => a.move - b.move);
-  const shares: RuleShare[] = summary.positions
-    .filter((p) => p.shares > 0 && p.avgCost > 0)
+  const held = summary.positions.filter((p) => p.shares > 0 && p.avgCost > 0);
+  const credits = await dividendCredits(held, txs, today);
+  const shares: RuleShare[] = held
     .map((p) => {
       const c = closes.get(p.symbol) ?? null;
-      const m = c ? movePct(c.close, p.avgCost) : null;
+      const div = credits.get(p.symbol)?.(today) ?? 0;
+      const m = c ? movePct(c.close + div, p.avgCost) : null;
       const since = holdingSince(txs.filter((t) => t.symbol === p.symbol).map((t) => ({ date: new Date(t.date).toISOString().slice(0, 10), type: t.type, shares: t.shares, ratio: t.ratio ?? "" })));
       const at = m == null ? null : m < 0 ? [...falls].reverse().find((s) => m <= s.move) ?? null : m > 0 ? [...rises].reverse().find((s) => m >= s.move) ?? null : null;
       const add = m == null ? null : falls.find((s) => s.action === "add" && m > s.move) ?? null;
@@ -89,12 +115,13 @@ export async function getRuleBoard(): Promise<{ settings: RuleSettings; shares: 
         symbol: p.symbol,
         shares: p.shares,
         avgCost: p.avgCost,
+        dividends: div,
         close: c?.close ?? null,
         closeDate: c?.date ?? null,
         move: m,
         at,
-        nextAdd: add ? { step: add, price: p.avgCost * (1 + add.move / 100) } : null,
-        nextSell: sell ? { step: sell, price: p.avgCost * (1 + sell.move / 100) } : null,
+        nextAdd: add ? { step: add, price: p.avgCost * (1 + add.move / 100) - div } : null,
+        nextSell: sell ? { step: sell, price: p.avgCost * (1 + sell.move / 100) - div } : null,
         told: settings.fired.filter((f) => f.symbol === p.symbol),
         checks: checksFor(ctx, settings, p.symbol, since, today),
         since,
@@ -119,16 +146,17 @@ export async function ruleAlerts(userId: string): Promise<Array<{ key: string; m
   if (!doc) doc = (await PriceRulesModel.create({ userId })).toObject();
   if (doc.on === false) return [];
   const settings: RuleSettings = { on: true, steps: cleanSteps(doc.steps ?? DEFAULT_STEPS), ratePts: Number(doc.ratePts ?? 2), rupeePct: Number(doc.rupeePct ?? 10), off: doc.off ?? [] };
-  const summary = await getPortfolioSummary();
+  const [summary, txs] = await Promise.all([getPortfolioSummary(), getAllTransactions()]);
   const held = summary.positions.filter((p) => p.shares > 0 && p.avgCost > 0 && !settings.off.includes(p.symbol));
   const today = pktToday();
+  const credits = await dividendCredits(held, txs, today);
   const sheets = doc.checkedThrough ? await loadSheets(nextDay(doc.checkedThrough)) : (await loadSheets(new Date(Date.parse(today + "T00:00:00Z") - 10 * 86400000).toISOString().slice(0, 10))).slice(-1);
   let fired: Fired[] = ((doc.fired ?? []) as Fired[]).filter((f) => held.some((p) => p.symbol === f.symbol));
   const quiet = doc.quiet !== false;
   if (sheets.length > 0) {
     for (const p of held) {
       const days = sheets.map((s) => ({ date: s.date, close: s.rows.find((r) => r[0] === p.symbol)?.[4] ?? 0 })).filter((d) => d.close > 0);
-      const r = advanceShare(settings.steps, fired, p.symbol, p.avgCost, days, quiet);
+      const r = advanceShare(settings.steps, fired, p.symbol, p.avgCost, days, quiet, credits.get(p.symbol));
       fired = [...fired.filter((f) => f.symbol !== p.symbol), ...r.fired];
     }
     await PriceRulesModel.updateOne({ _id: doc._id, updatedAt: doc.updatedAt }, { $set: { fired, checkedThrough: sheets[sheets.length - 1].date, quiet: false } });
@@ -141,7 +169,7 @@ export async function ruleAlerts(userId: string): Promise<Array<{ key: string; m
       .map((p) => {
         const close = last.rows.find((r) => r[0] === p.symbol)?.[4] ?? 0;
         if (!(close > 0)) return null;
-        const m = movePct(close, p.avgCost);
+        const m = movePct(close + (credits.get(p.symbol)?.(last.date) ?? 0), p.avgCost);
         const at = fired.filter((f) => f.symbol === p.symbol).sort((a, b) => Math.abs(b.move) - Math.abs(a.move))[0];
         const step = at ? settings.steps.find((s) => s.move === at.move) : null;
         return { m, text: `   ${p.symbol} ${signedPct(m)}${step ? `: ${stepText(step)} (${signedPct(step.move, 0)})` : ""}` };
@@ -156,7 +184,7 @@ export async function ruleAlerts(userId: string): Promise<Array<{ key: string; m
   const recent = fired.filter((f) => f.told && f.at >= since);
   if (recent.length === 0) return out;
   const targetsInUse = summary.positions.some((p) => p.targetPercent > 0);
-  const [ctx, txs] = await Promise.all([checkContext(), getAllTransactions()]);
+  const ctx = await checkContext();
   const groups = new Map<string, Fired[]>();
   for (const f of recent) (groups.get(`${f.symbol}|${f.at}`) ?? groups.set(`${f.symbol}|${f.at}`, []).get(`${f.symbol}|${f.at}`)!).push(f);
   for (const [k, list] of groups) {
@@ -169,7 +197,7 @@ export async function ruleAlerts(userId: string): Promise<Array<{ key: string; m
     const startedOn = holdingSince(txs.filter((t) => t.symbol === symbol).map((t) => ({ date: new Date(t.date).toISOString().slice(0, 10), type: t.type, shares: t.shares, ratio: t.ratio ?? "" })));
     const checks = checksLine(checksFor(ctx, settings, symbol, startedOn, today));
     const f0 = list[0];
-    out.push({ key: `rule:${symbol}:${steps.map((s) => s.move).join(",")}:${date}`, message: ruleMessage({ symbol, date, close: f0.close, move: movePct(f0.close, f0.anchor), steps }, { shares: p.shares, avgCost: f0.anchor }, checks) });
+    out.push({ key: `rule:${symbol}:${steps.map((s) => s.move).join(",")}:${date}`, message: ruleMessage({ symbol, date, close: f0.close, move: movePct(f0.close + (f0.div ?? 0), f0.anchor), steps, div: f0.div }, { shares: p.shares, avgCost: f0.anchor }, checks) });
   }
   return out;
 }

@@ -5,7 +5,7 @@
 //
 //   npx tsx scripts/test-rules.ts
 
-import { advanceShare, cleanSteps, DEFAULT_STEPS, holdingSince, ruleMessage, standing, stepShares, type Fired } from "../lib/rules/ladder";
+import { advanceShare, cleanSteps, DEFAULT_STEPS, dividendsOn, holdingSince, ruleMessage, standing, stepShares, type Fired } from "../lib/rules/ladder";
 import { checksLine, checkFacts, combine, dividendCheck, moveCheck, profitCheck, usualEpsMove } from "../lib/rules/checks";
 
 let pass = 0, fail = 0;
@@ -54,6 +54,24 @@ const since = holdingSince([
 ]);
 check("the shares held now began after the last time none were held", since === "2026-02-10", since);
 check("nothing held, no start", holdingSince([{ date: "2025-09-01", type: "BUY", shares: 10 }, { date: "2025-10-01", type: "SELL", shares: -10 }]) === null);
+
+// Dividends: the fall on an ex-date is not a loss.
+const dv = advanceShare(steps, [], "MUREB", 100, [d("2026-10-20", 92), d("2026-10-21", 88)], false, (day) => (day >= "2026-10-21" ? 5 : 0));
+check("a 12% fall that is 5 of dividend reads −7%: no −10 step", dv.reached.length === 0 && dv.fired.length === 0, dv);
+const dv2 = advanceShare(steps, [], "MUREB", 100, [d("2026-10-21", 74.9)], false, () => 5);
+check("past −20 with the dividend counted: told, with it", dv2.reached[0]?.steps.map((s) => s.move).join() === "-10,-20" && dv2.reached[0].div === 5 && Math.abs(dv2.reached[0].move + 20.1) < 1e-9, dv2.reached[0]);
+const dmsg = ruleMessage({ symbol: "MUREB", date: "2026-10-21", close: 75, move: -20, steps: [steps.find((s) => s.move === -20)!], div: 5 }, { shares: 662, avgCost: 100 }, "");
+check("the message says the dividends were counted", dmsg.includes("close 75.00 + Rs 5.00 dividends a share"), dmsg);
+const buys = [{ date: "2025-11-13", type: "BUY", shares: 600 }, { date: "2026-03-02", type: "BUY", shares: 62 }];
+const onLedger = dividendsOn({ shares: 662, ledger: 662 * 25.5, txs: [...buys, { date: "2026-03-10", type: "DIVIDEND", shares: 662 }], events: [{ date: "2026-03-09", cash: 30 }], taxPct: 15, today: "2026-03-20" });
+check("on the ledger: the ledger's dividends a share, the exchange's record not added again", near(onLedger("2026-03-20"), 25.5), onLedger("2026-03-20"));
+const owed = dividendsOn({ shares: 662, ledger: 0, txs: buys, events: [{ date: "2026-10-20", cash: 30 }], taxPct: 15, today: "2026-10-20" });
+check("gone ex, not on the ledger yet: the exchange's figure after tax, from the ex-date", near(owed("2026-10-19"), 0) && near(owed("2026-10-20"), 25.5), [owed("2026-10-19"), owed("2026-10-20")]);
+const boughtEx = dividendsOn({ shares: 662, ledger: 0, txs: [{ date: "2025-11-13", type: "BUY", shares: 600 }, { date: "2026-10-20", type: "BUY", shares: 62 }], events: [{ date: "2026-10-20", cash: 30 }], taxPct: 15, today: "2026-10-21" });
+check("shares bought on the ex-date get none of it", near(boughtEx("2026-10-21"), (600 * 30 * 0.85) / 662), boughtEx("2026-10-21"));
+const soldSince = dividendsOn({ shares: 300, ledger: 0, txs: [{ date: "2025-11-13", type: "BUY", shares: 600 }, { date: "2026-10-21", type: "SELL", shares: -300 }], events: [{ date: "2026-10-20", cash: 30 }], taxPct: 15, today: "2026-10-22" });
+check("shares sold after the ex-date take their part", near(soldSince("2026-10-22"), 25.5), soldSince("2026-10-22"));
+check("an old dividend missing from the ledger is not guessed", near(dividendsOn({ shares: 600, ledger: 0, txs: [{ date: "2025-01-01", type: "BUY", shares: 600 }], events: [{ date: "2026-03-09", cash: 30 }], taxPct: 15, today: "2026-10-27" })("2026-10-27"), 0));
 
 // Checks.
 const market = Array.from({ length: 30 }, (_, k) => [{ fiscalYear: 2025, eps: 10 + (k % 5) }, { fiscalYear: 2024, eps: 10 }]);

@@ -5,11 +5,15 @@
 //   only after a close back at the average price, which ends that fall or
 //   rise. Steps a share is already past when the rules start (or change) are
 //   marked without a message.
+//   A share is measured with the dividends its shares have been paid added
+//   back (dividendsOn), so the fall on an ex-date is not taken for a loss.
+//   The average price stays what was paid: the dividend is already counted
+//   once, as cash.
 
 export type RuleAction = "hold" | "add" | "sell";
 export type Step = { move: number; action: RuleAction; sizePct: number };
-export type Fired = { symbol: string; move: number; at: string; close: number; anchor: number; told: boolean };
-export type Reached = { symbol: string; date: string; close: number; move: number; steps: Step[] };
+export type Fired = { symbol: string; move: number; at: string; close: number; anchor: number; told: boolean; div?: number };
+export type Reached = { symbol: string; date: string; close: number; move: number; steps: Step[]; div?: number };
 
 // The user's own rules, as they gave them.
 export const DEFAULT_STEPS: Step[] = [
@@ -45,22 +49,64 @@ const past = (s: Step, m: number) => (s.move < 0 ? m <= s.move : m >= s.move);
 
 // Moves one share's told steps on through the days. `quiet` marks what is
 // reached without telling it (the first run, or after the rules change).
-export function advanceShare(steps: Step[], fired: Fired[], symbol: string, anchor: number, days: Array<{ date: string; close: number }>, quiet = false): { fired: Fired[]; reached: Reached[] } {
+export function advanceShare(steps: Step[], fired: Fired[], symbol: string, anchor: number, days: Array<{ date: string; close: number }>, quiet = false, divOn: (date: string) => number = () => 0): { fired: Fired[]; reached: Reached[] } {
   let mine = fired.filter((f) => f.symbol === symbol);
   const reached: Reached[] = [];
   if (!(anchor > 0)) return { fired: mine, reached };
   for (const d of [...days].sort((a, b) => a.date.localeCompare(b.date))) {
     if (!(d.close > 0)) continue;
-    const m = movePct(d.close, anchor);
+    const div = divOn(d.date);
+    const m = movePct(d.close + div, anchor);
     if (m >= 0) mine = mine.filter((f) => f.move > 0);
     if (m <= 0) mine = mine.filter((f) => f.move < 0);
     const told = new Set(mine.map((f) => f.move));
     const newly = steps.filter((s) => !told.has(s.move) && past(s, m)).sort((a, b) => Math.abs(a.move) - Math.abs(b.move));
     if (newly.length === 0) continue;
-    for (const s of newly) mine.push({ symbol, move: s.move, at: d.date, close: d.close, anchor, told: !quiet });
-    if (!quiet) reached.push({ symbol, date: d.date, close: d.close, move: m, steps: newly });
+    for (const s of newly) mine.push({ symbol, move: s.move, at: d.date, close: d.close, anchor, told: !quiet, ...(div > 0 ? { div } : {}) });
+    if (!quiet) reached.push({ symbol, date: d.date, close: d.close, move: m, steps: newly, ...(div > 0 ? { div } : {}) });
   }
   return { fired: mine, reached };
+}
+
+const addDays = (d: string, n: number) => new Date(Date.parse(d + "T00:00:00Z") + n * 86400000).toISOString().slice(0, 10);
+
+// The dividends the shares held have been paid, a share, after tax, as of a
+// day: the ledger's (as the holdings table counts them), and any the
+// exchange shows went ex by then that is not on the ledger yet (the price
+// falls on the ex-date; the dividend is recorded at the book closure, or
+// when it is paid; so only the last 45 days' are looked for). A dividend
+// follows the shares that earned it: shares sold since take their part.
+export function dividendsOn(i: {
+  shares: number;
+  ledger: number;
+  txs: Array<{ date: string; type: string; shares: number; ratio?: string }>;
+  events: Array<{ date: string; cash: number }>;
+  taxPct: number;
+  today: string;
+}): (date: string) => number {
+  if (!(i.shares > 0)) return () => 0;
+  const txs = [...i.txs].sort((a, b) => a.date.localeCompare(b.date));
+  const recorded = txs.filter((t) => t.type === "DIVIDEND").map((t) => t.date);
+  const owed = i.events
+    .filter((e) => e.cash > 0 && e.date > addDays(i.today, -45) && e.date <= i.today && !recorded.some((d) => d >= addDays(e.date, -3) && d <= addDays(e.date, 45)))
+    .map((e) => {
+      let n = 0, pot: number | null = null;
+      for (const t of txs) {
+        if (pot == null && t.date >= e.date) pot = e.cash * n * (1 - i.taxPct / 100);
+        const k = Math.abs(t.shares);
+        if (t.type === "BUY" || t.type === "RIGHT" || t.type === "BONUS") n += k;
+        else if (t.type === "SELL") {
+          if (pot != null && n > 0) pot *= Math.max(0, 1 - k / n);
+          n = Math.max(0, n - k);
+        } else if (t.type === "SPLIT") {
+          const [a, b] = String(t.ratio ?? "").split(":").map(Number);
+          if (a > 0 && b > 0) n = (n * b) / a;
+        }
+      }
+      return { date: e.date, amount: pot ?? e.cash * n * (1 - i.taxPct / 100) };
+    })
+    .filter((x) => x.amount > 0);
+  return (date: string) => (i.ledger + owed.filter((x) => x.date <= date).reduce((s, x) => s + x.amount, 0)) / i.shares;
 }
 
 // The step a share stands at now, and the next one each way.
@@ -103,7 +149,7 @@ export function holdingSince(txs: Array<{ date: string; type: string; shares: nu
 export function ruleMessage(r: Reached, held: { shares: number; avgCost: number }, checks: string): string {
   const acts = r.steps.filter((s) => s.action !== "hold");
   const fall = r.move < 0;
-  const lines = [`${fall ? "📉" : "📈"} <b>${esc(r.symbol)}</b> ${signedPct(r.move)} ${fall ? "from" : "over"} your average ${money(held.avgCost)} (close ${money(r.close)}, ${dayLabel(r.date)}).`];
+  const lines = [`${fall ? "📉" : "📈"} <b>${esc(r.symbol)}</b> ${signedPct(r.move)} ${fall ? "from" : "over"} your average ${money(held.avgCost)} (close ${money(r.close)}${r.div ? ` + Rs ${money(r.div)} dividends a share` : ""}, ${dayLabel(r.date)}).`];
   const n = acts.reduce((s, x) => s + stepShares(held.shares, x), 0);
   const verb = acts[0]?.action === "sell" ? "sell" : "add";
   lines.push(`   Your rule${acts.length > 1 ? "s" : ""}: ${acts.map((s) => `${stepText(s)} at ${signedPct(s.move, 0)}`).join(", ")} = ${verb} ${n.toLocaleString("en-US")} shares (≈ Rs ${Math.round(n * r.close).toLocaleString("en-US")}).`);

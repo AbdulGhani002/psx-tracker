@@ -45,6 +45,7 @@ export function RulesView({ settings, shares, usualPct, asOf }: { settings: Rule
                       <td className="text-right mono-num">{money(s.avgCost)}</td>
                       <td className="text-right mono-num whitespace-nowrap">
                         {s.close != null ? money(s.close) : "–"}
+                        {s.dividends > 0 && <div className="text-[11px] text-muted" title="Dividends paid on these shares, a share, after tax">+ {money(s.dividends)} div.</div>}
                         {s.move != null && <div className="text-[11px]" style={{ color: tone(s.move) }}>{signedPct(s.move)}</div>}
                       </td>
                       <td className="whitespace-nowrap text-[12.5px]">
@@ -82,6 +83,7 @@ export function RulesView({ settings, shares, usualPct, asOf }: { settings: Rule
         <summary className="cursor-pointer select-none">How it works</summary>
         <ul className="mt-2 space-y-1 pl-4 list-disc">
           <li>Each share is measured from your average price after every close. A step is reached when a close gets to it, and Telegram tells you once, with the shares to add or sell.</li>
+          <li>The dividends a share&apos;s shares have been paid (after tax) are added to its close, so the fall on an ex-date is not a loss. Your average stays what you paid: the dividend is already counted once, as cash.</li>
           <li>It is told again only after the price comes back to your average, which ends that fall or rise. Hold steps show here but send nothing.</li>
           <li>The rules hold while the company and the economy have not changed a lot, so each message checks: the last year&apos;s profit against companies&apos; usual yearly move ({usualPct != null ? `${usualPct.toFixed(0)}% now` : "worked out from the data kept"}), a dividend cut by more than half, and the policy rate and the rupee since you bought, past the limits you set. ⚠ means check first.</li>
           <li>Adds leave out a share whose Rebalance target is 0%. Steps a share had already passed when the rules began or changed are marked without a message.</li>
