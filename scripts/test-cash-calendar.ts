@@ -52,6 +52,17 @@ const fixed = fixedItems({
 check("a T-bill repays its face less the tax on its profit", fixed.find((x) => x.label === "12M T-bill matures")?.pkr === 98350);
 check("a deposit maturing past 90 days is not in", !fixed.some((x) => x.label.startsWith("Bank Alfalah")));
 check("a sukuk's coupon within the window, after tax", fixed.filter((x) => x.kind === "coupon").length === 1 && fixed.find((x) => x.kind === "coupon")?.pkr === 2444);
+const rolling = fixedItems({
+  today,
+  days: 90,
+  holdings: [
+    { name: "FD all", face: 10255.84, cost: 10000, rollover: "all", maturityDate: "2026-12-12", events: [{ date: "2026-12-12", what: "maturity", gross: 255.84, tax: 38.38 }] },
+    { name: "FD principal", face: 10255.84, cost: 10000, rollover: "principal", maturityDate: "2026-12-12", events: [{ date: "2026-12-12", what: "maturity", gross: 255.84, tax: 38.38 }] },
+    { name: "FD quarterly", face: 15000, cost: 15000, rollover: "all", maturityDate: "2026-12-18", events: [{ date: "2026-12-18", what: "coupon", gross: 379.88, tax: 56.98 }] },
+  ],
+});
+check("rolling over principal and profit: nothing comes in", !rolling.some((x) => x.label.startsWith("FD all") || x.label.startsWith("FD quarterly")), rolling);
+check("rolling over the principal only: the profit after tax comes in", rolling.length === 1 && rolling[0].label === "FD principal profit (principal rolls over)" && rolling[0].pkr === 217, rolling);
 
 const needs = ruleNeeds([
   { symbol: "LUCK", shares: 100, nextAdd: { move: -20, sizePct: 10, price: 400 } },

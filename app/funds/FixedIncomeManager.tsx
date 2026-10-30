@@ -35,6 +35,8 @@ type Row = {
   daysLeft: number;
   matured: boolean;
   nextCouponDate: string | null;
+  rollover?: string;
+  rolledTo?: string;
 };
 
 const today = () => new Date().toISOString().slice(0, 10);
@@ -217,7 +219,7 @@ export function FixedIncomeManager({ rows, taxPct }: { rows: Row[]; taxPct: numb
                     <td className="text-right mono-num" title={`${r.afterTaxYieldPct.toFixed(2)}% after ${r.taxPct}% tax`}>{r.yieldPct.toFixed(2)}%</td>
                     <td className="whitespace-nowrap">
                       {fmtDate(r.maturityDate)}
-                      <div className="text-[11px] text-muted">{r.matured ? "matured" : `${r.daysLeft} days`}</div>
+                      <div className="text-[11px] text-muted">{r.rolledTo ? "rolled over" : r.matured ? "matured" : `${r.daysLeft} days${r.rollover ? ", then rolls over" : ""}`}</div>
                     </td>
                     <td className="text-right mono-num">{fmtRs(r.value)}</td>
                     <td className="text-right mono-num" style={{ color: "var(--positive)" }} title={r.couponsPaid > 0 ? `${fmtRs(r.couponsPaid)} of it paid out` : undefined}>{fmtRs(r.profitSoFar)}</td>

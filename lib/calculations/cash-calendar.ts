@@ -51,22 +51,25 @@ export function dividendItems(i: {
 }
 
 // Coupons, after tax, and maturities: the face value repaid less the tax on
-// the profit (a T-bill's discount, a deposit's profit at maturity).
+// the profit (a T-bill's discount, a deposit's profit at maturity). A
+// deposit that rolls over repays nothing: with the principal only rolling,
+// its profit at maturity is paid; with both rolling, nothing comes in.
 export function fixedItems(i: {
   today: string;
   days: number;
-  holdings: Array<{ name: string; face: number; events: Array<{ date: string; what: "coupon" | "maturity"; gross: number; tax: number }>; maturityDate: string }>;
+  holdings: Array<{ name: string; face: number; cost?: number; rollover?: string; events: Array<{ date: string; what: "coupon" | "maturity"; gross: number; tax: number }>; maturityDate: string }>;
 }): CalItem[] {
   const until = addDays(i.today, i.days);
   const out: CalItem[] = [];
   for (const h of i.holdings) {
     for (const e of h.events) {
       if (e.date <= i.today || e.date > until) continue;
-      if (e.what === "coupon") out.push({ date: e.date, label: `${h.name} coupon`, kind: "coupon", pkr: r0(e.gross - e.tax), about: false, claim: "receivable" });
+      if (e.what === "coupon" && !(h.rollover === "all" && e.date === h.maturityDate)) out.push({ date: e.date, label: `${h.name} coupon`, kind: "coupon", pkr: r0(e.gross - e.tax), about: false, claim: "receivable" });
     }
     if (h.maturityDate > i.today && h.maturityDate <= until) {
       const tax = h.events.filter((e) => e.what === "maturity").reduce((s, e) => s + e.tax, 0);
-      out.push({ date: h.maturityDate, label: `${h.name} matures`, kind: "maturity", pkr: r0(h.face - tax), about: false, claim: "receivable" });
+      if (!h.rollover) out.push({ date: h.maturityDate, label: `${h.name} matures`, kind: "maturity", pkr: r0(h.face - tax), about: false, claim: "receivable" });
+      else if (h.rollover === "principal" && h.cost != null && h.face - h.cost > 0) out.push({ date: h.maturityDate, label: `${h.name} profit (principal rolls over)`, kind: "maturity", pkr: r0(h.face - h.cost - tax), about: false, claim: "receivable" });
     }
   }
   return out;

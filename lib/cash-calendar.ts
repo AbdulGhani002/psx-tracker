@@ -68,7 +68,7 @@ export async function getCashCalendar(days = 90): Promise<CashCalendar> {
     days,
     holdings: fixedDocs.map((d) => {
       const h: FixedIncomeHolding = { kind: d.kind, name: d.name, face: d.face, cost: d.cost, purchaseDate: d.purchaseDate, maturityDate: d.maturityDate, couponPct: d.couponPct ?? 0, couponsPerYear: d.couponsPerYear ?? 0, taxPct: d.taxPct ?? 15 };
-      return { name: String(d.name), face: Number(d.face), maturityDate: String(d.maturityDate), events: fixedIncomeEvents(h) };
+      return { name: String(d.name), face: Number(d.face), cost: Number(d.cost), rollover: String(d.rollover ?? ""), maturityDate: String(d.maturityDate), events: fixedIncomeEvents(h) };
     }),
   });
   const needs = ruleNeeds(

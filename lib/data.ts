@@ -1066,6 +1066,9 @@ export type ValuedFixedIncome = {
   taxPct: number;
   pricePct: number | null;
   notes: string;
+  rollover: "" | "principal" | "all";
+  rolledFrom: string;
+  rolledTo: string;
 } & FixedIncomeValue;
 
 async function _getFixedIncomeValued(): Promise<ValuedFixedIncome[]> {
@@ -1074,10 +1077,25 @@ async function _getFixedIncomeValued(): Promise<ValuedFixedIncome[]> {
   const today = new Date(Date.now() + 5 * 3600_000).toISOString().slice(0, 10);
   return docs.map((d: any) => {
     const h = { kind: d.kind, name: d.name, face: Number(d.face) || 0, cost: Number(d.cost) || 0, purchaseDate: d.purchaseDate, maturityDate: d.maturityDate, couponPct: Number(d.couponPct) || 0, couponsPerYear: Number(d.couponsPerYear) || 0, taxPct: d.taxPct ?? 15, pricePct: d.pricePct ?? null };
-    return { _id: String(d._id), ...h, notes: d.notes ?? "", ...valueFixedIncome(h, today) };
+    const v = valueFixedIncome(h, today);
+    const rollover = String(d.rollover ?? "") as "" | "principal" | "all";
+    const rolledTo = String(d.rolledTo ?? "");
+    // A deposit that rolls over has not paid out at maturity: until its next
+    // term is opened (lib/fixed-income/roll, hourly) it is still held.
+    return { _id: String(d._id), ...h, notes: d.notes ?? "", rollover, rolledFrom: String(d.rolledFrom ?? ""), rolledTo, ...v, matured: v.matured && !(rollover && !rolledTo) };
   });
 }
 export const getFixedIncomeValued = cache(_getFixedIncomeValued);
+
+// The brokerage balance counts as money once the ledger has been brought to
+// a balance the broker showed (a CashEntry marked `measured`): from then on
+// each trade and transfer moves it, so it is measured, not residue.
+async function _getBrokerCash(): Promise<{ balance: number; measured: boolean }> {
+  if (!(await tryConnect())) return { balance: 0, measured: false };
+  const [sum, mark] = await Promise.all([getCashSummary().catch(() => null), CashEntryModel.exists({ userId: await meId(), measured: true, ...(await portfolioFilter()) })]);
+  return { balance: Math.max(0, Number(sum?.balance ?? 0)), measured: !!mark };
+}
+export const getBrokerCash = cache(_getBrokerCash);
 
 export type NetWorth = {
   equity: number; // PSX holdings market value
@@ -1085,15 +1103,16 @@ export type NetWorth = {
   savings: number; // savings accounts accrued value
   fixedIncome: number; // T-bills, sukuks and fixed deposits still held
   // Cash and what is as good as cash: money-market funds, bank and savings
-  // accounts, fixed deposits and T-bills.
+  // accounts, fixed deposits, T-bills and the brokerage balance once measured.
   cash: number;
+  brokerCash: number; // counted only once measured (getBrokerCash), else 0
   equityFunds: number; // the mutual funds that are not money-market
   sukuks: number;
   total: number;
   breakdown: { label: string; value: number }[];
 };
 
-// Brokerage cash is deliberately NOT an asset here.
+// Brokerage cash is NOT an asset here until it has been measured.
 //
 // The balance in lib/calculations/cash.ts is DERIVED — deposits + sells +
 // dividends − buys − withdrawals — so it is only as true as the deposit ledger
@@ -1105,15 +1124,18 @@ export type NetWorth = {
 // that cannot be known is left out rather than asserted.
 //
 // The ledger itself is untouched — CashEntry rows, /api/cash and the Cash
-// summary all still work. If every deposit and withdrawal is ever recorded,
-// counting it again is a small change.
+// summary all still work. Once a balance the broker showed has been entered
+// (a measured entry), each trade and transfer after it moves a real figure,
+// and from then the balance is counted.
 async function _getNetWorth(): Promise<NetWorth> {
-  const [summary, funds, savings, fixed] = await Promise.all([
+  const [summary, funds, savings, fixed, broker] = await Promise.all([
     getPortfolioSummary(),
     getMutualFundsValued(),
     getSavingsValued(),
     getFixedIncomeValued(),
+    getBrokerCash().catch(() => ({ balance: 0, measured: false })),
   ]);
+  const brokerCash = broker.measured ? broker.balance : 0;
   // Parked shares are left out of the weights, not out of what you own.
   const equity = summary.totalValue + summary.parked.filter((p) => p.priceKnown && p.shares > 0).reduce((s, p) => s + p.marketValue, 0);
   const fundsTotal = funds.reduce((s, f) => s + f.value, 0);
@@ -1124,14 +1146,15 @@ async function _getNetWorth(): Promise<NetWorth> {
   const held = fixed.filter((f) => !f.matured);
   const fixedTotal = held.reduce((s, f) => s + f.value, 0);
   const sukuks = held.filter((f) => f.kind === "sukuk").reduce((s, f) => s + f.value, 0);
-  const cash = moneyMarket + savingsTotal + (fixedTotal - sukuks);
-  const total = equity + fundsTotal + savingsTotal + fixedTotal;
+  const cash = moneyMarket + savingsTotal + (fixedTotal - sukuks) + brokerCash;
+  const total = equity + fundsTotal + savingsTotal + fixedTotal + brokerCash;
   return {
     equity,
     funds: fundsTotal,
     savings: savingsTotal,
     fixedIncome: fixedTotal,
     cash,
+    brokerCash,
     equityFunds: fundsTotal - moneyMarket,
     sukuks,
     total,

@@ -105,6 +105,7 @@ function useSave() {
 
 const TENORS: Array<[string, string]> = [["1", "1 month"], ["3", "3 months"], ["6", "6 months"], ["12", "1 year"], ["24", "2 years"], ["36", "3 years"], ["60", "5 years"], ["date", "Another date"]];
 const PAYOUTS: Array<[string, string]> = [["12", "Monthly"], ["4", "Quarterly"], ["2", "Half-yearly"], ["1", "Yearly"], ["0", "At maturity"]];
+const ROLLOVERS: Array<[string, string]> = [["", "Paid out"], ["principal", "Rolls over: principal"], ["all", "Rolls over: principal + profit"]];
 
 export function FixedDepositForm({ taxPct, portfolioId }: { taxPct: number; portfolioId: string }) {
   const { busy, error, setError, save } = useSave();
@@ -117,6 +118,7 @@ export function FixedDepositForm({ taxPct, portfolioId }: { taxPct: number; port
   const [payout, setPayout] = useState("12");
   const [tax, setTax] = useState(taxPct);
   const [notes, setNotes] = useState("");
+  const [rollover, setRollover] = useState("");
 
   const ends = tenor === "date" ? maturity : addMonths(start, Number(tenor));
   const per = Number(payout);
@@ -128,7 +130,7 @@ export function FixedDepositForm({ taxPct, portfolioId }: { taxPct: number; port
     if (!(amount > 0)) return setError("Enter the amount deposited.");
     if (!(rate > 0)) return setError("Enter the profit rate.");
     if (!ends || ends <= start) return setError("Enter when it matures.");
-    save("/api/fixed-income", "POST", { kind: "fd", name: `${bank.trim() || "Bank"} FD`, cost: amount, couponPct: rate, couponsPerYear: per, purchaseDate: start, maturityDate: ends, taxPct: tax, notes, ...(portfolioId ? { portfolioId } : {}) });
+    save("/api/fixed-income", "POST", { kind: "fd", name: `${bank.trim() || "Bank"} FD`, cost: amount, couponPct: rate, couponsPerYear: per, purchaseDate: start, maturityDate: ends, taxPct: tax, notes, rollover, ...(portfolioId ? { portfolioId } : {}) });
   }
 
   return (
@@ -159,6 +161,9 @@ export function FixedDepositForm({ taxPct, portfolioId }: { taxPct: number; port
         )}
         <Field label="Tax withheld on the profit (%)">
           <input type="number" min={0} max={100} step={0.5} value={tax} onChange={(e) => setTax(Number(e.target.value))} className="field mono-num" />
+        </Field>
+        <Field label="At maturity" hint={rollover ? "A new term opens by itself, at the bank's rate then" : undefined}>
+          <Choice value={rollover} onChange={setRollover} options={ROLLOVERS} />
         </Field>
         <div className="md:col-span-2">
           <Field label="Notes">

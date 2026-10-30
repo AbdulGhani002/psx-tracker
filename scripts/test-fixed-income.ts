@@ -3,6 +3,7 @@
 //   npx tsx scripts/test-fixed-income.ts
 
 import { valueFixedIncome, couponDates, tbillCost, fixedIncomeEvents, depositFace, type FixedIncomeHolding } from "../lib/fixed-income/value";
+import { nextTerm, parseAlfaTermRates, profitAtMaturity, rolledMessage, sheetDate, termMonths } from "../lib/fixed-income/rollover";
 
 let pass = 0, fail = 0;
 function check(name: string, cond: boolean, got?: unknown) {
@@ -65,6 +66,24 @@ check("profit at maturity: the worth grows from the principal in a straight line
 const aEv = fixedIncomeEvents(atEnd);
 check("and pays it all at maturity, taxed once", aEv.length === 1 && aEv[0].what === "maturity" && aEv[0].date === "2027-01-15" && near(aEv[0].gross, 120_000) && near(aEv[0].tax, 18_000));
 check("matured: worth what it repaid", valueFixedIncome(atEnd, "2027-02-01").value === 1_120_000 && valueFixedIncome(atEnd, "2027-02-01").matured);
+
+// Deposits that roll over (lib/fixed-income/rollover).
+const td: FixedIncomeHolding = { kind: "fd", name: "Bank Alfalah FD", face: depositFace(10000, 10.15, "2026-10-12", "2027-01-12", 0), cost: 10000, purchaseDate: "2026-10-12", maturityDate: "2027-01-12", couponPct: 10.15, couponsPerYear: 0, taxPct: 15 };
+check("a 3-month term is 3 whole months; 92 days is not", termMonths("2026-10-12", "2027-01-12") === 3 && termMonths("2026-10-30", "2027-01-30") === 3 && termMonths("2026-10-12", "2027-01-11") === null);
+const allIn = nextTerm(td, "all", 10.15);
+check("principal + profit: the next term on the profit after tax, from the old maturity, same length", allIn.purchaseDate === "2027-01-12" && allIn.maturityDate === "2027-04-12" && near(allIn.cost, 10000 + (td.face - 10000) * 0.85) && near(allIn.face, depositFace(allIn.cost, 10.15, "2027-01-12", "2027-04-12", 0)), allIn);
+const principalOnly = nextTerm(td, "principal", 10.65);
+check("principal only: the same principal, at the new rate", principalOnly.cost === 10000 && principalOnly.couponPct === 10.65 && near(principalOnly.face, depositFace(10000, 10.65, "2027-01-12", "2027-04-12", 0)), principalOnly);
+const quarterly: FixedIncomeHolding = { kind: "fd", name: "Bank Alfalah FD", face: 15000, cost: 15000, purchaseDate: "2026-10-18", maturityDate: "2027-01-18", couponPct: 10.13, couponsPerYear: 4, taxPct: 15 };
+const q2 = nextTerm(quarterly, "all", 10.15);
+check("a deposit paying quarterly over 3 months: its one payment rolls in, after tax", near(q2.cost, 15000 + 15000 * 0.1013 / 4 * 0.85) && q2.face === q2.cost && q2.couponsPerYear === 4, q2);
+check("profit at maturity: the whole profit, or the last payment", near(profitAtMaturity(td), td.face - 10000) && near(profitAtMaturity(quarterly), 379.875));
+const sheet = "Alfalah Term Deposits Tenor Monthly Annually / Maturity 1 Month - 9.80% 1 Month - 10.05% 3 Months 9.60% 9.70% 3 Months 9.85% 9.95% Alfa Term Deposits (Digital) Tenor Monthly Maturity Short Notice Term Deposit 7 Days - 10.10% Tenor Maturity 1 Month - 10.15% 7 Days 10.10% 3 Months 10.05% 10.15% 6 Months 10.00% 10.25% 1 Year 10.70% 11.30% Alfa Term Deposits can only be booked through Alfa app only.";
+const rates = parseAlfaTermRates(sheet);
+check("Bank Alfalah's sheet: the Alfa (digital) table only, the rate at maturity", JSON.stringify(rates) === JSON.stringify({ 1: 10.15, 3: 10.15, 6: 10.25, 12: 11.3 }), rates);
+check("no Alfa table: nothing", Object.keys(parseAlfaTermRates("Alfalah Term Deposits 3 Months 9.60% 9.70%")).length === 0);
+check("a sheet's date from its file name", sheetDate("https://x/BAFL%20-%20Deposit%20Rate%20Sheet%20-%2021st%20August%202026.pdf") === "2026-08-21" && sheetDate("https://x/BAFL%20-%20Rate%20Sheet%2026Nov25.pdf") === "2025-11-26" && sheetDate("https://x/Format%20Aug%202026.pdf") === null);
+check("the message", rolledMessage({ name: "Bank Alfalah FD", cost: 10217.46, ratePct: 10.15, to: "2027-04-12", estimated: false }) === "🔁 <b>Bank Alfalah FD</b> rolled over: Rs 10,217 to 12 Apr 2027 at 10.15% (the bank's rate sheet).", rolledMessage({ name: "Bank Alfalah FD", cost: 10217.46, ratePct: 10.15, to: "2027-04-12", estimated: false }));
 
 console.log("\n" + pass + " passed, " + fail + " failed");
 if (fail > 0) process.exit(1);

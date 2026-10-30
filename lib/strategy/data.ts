@@ -4,7 +4,7 @@ import { cache } from "react";
 import { connectDb } from "@/lib/db";
 import { RateSnapshotModel } from "@/lib/models";
 import { getCurrentUserId } from "@/lib/auth/current-user";
-import { getAppSettings, getPortfolioSummary, getMutualFundsValued, getSavingsValued, getFixedIncomeValued, getSbpLive, getInflationLive, getSbpRateSteps } from "@/lib/data";
+import { getAppSettings, getPortfolioSummary, getMutualFundsValued, getSavingsValued, getFixedIncomeValued, getSbpLive, getInflationLive, getSbpRateSteps, getBrokerCash } from "@/lib/data";
 import { policyRateOn } from "@/lib/timeseries/sbp-rate";
 import { eodSeriesCached } from "@/lib/timeseries/eod-cache";
 import { getQualityBoard } from "@/lib/fundamentals/board";
@@ -98,7 +98,7 @@ export type StrategyView = {
 };
 
 async function _getStrategy(): Promise<StrategyView> {
-  const [settings, prefill, history, summary, funds, savings, fixed, kseSeries, board, forecasts, policy] = await Promise.all([
+  const [settings, prefill, history, summary, funds, savings, fixed, kseSeries, board, forecasts, policy, broker] = await Promise.all([
     getAppSettings(),
     getRatesPrefill(),
     getRateSnapshots(),
@@ -110,6 +110,7 @@ async function _getStrategy(): Promise<StrategyView> {
     getQualityBoard().catch(() => null),
     getIndexForecasts().catch(() => null),
     getSbpRateSteps().catch(() => null),
+    getBrokerCash().catch(() => ({ balance: 0, measured: false })),
   ]);
   const profile = { risk: (["defensive", "balanced", "aggressive"].includes((settings as any).strategyRisk) ? (settings as any).strategyRisk : "balanced") as RiskProfile, horizon: (["short", "medium", "long"].includes((settings as any).strategyHorizon) ? (settings as any).strategyHorizon : "long") as Horizon };
 
@@ -133,14 +134,15 @@ async function _getStrategy(): Promise<StrategyView> {
   }
 
   // The book: stocks and equity funds against the dry powder (money market,
-  // savings, T-bills and sukuks). The brokerage balance is left out, as net
-  // worth leaves it out: the ledger behind it is incomplete.
+  // savings, T-bills and sukuks, and the brokerage balance once measured, as
+  // net worth counts it).
   const moneyMarket = funds.filter((f) => f.moneyMarket).reduce((s, f) => s + f.value, 0);
   const equityFunds = funds.filter((f) => !f.moneyMarket).reduce((s, f) => s + f.value, 0);
+  const brokerCash = broker.measured ? broker.balance : 0;
   const book = {
     stocks: summary.totalValue,
     equityFunds,
-    cashLike: moneyMarket + savings.reduce((s, a) => s + a.balance, 0),
+    cashLike: moneyMarket + savings.reduce((s, a) => s + a.balance, 0) + brokerCash,
     fixedIncome: fixed.filter((f) => !f.matured).reduce((s, f) => s + f.value, 0),
   };
 
@@ -168,6 +170,7 @@ async function _getStrategy(): Promise<StrategyView> {
   const places = [
     ...funds.filter((f) => f.moneyMarket && f.value >= 1).map((f) => ({ label: f.name, amount: f.value, yieldPct: f.liveAnnualYieldPct ?? f.annualYieldPct ?? null, liquid: true })),
     ...savings.filter((a) => a.balance >= 1).map((a) => ({ label: a.name, amount: a.balance, yieldPct: a.ratePercent ?? null, liquid: true })),
+    ...(brokerCash >= 1 ? [{ label: "Broker cash", amount: brokerCash, yieldPct: 0, liquid: true }] : []),
     ...fixed.filter((f) => !f.matured && f.value >= 1).map((f) => ({ label: f.name, amount: f.value, yieldPct: f.yieldPct ?? null, liquid: false, until: f.maturityDate })),
   ];
   const plan = strategyPlan({ today, profile, kse, market: board?.market ? { pe: board.market.pe, cape: board.market.cape, dividendYieldPct: board.market.dividendYieldPct } : null, rates, prevRates, book, names, zones, places });

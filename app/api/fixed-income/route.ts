@@ -29,6 +29,7 @@ const postSchema = z
     taxPct: z.number().min(0).max(100).default(15),
     pricePct: z.number().positive().max(300).nullable().optional(),
     notes: z.string().default(""),
+    rollover: z.enum(["", "principal", "all"]).default(""),
     portfolioId: z.string().optional(),
   })
   .refine((v) => v.cost != null || (v.kind === "tbill" && v.yieldPct != null), { message: "give what was paid, or for a T-bill its yield" })
@@ -73,6 +74,7 @@ export async function POST(req: NextRequest) {
       taxPct: p.taxPct,
       pricePct: p.pricePct ?? null,
       notes: p.notes,
+      rollover: p.kind === "fd" ? p.rollover : "",
     });
     return NextResponse.json(created.toObject(), { status: 201 });
   } catch (err) {

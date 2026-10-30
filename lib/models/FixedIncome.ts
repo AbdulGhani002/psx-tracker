@@ -21,6 +21,12 @@ const FixedIncomeSchema = new Schema(
     taxPct: { type: Number, default: 15 },
     pricePct: { type: Number, default: null },
     notes: { type: String, default: "" },
+    // A deposit that rolls over at maturity: "principal" (the profit is paid
+    // out) or "all" (principal and profit). Each term is its own record,
+    // linked both ways (lib/fixed-income/roll.ts).
+    rollover: { type: String, default: "" },
+    rolledFrom: { type: String, default: "" },
+    rolledTo: { type: String, default: "" },
   },
   { timestamps: true }
 );

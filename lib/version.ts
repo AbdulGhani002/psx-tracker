@@ -1,7 +1,7 @@
 // Single source of truth for the app version + changelog.
 // Bump APP_VERSION and prepend a CHANGELOG entry on every release.
 
-export const APP_VERSION = "11.30.0";
+export const APP_VERSION = "11.31.0";
 
 export const BUILD_DATE =
   process.env.NEXT_PUBLIC_BUILD_DATE ?? "";
@@ -17,6 +17,16 @@ export type ChangelogEntry = {
 
 // Reverse-chronological. Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: "11.31.0",
+    date: "2026-10-30",
+    title: "Deposits roll over by themselves; broker cash counts",
+    changes: [
+      "A deposit that rolls over opens its next term by itself on the day it matures: the principal, or the principal and the profit after tax, at the bank's published rate for the term (Bank Alfalah's rate sheet). Telegram tells you. It is no longer counted as money coming back.",
+      "Add deposit: choose paid out or rolls over.",
+      "Broker cash counts in net worth and the Strategy once it matches what the broker shows (30 Oct: Rs 90,000).",
+    ],
+  },
   {
     version: "11.30.0",
     date: "2026-10-27",

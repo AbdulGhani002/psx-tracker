@@ -11,6 +11,9 @@ const CashEntrySchema = new Schema(
     type: { type: String, required: true, enum: CASH_ENTRY_TYPES },
     amount: { type: Number, required: true, min: 0 }, // always positive; sign comes from type
     notes: { type: String, default: "" },
+    // Brings the ledger to a balance the broker showed: from here on the
+    // brokerage cash is measured, not residue, and counts as money.
+    measured: { type: Boolean, default: false },
   },
   { timestamps: true }
 );

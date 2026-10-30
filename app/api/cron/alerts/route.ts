@@ -30,6 +30,7 @@ import { getPrinciples } from "@/lib/principles";
 import { marketEvents, marketHolidays, missedDecision } from "@/lib/market-calendar";
 import { eventsMessage, missedMpcMessage, nextTradingDay, policyMessage } from "@/lib/calculations/market-calendar";
 import { freshPolicyStep } from "@/lib/market-history";
+import { rolledMessage } from "@/lib/fixed-income/rollover";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -360,9 +361,14 @@ async function runAlertsForCurrentUser(forceDigest = false) {
   }
 
   // A T-bill or sukuk maturing: a week before and the day before, with the
-  // month's rates to buy again at.
+  // month's rates to buy again at. A deposit that rolls over is not money
+  // coming back: its new term is told when it opens.
   try {
-    const soon = (await getFixedIncomeValued()).filter((f) => !f.matured && f.daysLeft <= 7);
+    const all = await getFixedIncomeValued();
+    for (const f of all.filter((x) => x.rolledFrom && x.purchaseDate >= new Date(Date.now() + 5 * 3600_000 - 3 * 86400000).toISOString().slice(0, 10))) {
+      candidates.push({ key: `rolled:${f._id}`, message: rolledMessage({ name: f.name, cost: f.cost, ratePct: f.couponPct, to: f.maturityDate, estimated: !/rate sheet/.test(f.notes) }) });
+    }
+    const soon = all.filter((f) => !f.matured && f.daysLeft <= 7 && !f.rollover);
     if (soon.length > 0) {
       const prefill = await getRatesPrefill().catch(() => null);
       for (const f of soon) {

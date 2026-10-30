@@ -7,6 +7,7 @@ import { computeBenchmark, benchmarkKey, BENCHMARK_RANGES } from "@/lib/feeds/be
 import { getAutoSignalsCached } from "@/lib/feeds/regime";
 import { refreshTbillAuctions } from "@/lib/feeds/tbill-auctions";
 import { refreshMpcDates } from "@/lib/market-calendar";
+import { rollDeposits } from "@/lib/fixed-income/roll";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -65,6 +66,13 @@ export async function POST() {
     report.mpcDates = await refreshMpcDates();
   } catch (e) {
     report.mpcDates = { status: "error", note: String(e).slice(0, 200) };
+  }
+
+  // Deposits that roll over, on the day they mature (lib/fixed-income/roll).
+  try {
+    report.rollovers = await rollDeposits();
+  } catch (e) {
+    report.rollovers = { status: "error", note: String(e).slice(0, 200) };
   }
 
   // Pakistan CPI from PBS. Monthly data, but cheap to check — this is what makes
