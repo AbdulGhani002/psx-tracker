@@ -1,7 +1,7 @@
 // Single source of truth for the app version + changelog.
 // Bump APP_VERSION and prepend a CHANGELOG entry on every release.
 
-export const APP_VERSION = "11.31.0";
+export const APP_VERSION = "11.31.1";
 
 export const BUILD_DATE =
   process.env.NEXT_PUBLIC_BUILD_DATE ?? "";
@@ -17,6 +17,12 @@ export type ChangelogEntry = {
 
 // Reverse-chronological. Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: "11.31.1",
+    date: "2026-10-30",
+    title: "Broker statements written for you",
+    changes: ["A broker statement's buys and sells can be written for you, the same way the Add trade form writes them; one sent twice is not doubled."],
+  },
   {
     version: "11.31.0",
     date: "2026-10-30",
