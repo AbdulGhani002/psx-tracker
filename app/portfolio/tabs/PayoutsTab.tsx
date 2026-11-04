@@ -173,7 +173,7 @@ export async function PayoutsTab() {
           {announced.upcoming.length > 0 && (
             <div className="overflow-x-auto -mx-2">
               <table className="table-zar">
-                <thead><tr><th>Book closure</th><th>Name</th><th>Payout</th><th className="text-right">Shares held</th><th className="text-right">Per share</th><th className="text-right">Gross</th><th className="text-right">Net</th><th>Status</th></tr></thead>
+                <thead><tr><th>Book closure</th><th>Name</th><th>Payout</th><th className="text-right">Shares entitled</th><th className="text-right">Per share</th><th className="text-right">Gross</th><th className="text-right">Net</th><th>Status</th></tr></thead>
                 <tbody>
                   {announced.upcoming.map((a) => (
                     <tr key={`${a.symbol}-${a.type}-${a.bookClosure}`}>
@@ -185,8 +185,8 @@ export async function PayoutsTab() {
                       <td className="text-right mono-num">{a.type === "DIVIDEND" ? fmtRs(a.gross) : "–"}</td>
                       <td className="text-right mono-num" style={{ color: a.type === "DIVIDEND" ? "var(--positive)" : undefined }}>{a.type === "DIVIDEND" ? fmtRs(a.net) : "–"}</td>
                       <td>
-                        <span className="pill" data-tone={a.status === "recorded" ? "positive" : a.status === "upcoming" ? "muted" : "negative"}>
-                          {a.status === "recorded" ? "Recorded" : a.status === "upcoming" ? (a.type === "RIGHT" ? "Record when subscribed" : "Will record") : a.type === "RIGHT" ? "Subscribe or let lapse" : "Not entitled"}
+                        <span className="pill" data-tone={a.status === "recorded" ? "positive" : a.status === "upcoming" ? "muted" : a.status === "due" ? "amber" : "negative"}>
+                          {a.status === "recorded" ? "Recorded" : a.status === "upcoming" ? (a.type === "RIGHT" ? "Record when subscribed" : "Will record") : a.status === "due" ? (a.type === "RIGHT" ? "Subscribe or let lapse" : "To record") : "Not entitled"}
                         </span>
                       </td>
                     </tr>

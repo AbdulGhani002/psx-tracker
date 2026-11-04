@@ -69,21 +69,24 @@ export async function POST(req: Request) {
   }
 
   const users = await getAllUserIds();
-  let recorded = 0, skipped = 0, notified = 0;
+  let recorded = 0, skipped = 0, corrected = 0, notified = 0;
   const lines: string[] = [];
   for (const uid of users) {
     await runAsUser(uid, async () => {
       const r = await runCorporateActionsForCurrentUser({ dryRun: body?.dryRun === true, today: typeof body?.today === "string" ? body.today : undefined });
       recorded += r.recorded.length;
       skipped += r.skipped.length;
+      corrected += r.corrected.length;
+      const fixes = r.corrected.map((c) => `${c.symbol} dividend, book closure ${c.bookClosure}: ${c.was.toLocaleString()} to ${c.shares.toLocaleString()} shares, net Rs ${c.net.toLocaleString()}`);
+      if (body?.dryRun) lines.push(...fixes.map((f) => `${uid.slice(-6)}: correct ${f}`));
       if (body?.dryRun) lines.push(...r.recorded.map((a) => `${uid.slice(-6)}: ${describeAction(a)}`), ...r.skipped.map((s) => `${uid.slice(-6)}: skip ${s.symbol} ${s.type} ${s.bookClosure}: ${s.reason}`));
-      if (r.recorded.length === 0 || body?.dryRun) return;
+      if ((r.recorded.length === 0 && fixes.length === 0) || body?.dryRun) return;
       const s: any = await getAppSettings();
       if (!s.telegramBotToken || !s.telegramChatId) return;
-      const text = ["<b>Recorded automatically</b>", ...r.recorded.map((a) => `• ${describeAction(a)}`), "", "A warrant uploaded later replaces the figures."].join("\n");
+      const text = [...(r.recorded.length ? ["<b>Recorded automatically</b>", ...r.recorded.map((a) => `• ${describeAction(a)}`), "", "A warrant uploaded later replaces the figures."] : []), ...(fixes.length ? [...(r.recorded.length ? [""] : []), "<b>Dividends corrected</b> to the shares held on the record date", ...fixes.map((f) => `• ${f}`)] : [])].join("\n");
       const sent = await sendTelegram(s.telegramBotToken, s.telegramChatId, text);
       if (sent.ok) notified++;
     });
   }
-  return NextResponse.json({ ok: true, ...report, users: users.length, recorded, skipped, notified, ...(body?.dryRun ? { lines } : {}) });
+  return NextResponse.json({ ok: true, ...report, users: users.length, recorded, skipped, corrected, notified, ...(body?.dryRun ? { lines } : {}) });
 }

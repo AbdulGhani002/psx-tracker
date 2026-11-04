@@ -24,7 +24,7 @@ export async function getIncomeCalendar(): Promise<IncomeCalendar> {
   return incomeCalendar({
     today: new Date(Date.now() + 5 * 3600_000).toISOString().slice(0, 10),
     dividends: txs.filter((t) => t.type === "DIVIDEND").map((t) => ({ date: iso(t.date), net: t.netAmount })),
-    announced: announced.upcoming.filter((a) => a.type === "DIVIDEND" && a.status === "upcoming").map((a) => ({ date: a.bookClosure, net: a.net })),
+    announced: announced.upcoming.filter((a) => a.type === "DIVIDEND" && (a.status === "upcoming" || a.status === "due")).map((a) => ({ date: a.bookClosure, net: a.net })),
     forecast: (forecast?.due ?? []).map((e) => ({ date: iso(e.date), gross: e.expectedGross })),
     dividendTaxPct: divTax,
     fixed: fixed.flatMap((f) => fixedIncomeEvents(f).map((e) => ({ date: e.date, net: e.gross - e.tax }))),

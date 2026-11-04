@@ -7,6 +7,8 @@ import { getRuleBoard } from "@/lib/rules/data";
 import { fixedIncomeEvents, type FixedIncomeHolding } from "@/lib/fixed-income/value";
 import { faceOf } from "@/lib/calculations/face-value";
 import { buildCashCalendar, dividendItems, fixedItems, ruleNeeds, type CashCalendar } from "@/lib/calculations/cash-calendar";
+import { sharesEntitled } from "@/lib/calculations/corporate-actions";
+import { marketHolidays } from "@/lib/market-calendar";
 
 // The cash calendar for the current user (lib/calculations/cash-calendar):
 // cash now as the weekly plan counts it (the funds, broker cash and what you
@@ -35,13 +37,14 @@ export async function getCashCalendar(days = 90): Promise<CashCalendar> {
   const available = ((pb?.cashSources ?? []) as any[]).filter((c) => !c.settledAt && c.kind === "available").reduce((s, c) => s + Number(c.amount) * (c.currency === "USD" ? Number(c.fxRate) || 0 : 1), 0);
   const cashNow = (funds as any[]).reduce((s, f) => s + (f.value ?? 0), 0) + Math.max(0, Number(cashSum?.balance ?? 0)) + available;
 
-  const held = [...summary.positions, ...summary.parked].filter((p) => p.shares > 0).map((p) => ({ symbol: p.symbol, shares: p.shares }));
-  const symbols = held.map((h) => h.symbol);
   const from = back(today, 30);
-  const [fundamentals, events, recorded] = await Promise.all([
+  const [txs, holidays] = await Promise.all([TransactionModel.find({ userId, deletedAt: null }).sort({ date: 1, createdAt: 1 }).lean() as Promise<any[]>, marketHolidays().catch(() => new Set<string>())]);
+  const recorded = txs.filter((t) => t.type === "DIVIDEND" && new Date(t.date).toISOString().slice(0, 10) >= from);
+  // A dividend is owed on shares sold since its book closure, so those names count too.
+  const symbols = [...new Set([...[...summary.positions, ...summary.parked].filter((p) => p.shares > 0).map((p) => p.symbol), ...recorded.map((t) => String(t.symbol))])];
+  const [fundamentals, events] = await Promise.all([
     FundamentalModel.find({ symbol: { $in: symbols } }, { symbol: 1, faceValue: 1, payouts: 1 }).lean() as Promise<any[]>,
     ShareEventModel.find({ symbol: { $in: symbols }, kind: "cash", date: { $gte: back(from, 15) } }, { symbol: 1, date: 1, cash: 1 }).lean() as Promise<any[]>,
-    TransactionModel.find({ userId, type: "DIVIDEND", deletedAt: null, date: { $gte: new Date(from + "T00:00:00Z") } }, { symbol: 1, date: 1, netAmount: 1, source: 1 }).lean() as Promise<any[]>,
   ]);
   const payouts = fundamentals.flatMap((f) =>
     ((f.payouts ?? []) as any[])
@@ -59,7 +62,7 @@ export async function getCashCalendar(days = 90): Promise<CashCalendar> {
     today,
     days,
     taxPct,
-    held,
+    entitled: (symbol, bookClosure) => sharesEntitled(txs, symbol, bookClosure, holidays),
     payouts,
     recorded: recorded.map((r) => ({ symbol: String(r.symbol), date: new Date(r.date).toISOString().slice(0, 10), net: Number(r.netAmount) || 0, auto: r.source === "auto" })),
   });

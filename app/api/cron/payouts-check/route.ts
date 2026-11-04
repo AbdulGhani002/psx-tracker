@@ -23,7 +23,7 @@ export async function POST(req: Request) {
   const day = (d: Date | string) => new Date(d).toISOString().slice(0, 10);
   return NextResponse.json({
     ok: true,
-    announced: announced.upcoming.map((a: any) => `${a.symbol} ${a.type} ${a.pctOfFace}% book closure ${day(a.bookClosure)} ${a.status}`),
+    announced: announced.upcoming.map((a: any) => `${a.symbol} ${a.type} ${a.pctOfFace}% book closure ${day(a.bookClosure)} ${a.status}: ${a.shares} shares at ${a.rate}, gross ${a.gross}, net ${a.net}`),
     calendar: { fy: cal.fyLabel, received: Math.round(cal.received), expected: Math.round(cal.expected), months: cal.months.map((m) => `${m.key} div ${Math.round(m.dividends.received)}/${Math.round(m.dividends.expected)} fixed ${Math.round(m.fixed.received)}/${Math.round(m.fixed.expected)} cash ${Math.round(m.cash.expected)}`) },
     due: f.due.map((e) => `${day(e.date)} ${e.symbol} ${e.expectedRatePerShare.toFixed(2)} x ${Math.round(e.shares)} = ${Math.round(e.expectedGross)} (from ${day(e.basedOn)})`),
   });

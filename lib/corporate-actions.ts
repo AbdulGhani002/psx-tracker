@@ -5,7 +5,8 @@ import { currentFace, faceOf, type FaceEvent } from "@/lib/calculations/face-val
 import { deriveFromTransactions } from "@/lib/calculations/holding";
 import { listPortfolios } from "@/lib/portfolios";
 import { getAppSettings } from "@/lib/data";
-import { planDueActions, autoSettingsFrom, financialYearLabel, cycleLabel, dividendFigures, bonusFigures, actionKeyOf, type SymbolPayouts, type DueAction, type Skipped } from "@/lib/calculations/corporate-actions";
+import { marketHolidays } from "@/lib/market-calendar";
+import { planDueActions, autoSettingsFrom, financialYearLabel, cycleLabel, dividendFigures, payoutStanding, staleAutoDividends, type PayoutStanding, type SymbolPayouts, type DueAction, type Skipped } from "@/lib/calculations/corporate-actions";
 
 export * from "@/lib/calculations/corporate-actions";
 
@@ -40,33 +41,42 @@ async function recomputeHolding(userId: string, symbol: string) {
   await HoldingModel.findOneAndUpdate({ userId, symbol }, { currentShares: d.shares, avgCostBasis: d.avgCost, totalCost: d.totalCost, realizedPL: d.realizedPL, totalDividendsReceived: d.dividendsReceived });
 }
 
-export type RunResult = { recorded: Array<DueAction & { id: string }>; skipped: Skipped[]; checked: number };
+export type RunResult = { recorded: Array<DueAction & { id: string }>; skipped: Skipped[]; checked: number; corrected: Array<{ symbol: string; bookClosure: string; was: number; shares: number; net: number }> };
 
 // Writes what is due for the current user. Idempotent: the action key is
 // unique per user, so a second run in the same day writes nothing.
 export async function runCorporateActionsForCurrentUser(opts: { today?: string; dryRun?: boolean } = {}): Promise<RunResult> {
   const userId = await getCurrentUserId();
-  if (!userId) return { recorded: [], skipped: [], checked: 0 };
+  if (!userId) return { recorded: [], skipped: [], checked: 0, corrected: [] };
   await connectDb();
   const today = opts.today ?? new Date().toISOString().slice(0, 10);
-  const [settingsRaw, holdings, liveTxs, keyed, portfolios] = await Promise.all([
+  const [settingsRaw, holdings, liveTxs, keyed, portfolios, holidays] = await Promise.all([
     getAppSettings(),
     HoldingModel.find({ userId }).lean(),
     TransactionModel.find({ userId, deletedAt: null }).lean(),
     TransactionModel.find({ userId, actionKey: { $type: "string" } }, { actionKey: 1 }).lean(),
     listPortfolios().catch(() => []),
+    marketHolidays().catch(() => new Set<string>()),
   ]);
   const settings = autoSettingsFrom(settingsRaw);
   const symbols = [...new Set((holdings as any[]).map((h) => h.symbol as string))];
-  if (symbols.length === 0) return { recorded: [], skipped: [], checked: 0 };
+  if (symbols.length === 0) return { recorded: [], skipped: [], checked: 0, corrected: [] };
   const [funds, events] = await Promise.all([FundamentalModel.find({ symbol: { $in: symbols } }).lean() as Promise<any[]>, cashEvents(symbols, addDays(today, -400))]);
   const boards: SymbolPayouts[] = funds.map((f) => ({ symbol: f.symbol, faceValue: f.faceValue ?? 10, payouts: f.payouts ?? [], events: events.get(f.symbol) ?? [] }));
   const defaultPortfolioId = portfolios.find((p) => p.isDefault)?._id ?? portfolios[0]?._id ?? "";
-  const { due, skipped } = planDueActions({ liveTxs: liveTxs as any, usedKeys: new Set((keyed as any[]).map((k) => k.actionKey)), boards, settings, defaultPortfolioId, today });
+  const { due, skipped } = planDueActions({ liveTxs: liveTxs as any, usedKeys: new Set((keyed as any[]).map((k) => k.actionKey)), boards, settings, defaultPortfolioId, today, holidays });
+  const stale = staleAutoDividends({ liveTxs: liveTxs as any, defaultPortfolioId, today, holidays });
+  const corrected: RunResult["corrected"] = stale.map((s) => ({ symbol: s.symbol, bookClosure: s.bookClosure, was: s.was, shares: s.shares, net: s.net }));
 
   const recorded: RunResult["recorded"] = [];
-  if (opts.dryRun) return { recorded: due.map((d) => ({ ...d, id: "" })), skipped, checked: boards.length };
+  if (opts.dryRun) return { recorded: due.map((d) => ({ ...d, id: "" })), skipped, checked: boards.length, corrected };
   const touched = new Set<string>();
+  for (const s of stale) {
+    const row = (liveTxs as any[]).find((t) => t._id === s.id);
+    const note = ` Shares corrected ${today}: ${s.was} to ${s.shares}, the shares held on the record date.`;
+    await TransactionModel.updateOne({ _id: s.id, source: "auto" }, { $set: { shares: s.shares, totalAmount: s.gross, taxDeducted: s.tax, zakatDeducted: s.zakat, fees: round2(s.tax + s.zakat), netAmount: s.net, notes: `${row?.notes ?? ""}${note}`.trim() } });
+    touched.add(s.symbol);
+  }
   for (const a of due) {
     const fy = financialYearLabel(a.bookClosure);
     const doc =
@@ -93,42 +103,32 @@ export async function runCorporateActionsForCurrentUser(opts: { today?: string; 
     }
   }
   for (const s of touched) await recomputeHolding(userId, s);
-  return { recorded, skipped, checked: boards.length };
+  return { recorded, skipped, checked: boards.length, corrected };
 }
 
-export type Announced = {
-  symbol: string;
-  type: "DIVIDEND" | "BONUS" | "RIGHT";
-  bookClosure: string;
-  pctOfFace: number;
-  cycle: string;
-  shares: number; // held today
-  rate: number;
-  gross: number;
-  net: number;
-  bonusCredited: number;
-  status: "upcoming" | "recorded" | "past";
-};
+export type Announced = { symbol: string; type: "DIVIDEND" | "BONUS" | "RIGHT"; bookClosure: string; pctOfFace: number; cycle: string } & PayoutStanding;
 
-// What the board says is coming for the names held today, and what the job
-// has already written, for the Payouts tab.
+// What the board says for the names held, and for any paid on shares gone
+// since, with where each stands (payoutStanding: the ledger's own figures
+// once recorded, so this table cannot differ from it), and what the job has
+// already written, for the Payouts tab.
 export async function getAnnouncedActions(daysAhead = 90): Promise<{ upcoming: Announced[]; recorded: Array<{ id: string; symbol: string; type: string; date: string; shares: number; rate: number; net: number; notes: string }> }> {
   const userId = await getCurrentUserId();
   if (!userId) return { upcoming: [], recorded: [] };
   await connectDb();
-  const [settingsRaw, holdings, autoRows] = await Promise.all([
+  const [settingsRaw, holdings, txs, holidays] = await Promise.all([
     getAppSettings(),
-    HoldingModel.find({ userId, currentShares: { $gt: 0 }, parked: { $ne: true } }).lean(),
-    TransactionModel.find({ userId, source: "auto", deletedAt: null }).sort({ date: -1 }).limit(20).lean(),
+    HoldingModel.find({ userId, currentShares: { $gt: 0 } }, { symbol: 1 }).lean(),
+    TransactionModel.find({ userId, deletedAt: null }).sort({ date: 1, createdAt: 1 }).lean(),
+    marketHolidays().catch(() => new Set<string>()),
   ]);
   const settings = autoSettingsFrom(settingsRaw);
-  const held = new Map((holdings as any[]).map((h) => [h.symbol as string, h.currentShares as number]));
-  const funds: any[] = held.size ? await FundamentalModel.find({ symbol: { $in: [...held.keys()] } }).lean() : [];
   const today = new Date().toISOString().slice(0, 10);
-  const events = held.size ? await cashEvents([...held.keys()], addDays(today, -60)) : new Map<string, FaceEvent[]>();
   const end = addDays(today, daysAhead);
   const from = addDays(today, -30);
-  const keys = new Set((autoRows as any[]).map((r) => r.actionKey).filter(Boolean));
+  const names = [...new Set([...(holdings as any[]).map((h) => h.symbol as string), ...(txs as any[]).filter((t) => (t.type === "DIVIDEND" || t.type === "BONUS") && isoDay(t.date) >= from).map((t) => t.symbol as string)])];
+  const funds: any[] = names.length ? await FundamentalModel.find({ symbol: { $in: names } }).lean() : [];
+  const events = names.length ? await cashEvents(names, addDays(today, -60)) : new Map<string, FaceEvent[]>();
   const upcoming: Announced[] = [];
   for (const f of funds) {
     for (const p of f.payouts ?? []) {
@@ -136,16 +136,14 @@ export async function getAnnouncedActions(daysAhead = 90): Promise<{ upcoming: A
       if (!bc || bc < from || bc > end || !(p.pctOfFace > 0)) continue;
       const type = p.payoutType === "cash" ? "DIVIDEND" : p.payoutType === "bonus" ? "BONUS" : p.payoutType === "right" ? "RIGHT" : null;
       if (!type) continue;
-      const shares = held.get(f.symbol) ?? 0;
       const fv = (type === "DIVIDEND" ? faceOf(p, events.get(f.symbol) ?? [])?.face : null) ?? f.faceValue ?? 10;
-      const d = type === "DIVIDEND" ? dividendFigures(shares, p.pctOfFace, fv, settings) : { rate: round2((p.pctOfFace * fv) / 100), gross: 0, net: 0 };
-      const bo = type === "BONUS" ? bonusFigures(shares, p.pctOfFace, settings) : { credited: 0 };
-      const key = actionKeyOf(f.symbol, type, bc, p.pctOfFace);
-      upcoming.push({ symbol: f.symbol, type, bookClosure: bc, pctOfFace: p.pctOfFace, cycle: p.cycle ?? "", shares, rate: d.rate, gross: d.gross, net: d.net, bonusCredited: bo.credited, status: keys.has(key) ? "recorded" : bc > today ? "upcoming" : "past" });
+      const s = payoutStanding(txs as any, { symbol: f.symbol, type, bookClosure: bc, pctOfFace: p.pctOfFace, faceValue: fv }, settings, today, holidays);
+      upcoming.push({ symbol: f.symbol, type, bookClosure: bc, pctOfFace: p.pctOfFace, cycle: p.cycle ?? "", ...s });
     }
   }
   upcoming.sort((a, b) => a.bookClosure.localeCompare(b.bookClosure));
-  const recorded = (autoRows as any[]).map((r) => ({ id: String(r._id), symbol: r.symbol, type: r.type, date: isoDay(r.date), shares: r.shares, rate: r.pricePerShare, net: r.netAmount, notes: r.notes ?? "" }));
+  const autoRows = (txs as any[]).filter((t) => t.source === "auto").reverse().slice(0, 20);
+  const recorded = autoRows.map((r) => ({ id: String(r._id), symbol: r.symbol, type: r.type, date: isoDay(r.date), shares: r.shares, rate: r.pricePerShare, net: r.netAmount, notes: r.notes ?? "" }));
   return { upcoming, recorded };
 }
 

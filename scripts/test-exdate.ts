@@ -20,6 +20,7 @@ check("AHCL: ex on Tue 20 Oct, last day to buy with it Mon 19 Oct", a.exDate ===
 check("a Monday book closure goes ex the Friday before", exDateOf("2026-10-26").exDate === "2026-10-23" && exDateOf("2026-10-26").lastCumDate === "2026-10-22");
 check("a holiday in between is skipped", exDateOf("2026-10-21", new Set(["2026-10-20"])).lastCumDate === "2026-10-16" && exDateOf("2026-10-21", new Set(["2026-10-20"])).exDate === "2026-10-19");
 check("the last day to hold is the dividend job's last entitled trade", ["2026-10-21", "2026-10-22", "2026-10-26", "2026-11-02", "2026-12-07"].every((d) => exDateOf(d).lastCumDate === lastEntitledTradeDate(d)));
+check("the same with a holiday in the way", exDateOf("2026-11-11", new Set(["2026-11-09"])).lastCumDate === lastEntitledTradeDate("2026-11-11", new Set(["2026-11-09"])));
 
 const after = exDividendMessage({ symbol: "AHCL", bookClosure: "2026-10-21", pctOfFace: 125, faceValue: 1 }, 21019, 15, "2026-10-20");
 check("found on the ex-date: says it went ex, the rate a share and what the shares held earn", after.includes("went ex-dividend on Tue 20 Oct: Rs 1.25 a share (125%), book closure from Wed 21 Oct") && after.includes("On your 21,019 shares: Rs 26,274, about Rs 22,333 after 15% tax."), after);

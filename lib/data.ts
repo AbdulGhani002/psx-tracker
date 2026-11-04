@@ -14,6 +14,7 @@ import { fetchSbpRatesDetailed, corridorAgrees, tbill12mPct, type SbpRates } fro
 import { fetchInflation, fetchMettisCpi, type InflationData } from "./feeds/inflation";
 
 import { computeAttribution, type Attribution } from "./calculations/attribution";
+import { sharesEntitled } from "./calculations/corporate-actions";
 
 import { fetchAllNavs, findNav, fetchFundReturns } from "./funds/mufap";
 import { valueSavings, valueFund, type SavingsValuation, type FundValuation } from "./calculations/assets";
@@ -1270,24 +1271,25 @@ export type CorporateActionSuggestion = {
   pct: number; // announced % (of holding for bonus; rights ratio as announced)
   bookClosure: string;
   cycle: string;
-  heldShares: number; // held TODAY — the card says so
-  suggestedShares: number; // floor(held × pct / 100)
+  heldShares: number; // entitled on the record date
+  suggestedShares: number; // floor(entitled × pct / 100)
 };
 
 // Announced bonus/right issues on HELD symbols that have no matching recorded
 // transaction yet — surfaced as pre-filled suggestions, never auto-applied.
 // Window: book closures from 60 days back (you may not have recorded it) to 45
-// days ahead (it's coming). The share math uses TODAY's holding and says so —
-// entitlement actually depends on shares held AT book closure.
+// days ahead (it's coming). The shares are those entitled on the record date
+// (sharesEntitled), the same as the dividend job's.
 export async function getCorporateActionSuggestions(): Promise<CorporateActionSuggestion[]> {
   if (!(await tryConnect())) return [];
-  const [holdings, txs] = await Promise.all([
+  const [holdings, txs, holidays] = await Promise.all([
     HoldingModel.find({ userId: await meId(), currentShares: { $gt: 0 }, parked: { $ne: true } }).lean(),
     getAllTransactions(),
+    import("./market-calendar").then((m) => m.marketHolidays()).catch(() => new Set<string>()),
   ]);
-  const held = new Map(holdings.map((h: any) => [h.symbol, h.currentShares as number]));
+  const held = new Set(holdings.map((h: any) => h.symbol as string));
   if (held.size === 0) return [];
-  const funds: any[] = await FundamentalModel.find({ symbol: { $in: [...held.keys()] } }).lean();
+  const funds: any[] = await FundamentalModel.find({ symbol: { $in: [...held] } }).lean();
 
   const today = new Date();
   const from = new Date(today.getTime() - 60 * 86400000).toISOString().slice(0, 10);
@@ -1305,7 +1307,8 @@ export async function getCorporateActionSuggestions(): Promise<CorporateActionSu
         (tx) => tx.symbol === f.symbol && tx.type === t && Math.abs(new Date(tx.date).getTime() - new Date(bc).getTime()) < 21 * 86400000
       );
       if (recorded) continue;
-      const heldShares = held.get(f.symbol) ?? 0;
+      const heldShares = sharesEntitled(txs as any, f.symbol, bc, holidays);
+      if (heldShares <= 0) continue;
       out.push({
         symbol: f.symbol,
         type: t,

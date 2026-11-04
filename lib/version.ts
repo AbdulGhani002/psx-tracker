@@ -1,7 +1,7 @@
 // Single source of truth for the app version + changelog.
 // Bump APP_VERSION and prepend a CHANGELOG entry on every release.
 
-export const APP_VERSION = "11.31.1";
+export const APP_VERSION = "11.31.2";
 
 export const BUILD_DATE =
   process.env.NEXT_PUBLIC_BUILD_DATE ?? "";
@@ -17,6 +17,17 @@ export type ChangelogEntry = {
 
 // Reverse-chronological. Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: "11.31.2",
+    date: "2026-11-04",
+    title: "Payouts match the ledger",
+    changes: [
+      "Announced on the exchange: a recorded payout now shows the ledger's own figures. It multiplied by today's shares, so PTL showed 248 for a dividend paid on 3,248.",
+      "One rule for the shares a payout is paid on, those held on the record date: the same in that table, the ex-dividend Telegram, the cash calendar and the bonus and rights suggestions. It counts the exchange's holidays.",
+      "A dividend recorded before a late trade reached the app is worked out again by itself, and Telegram tells you. Rows typed in or from a warrant are left alone.",
+      "Parked shares and shares sold since now show their payouts too.",
+    ],
+  },
   {
     version: "11.31.1",
     date: "2026-10-30",

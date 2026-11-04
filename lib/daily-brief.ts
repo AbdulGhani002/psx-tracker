@@ -1,7 +1,7 @@
 import "server-only";
 import { connectDb } from "@/lib/db";
 import { FeedSnapshotModel, FundamentalModel } from "@/lib/models";
-import { marketEvents } from "@/lib/market-calendar";
+import { marketEvents, marketHolidays } from "@/lib/market-calendar";
 import { getInflationLive, getPortfolioSummary, getSbpRateSteps, getTbill12mPct } from "@/lib/data";
 import { getEarningsCalendar } from "@/lib/analytics";
 import { SHEET_PREFIX, loadStoredBars } from "@/lib/quant/sheet-bars";
@@ -105,10 +105,11 @@ export async function dailyBriefForCurrentUser(today: string): Promise<string | 
   const weekOn = addDays(today, 7);
   const next: BriefInput["next"] = (await marketEvents(today, weekOn).catch(() => [])).map((e) => ({ date: e.date, title: e.title }));
   const heldSyms = new Set(held.map((p) => p.symbol));
+  const holidays = await marketHolidays().catch(() => new Set<string>());
   for (const f of (await FundamentalModel.find({ symbol: { $in: [...heldSyms] } }, { symbol: 1, payouts: 1 }).lean()) as any[]) {
     for (const p of f.payouts ?? []) {
       if (p.payoutType !== "cash" || !p.bookClosure || p.bookClosure < today) continue;
-      const ex = exDateOf(p.bookClosure).exDate;
+      const ex = exDateOf(p.bookClosure, holidays).exDate;
       if (ex >= today && ex <= weekOn) next.push({ date: ex, title: `${f.symbol} goes ex-dividend` });
     }
   }

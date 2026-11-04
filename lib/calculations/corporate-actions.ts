@@ -30,7 +30,7 @@ export type AutoSettings = {
   bonusTaxPct: number;
 };
 
-type Tx = { symbol: string; type: string; date: Date | string; shares: number; pricePerShare: number; netAmount: number; ratio?: string; portfolioId?: string; actionKey?: string | null; deletedAt?: Date | string | null };
+type Tx = { _id?: unknown; symbol: string; type: string; date: Date | string; shares: number; pricePerShare: number; netAmount: number; totalAmount?: number; taxDeducted?: number; zakatDeducted?: number; source?: string; ratio?: string; portfolioId?: string; actionKey?: string | null; deletedAt?: Date | string | null };
 
 export type DueAction = {
   symbol: string;
@@ -64,22 +64,22 @@ const addDays = (iso: string, n: number) => {
   return d.toISOString().slice(0, 10);
 };
 
-// n business days before the date, Saturdays and Sundays skipped.
-export function businessDaysBefore(iso: string, n: number): string {
+// n business days before the date, weekends and the exchange's holidays skipped.
+export function businessDaysBefore(iso: string, n: number, holidays: Set<string> = new Set()): string {
   let d = new Date(iso + "T00:00:00Z");
   let left = n;
   while (left > 0) {
     d.setUTCDate(d.getUTCDate() - 1);
     const wd = d.getUTCDay();
-    if (wd !== 0 && wd !== 6) left--;
+    if (wd !== 0 && wd !== 6 && !holidays.has(d.toISOString().slice(0, 10))) left--;
   }
   return d.toISOString().slice(0, 10);
 }
 
 // The last trade date that still puts the buyer on the register for a book
 // closure starting on the given day.
-export function lastEntitledTradeDate(bookClosureStart: string): string {
-  return businessDaysBefore(bookClosureStart, 1 + SETTLEMENT_DAYS);
+export function lastEntitledTradeDate(bookClosureStart: string, holidays: Set<string> = new Set()): string {
+  return businessDaysBefore(bookClosureStart, 1 + SETTLEMENT_DAYS, holidays);
 }
 
 export function actionKeyOf(symbol: string, type: string, bookClosure: string, pctOfFace: number): string {
@@ -88,8 +88,11 @@ export function actionKeyOf(symbol: string, type: string, bookClosure: string, p
 
 // Shares of one symbol held on the record date, from the ledger up to the
 // last entitled trade date (bonuses, rights and splits before it included).
-export function sharesEntitled(txs: Tx[], symbol: string, bookClosureStart: string): number {
-  const cutoff = lastEntitledTradeDate(bookClosureStart);
+// THE rule for what a payout is paid on: never the shares held today, which
+// differ once anything is bought or sold after the ex-date. Whatever shows or
+// sends a payout's shares takes them from here.
+export function sharesEntitled(txs: Tx[], symbol: string, bookClosureStart: string, holidays: Set<string> = new Set()): number {
+  const cutoff = lastEntitledTradeDate(bookClosureStart, holidays);
   const rows = txs.filter((t) => t.symbol === symbol && !t.deletedAt && isoDay(t.date) <= cutoff);
   return Math.max(0, Math.floor(deriveFromTransactions(rows as any).shares + 1e-6));
 }
@@ -118,14 +121,70 @@ export const cycleLabel = (cycle: string) => (cycle === "F" ? "Final" : cycle ? 
 
 // A dividend already on the ledger for this closure: same name, the same rate
 // per share, dated within the window a payment lands in.
-function alreadyRecorded(txs: Tx[], a: { symbol: string; type: "DIVIDEND" | "BONUS"; bookClosure: string; rate: number }): boolean {
+function ledgerRows(txs: Tx[], a: { symbol: string; type: "DIVIDEND" | "BONUS"; bookClosure: string; rate: number }): Tx[] {
   const from = addDays(a.bookClosure, -10), to = addDays(a.bookClosure, 90);
-  return txs.some((t) => {
+  return txs.filter((t) => {
     if (t.symbol !== a.symbol || t.type !== a.type || t.deletedAt) return false;
     const d = isoDay(t.date);
     if (d < from || d > to) return false;
     return a.type === "BONUS" || Math.abs(t.pricePerShare - a.rate) <= 0.011;
   });
+}
+
+export type PayoutStanding = {
+  status: "recorded" | "upcoming" | "due" | "past"; // due: entitled, not on the ledger; past: not entitled
+  shares: number; // entitled on the record date
+  rate: number;
+  gross: number;
+  net: number;
+  bonusCredited: number;
+};
+
+// Where one payout stands for this holder, so a page never works it out for
+// itself. Once it is on the ledger these are the ledger's own figures (a row
+// written by the job for this payout, else one that matches it); before that
+// they are worked out on the shares entitled.
+export function payoutStanding(txs: Tx[], p: { symbol: string; type: "DIVIDEND" | "BONUS" | "RIGHT"; bookClosure: string; pctOfFace: number; faceValue: number }, settings: AutoSettings, today: string, holidays: Set<string> = new Set()): PayoutStanding {
+  const entitled = sharesEntitled(txs, p.symbol, p.bookClosure, holidays);
+  const rate = round2((p.pctOfFace * p.faceValue) / 100);
+  if (p.type !== "RIGHT") {
+    const key = actionKeyOf(p.symbol, p.type, p.bookClosure, p.pctOfFace);
+    const own = txs.filter((t) => t.actionKey === key && !t.deletedAt);
+    const rows = own.length ? own : ledgerRows(txs, { symbol: p.symbol, type: p.type, bookClosure: p.bookClosure, rate });
+    const sum = (f: (r: Tx) => number) => rows.reduce((s, r) => s + (Number(f(r)) || 0), 0);
+    if (rows.length && p.type === "BONUS") return { status: "recorded", shares: entitled, rate: 0, gross: 0, net: 0, bonusCredited: sum((r) => Math.abs(r.shares)) };
+    if (rows.length) return { status: "recorded", shares: sum((r) => Math.abs(r.shares)), rate: Number(rows[0].pricePerShare), gross: round2(sum((r) => r.totalAmount ?? 0)), net: round2(sum((r) => r.netAmount)), bonusCredited: 0 };
+  }
+  const d = p.type === "DIVIDEND" ? dividendFigures(entitled, p.pctOfFace, p.faceValue, settings) : { rate, gross: 0, net: 0 };
+  const bo = p.type === "BONUS" ? bonusFigures(entitled, p.pctOfFace, settings) : { credited: 0 };
+  return { status: p.bookClosure > today ? "upcoming" : entitled > 0 ? "due" : "past", shares: entitled, rate: d.rate, gross: d.gross, net: d.net, bonusCredited: bo.credited };
+}
+
+export type StaleDividend = { id: unknown; symbol: string; bookClosure: string; was: number; shares: number; gross: number; tax: number; zakat: number; net: number };
+
+// Dividends the job wrote before a trade they depend on reached the ledger (a
+// statement sent late, a trade corrected): worked out again on the shares
+// entitled now, with the row's own rate and tax. Only rows the job wrote, in
+// its look-back; one typed in or from a warrant is left as it is, and one
+// with no shares entitled now is left for the user to look at.
+export function staleAutoDividends(input: { liveTxs: Tx[]; defaultPortfolioId: string; today: string; holidays?: Set<string>; lookbackDays?: number }): StaleDividend[] {
+  const from = addDays(input.today, -(input.lookbackDays ?? LOOKBACK_DAYS));
+  const canon = (p?: string) => (p && p !== input.defaultPortfolioId ? p : input.defaultPortfolioId);
+  const out: StaleDividend[] = [];
+  for (const r of input.liveTxs) {
+    if (r.type !== "DIVIDEND" || r.source !== "auto" || r.deletedAt || !r.actionKey?.includes(":DIVIDEND:")) continue;
+    const [, , bookClosure, pctText] = r.actionKey.split(":");
+    const pct = Number(pctText);
+    if (!bookClosure || bookClosure < from || !(pct > 0)) continue;
+    const mine = input.liveTxs.filter((t) => t.symbol === r.symbol && canon(t.portfolioId) === canon(r.portfolioId));
+    const shares = sharesEntitled(mine, r.symbol, bookClosure, input.holidays);
+    if (shares <= 0 || shares === Number(r.shares)) continue;
+    const gross = Number(r.totalAmount) || 0;
+    const taxPct = gross > 0 ? Math.round(((Number(r.taxDeducted) || 0) / gross) * 200) / 2 : 15;
+    const d = dividendFigures(shares, pct, (Number(r.pricePerShare) * 100) / pct, { autoDividends: true, autoBonus: true, dividendWhtPct: taxPct, zakatOnDividends: Number(r.zakatDeducted) > 0 ? "paidUp" : "none", bonusTaxWithheld: false, bonusTaxPct: 0 });
+    out.push({ id: r._id, symbol: r.symbol, bookClosure, was: Number(r.shares), shares, gross: d.gross, tax: d.tax, zakat: d.zakat, net: d.net });
+  }
+  return out;
 }
 
 export function planDueActions(input: {
@@ -136,8 +195,9 @@ export function planDueActions(input: {
   defaultPortfolioId: string;
   today: string;
   lookbackDays?: number;
+  holidays?: Set<string>;
 }): { due: DueAction[]; skipped: Skipped[] } {
-  const { liveTxs, usedKeys, boards, settings, defaultPortfolioId, today } = input;
+  const { liveTxs, usedKeys, boards, settings, defaultPortfolioId, today, holidays } = input;
   const lookback = input.lookbackDays ?? LOOKBACK_DAYS;
   const from = addDays(today, -lookback);
   const due: DueAction[] = [];
@@ -163,13 +223,13 @@ export function planDueActions(input: {
       // The face value the ex-date shows, else the one kept for the company.
       const face = (type === "DIVIDEND" ? faceOf(p, b.events ?? [])?.face : null) ?? b.faceValue;
       const rate = round2((p.pctOfFace * face) / 100);
-      if (alreadyRecorded(liveTxs, { symbol: b.symbol, type, bookClosure: bc, rate })) {
+      if (ledgerRows(liveTxs, { symbol: b.symbol, type, bookClosure: bc, rate }).length > 0) {
         skipped.push({ symbol: b.symbol, type, bookClosure: bc, reason: "already on the ledger" });
         continue;
       }
       let any = false;
       for (const [portfolioId, txs] of byPortfolio) {
-        const shares = sharesEntitled(txs, b.symbol, bc);
+        const shares = sharesEntitled(txs, b.symbol, bc, holidays);
         if (shares <= 0) continue;
         any = true;
         const d = type === "DIVIDEND" ? dividendFigures(shares, p.pctOfFace, face, settings) : { rate: 0, gross: 0, tax: 0, zakat: 0, net: 0 };

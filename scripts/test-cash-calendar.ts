@@ -18,7 +18,7 @@ const div = dividendItems({
   today,
   days: 90,
   taxPct: 15,
-  held: [{ symbol: "AHCL", shares: 21019 }, { symbol: "CSAP", shares: 173 }, { symbol: "MEBL", shares: 889 }, { symbol: "HUBC", shares: 12 }],
+  entitled: (s) => ({ AHCL: 21019, CSAP: 173, MEBL: 889, HUBC: 12 } as Record<string, number>)[s] ?? 0,
   payouts: [
     { symbol: "AHCL", bookClosure: "2026-10-21", pctOfFace: 125, face: 1, cycle: "F" }, // closed, recorded by the job
     { symbol: "CSAP", bookClosure: "2026-10-22", pctOfFace: 35, face: 10, cycle: "F" }, // closed, recorded
@@ -39,6 +39,34 @@ const mebl = div.find((d) => d.label.startsWith("MEBL"));
 check("a book closure to come: on the shares held now, after tax, expected", mebl?.pkr === Math.round(889 * 8 * 0.85) && mebl.claim === "expected" && mebl.label === "MEBL interim dividend", mebl);
 check("one entered by hand after its book closure has been paid", !div.some((d) => d.label.startsWith("HUBC")));
 check("one that landed before today is not coming", div.filter((d) => d.label.startsWith("MEBL")).length === 1);
+
+const sold = dividendItems({
+  today,
+  days: 90,
+  taxPct: 15,
+  entitled: (s, bc) => (s === "PTL" && bc === today ? 3248 : 0),
+  payouts: [
+    { symbol: "PTL", bookClosure: today, pctOfFace: 20, face: 10, cycle: "F" },
+    { symbol: "ATIL", bookClosure: "2026-11-01", pctOfFace: 10, face: 10, cycle: "i" },
+  ],
+  recorded: [],
+});
+check("a book closure today, not yet recorded: on the shares entitled, not those held now", sold.length === 1 && sold[0].pkr === Math.round(3248 * 2 * 0.85), sold);
+const twoNear = dividendItems({
+  today,
+  days: 90,
+  taxPct: 15,
+  entitled: () => 789,
+  payouts: [
+    { symbol: "MUREB", bookClosure: "2026-10-16", pctOfFace: 145, face: 10, cycle: "F" },
+    { symbol: "MUREB", bookClosure: "2026-10-23", pctOfFace: 65, face: 10, cycle: "i" },
+  ],
+  recorded: [
+    { symbol: "MUREB", date: "2026-10-23", net: 4359, auto: true },
+    { symbol: "MUREB", date: "2026-10-16", net: 8985, auto: true },
+  ],
+});
+check("two dividends close together: each is its own recorded row", twoNear.map((x) => x.pkr).join() === "8985,4359", twoNear);
 
 const fixed = fixedItems({
   today,

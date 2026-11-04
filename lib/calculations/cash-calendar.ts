@@ -15,20 +15,19 @@ export type CashCalendar = { today: string; until: string; cashNow: number; item
 
 export const dividendPayDay = (bookClosure: string) => addDays(bookClosure, PAY_LAG_DAYS);
 
-// Each cash payout of a share held. One whose books have closed is owed on
-// the shares held then (the dividend recorded for it); one still to close is
-// expected on the shares held now. One paid already (a dividend entered on
-// or after its book closure that the job did not write) is left out.
+// Each cash payout. One whose books have closed is owed on the shares held
+// then (the dividend recorded for it); one still to close is expected on the
+// shares entitled so far. One paid already (a dividend entered on or after
+// its book closure that the job did not write) is left out.
 export function dividendItems(i: {
   today: string;
   days: number;
   taxPct: number;
-  held: Array<{ symbol: string; shares: number }>;
+  entitled: (symbol: string, bookClosure: string) => number; // sharesEntitled
   payouts: Array<{ symbol: string; bookClosure: string; pctOfFace: number; face: number; cycle: string }>;
   recorded: Array<{ symbol: string; date: string; net: number; auto: boolean }>;
 }): CalItem[] {
   const until = addDays(i.today, i.days);
-  const shares = new Map(i.held.map((h) => [h.symbol, h.shares]));
   const out: CalItem[] = [];
   for (const p of i.payouts) {
     const pay = dividendPayDay(p.bookClosure);
@@ -38,12 +37,12 @@ export function dividendItems(i: {
     const kind = p.cycle === "F" ? "final" : p.cycle ? "interim" : "";
     const label = `${p.symbol} ${kind ? kind + " " : ""}dividend`;
     if (p.bookClosure <= i.today) {
-      const rec = own.find((r) => r.auto);
-      const n = shares.get(p.symbol) ?? 0;
+      const rec = own.find((r) => r.auto && r.date === p.bookClosure) ?? own.find((r) => r.auto);
+      const n = i.entitled(p.symbol, p.bookClosure);
       const pkr = rec ? rec.net : p.bookClosure === i.today && n > 0 ? n * ((p.pctOfFace * p.face) / 100) * (1 - i.taxPct / 100) : 0;
       if (pkr >= 1) out.push({ date: pay, label, kind: "dividend", pkr: r0(pkr), about: true, claim: "receivable" });
     } else {
-      const n = shares.get(p.symbol) ?? 0;
+      const n = i.entitled(p.symbol, p.bookClosure);
       if (n > 0) out.push({ date: pay, label, kind: "dividend", pkr: r0(n * ((p.pctOfFace * p.face) / 100) * (1 - i.taxPct / 100)), about: true, claim: "expected" });
     }
   }

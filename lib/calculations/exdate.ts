@@ -1,4 +1,4 @@
-import { SETTLEMENT_DAYS } from "./corporate-actions";
+import { lastEntitledTradeDate } from "./corporate-actions";
 
 // Ex-dividend dates on the PSX and the Telegram line for one. A holder on the
 // register the day before the book closure is paid, and trades settle the
@@ -11,18 +11,6 @@ const DAY = 86400000;
 const iso = (ms: number) => new Date(ms).toISOString().slice(0, 10);
 const t = (d: string) => Date.parse(d.slice(0, 10) + "T00:00:00Z");
 
-// Steps back over weekends and the exchange's holidays.
-function tradingDaysBefore(date: string, n: number, holidays: Set<string>): string {
-  let d = t(date);
-  let left = n;
-  while (left > 0) {
-    d -= DAY;
-    const wd = new Date(d).getUTCDay();
-    if (wd !== 0 && wd !== 6 && !holidays.has(iso(d))) left--;
-  }
-  return iso(d);
-}
-
 function nextTradingDay(date: string, holidays: Set<string>): string {
   let d = t(date) + DAY;
   while ([0, 6].includes(new Date(d).getUTCDay()) || holidays.has(iso(d))) d += DAY;
@@ -30,7 +18,7 @@ function nextTradingDay(date: string, holidays: Set<string>): string {
 }
 
 export function exDateOf(bookClosureStart: string, holidays: Set<string> = new Set()): { exDate: string; lastCumDate: string } {
-  const lastCumDate = tradingDaysBefore(bookClosureStart, 1 + SETTLEMENT_DAYS, holidays);
+  const lastCumDate = lastEntitledTradeDate(bookClosureStart.slice(0, 10), holidays);
   return { exDate: nextTradingDay(lastCumDate, holidays), lastCumDate };
 }
 
@@ -39,7 +27,8 @@ const day = (d: string) => new Date(t(d)).toLocaleDateString("en-GB", { weekday:
 const rs = (v: number) => `Rs ${Math.round(v).toLocaleString("en-US")}`;
 const money = (v: number) => (Number.isInteger(v) ? v.toFixed(0) : v.toFixed(2));
 
-// `held` is the shares you hold now; `taxPct` the tax withheld on dividends.
+// `held` is the shares entitled (sharesEntitled): what the dividend is paid
+// on, not what is held today; `taxPct` the tax withheld on dividends.
 export function exDividendMessage(e: { symbol: string; bookClosure: string; pctOfFace: number; faceValue: number }, held: number, taxPct: number, today: string, holidays: Set<string> = new Set()): string {
   const { exDate, lastCumDate } = exDateOf(e.bookClosure, holidays);
   const dps = (e.pctOfFace * e.faceValue) / 100;

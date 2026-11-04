@@ -1,6 +1,6 @@
 // Checks for the automatic dividend and bonus recording (lib/corporate-actions).
 //   npx tsx scripts/test-corporate-actions.ts
-import { businessDaysBefore, lastEntitledTradeDate, sharesEntitled, dividendFigures, bonusFigures, planDueActions, financialYearLabel, actionKeyOf, type AutoSettings } from "../lib/calculations/corporate-actions";
+import { businessDaysBefore, lastEntitledTradeDate, sharesEntitled, dividendFigures, bonusFigures, planDueActions, payoutStanding, staleAutoDividends, financialYearLabel, actionKeyOf, type AutoSettings } from "../lib/calculations/corporate-actions";
 
 let passed = 0, failed = 0;
 function check(name: string, ok: boolean, detail = "") {
@@ -86,6 +86,48 @@ eq("one row per portfolio", twoBooks.due.filter((d) => d.symbol === "LUCK").map(
 const lateBuyer = planDueActions({ ...base, today: "2026-09-18", liveTxs: [tx("LUCK", "BUY", "2026-09-17", 100)] as any });
 eq("a buyer after the cutoff gets nothing", lateBuyer.due.length, 0);
 eq("and the reason is recorded", lateBuyer.skipped.find((s) => s.symbol === "LUCK")?.reason, "no shares held on the record date");
+
+// One payout has one set of figures, wherever it is shown. PTL: 3,248 held at
+// the book closure of 14 Oct, 3,000 sold after the ex-date, 248 held now.
+const ptlKey = actionKeyOf("PTL", "DIVIDEND", "2026-10-14", 20);
+const ptlTrades = [tx("PTL", "BUY", "2026-01-10", 3248, 50), tx("PTL", "SELL", "2026-10-13", -3000, 40)];
+const ptlRow = { ...tx("PTL", "DIVIDEND", "2026-10-14", 3248, 2), totalAmount: 6496, netAmount: 5521.6, taxDeducted: 974.4, zakatDeducted: 0, source: "auto", actionKey: ptlKey };
+const ptlPayout = { symbol: "PTL", type: "DIVIDEND" as const, bookClosure: "2026-10-14", pctOfFace: 20, faceValue: 10 };
+const shown = payoutStanding([...ptlTrades, ptlRow] as any, ptlPayout, S, "2026-11-04");
+eq("recorded: the ledger's own figures, not the shares held today", shown, { status: "recorded", shares: 3248, rate: 2, gross: 6496, net: 5521.6, bonusCredited: 0 });
+const notYet = payoutStanding(ptlTrades as any, ptlPayout, S, "2026-10-14");
+eq("gone ex, not recorded yet: the shares entitled", [notYet.status, notYet.shares, notYet.gross, notYet.net], ["due", 3248, 6496, 5521.6]);
+const addedAfter = [tx("HUBC", "BUY", "2026-01-10", 12, 200), tx("HUBC", "BUY", "2026-10-30", 50, 193)];
+eq("bought after the book closure: not paid on them", payoutStanding(addedAfter as any, { symbol: "HUBC", type: "DIVIDEND", bookClosure: "2026-10-13", pctOfFace: 50, faceValue: 10 }, S, "2026-11-04").shares, 12);
+const lateIn = payoutStanding([tx("ATIL", "BUY", "2026-10-30", 200, 76)] as any, { symbol: "ATIL", type: "DIVIDEND", bookClosure: "2026-10-20", pctOfFace: 10, faceValue: 10 }, S, "2026-11-04");
+eq("nothing held on the record date: not entitled", [lateIn.status, lateIn.shares, lateIn.gross], ["past", 0, 0]);
+const coming = payoutStanding([tx("PPL", "BUY", "2026-10-30", 50, 214)] as any, { symbol: "PPL", type: "DIVIDEND", bookClosure: "2026-11-12", pctOfFace: 20, faceValue: 10 }, S, "2026-11-04");
+eq("to come: the shares held so far", [coming.status, coming.shares, coming.gross, coming.net], ["upcoming", 50, 100, 85]);
+const afterEx = payoutStanding([tx("PPL", "BUY", "2026-01-30", 50, 214), tx("PPL", "BUY", "2026-11-11", 50, 214)] as any, { symbol: "PPL", type: "DIVIDEND", bookClosure: "2026-11-12", pctOfFace: 20, faceValue: 10 }, S, "2026-11-11");
+eq("to come, bought on the ex-date: not counted", afterEx.shares, 50);
+const typed = { ...tx("MARI", "DIVIDEND", "2026-11-20", 216, 18.7), totalAmount: 4039.2, netAmount: 3433.32 };
+eq("typed in by hand: its figures, recorded", payoutStanding([tx("MARI", "BUY", "2026-01-10", 216), typed] as any, { symbol: "MARI", type: "DIVIDEND", bookClosure: "2026-10-22", pctOfFace: 187, faceValue: 10 }, S, "2026-11-22").net, 3433.32);
+const rateFixed = { ...ptlRow, pricePerShare: 2.5, totalAmount: 8120, netAmount: 6902 };
+eq("a row the job wrote stays this payout's whatever its rate became", payoutStanding([...ptlTrades, rateFixed] as any, ptlPayout, S, "2026-11-04").rate, 2.5);
+const bonus = { ...tx("MEBL", "BONUS", "2026-10-14", 91, 0), actionKey: actionKeyOf("MEBL", "BONUS", "2026-10-14", 10) };
+const bonusShown = payoutStanding([tx("MEBL", "BUY", "2026-01-10", 918), bonus] as any, { symbol: "MEBL", type: "BONUS", bookClosure: "2026-10-14", pctOfFace: 10, faceValue: 10 }, S, "2026-11-04");
+eq("a bonus: the shares entitled and the shares credited", [bonusShown.status, bonusShown.shares, bonusShown.bonusCredited], ["recorded", 918, 91]);
+eq("a right is never recorded for you", payoutStanding([tx("MEBL", "BUY", "2026-01-10", 918)] as any, { symbol: "MEBL", type: "RIGHT", bookClosure: "2026-10-14", pctOfFace: 10, faceValue: 10 }, S, "2026-11-04").status, "due");
+
+// The record date with a holiday: the last day to hold moves back a day.
+const hol = new Set(["2026-11-09"]);
+eq("a holiday moves the last entitled day back", lastEntitledTradeDate("2026-11-11", hol), "2026-11-06");
+eq("a trade after it is not entitled", sharesEntitled([tx("MEBL", "BUY", "2026-01-10", 100), tx("MEBL", "BUY", "2026-11-09", 50)] as any, "MEBL", "2026-11-11", hol), 100);
+
+// A dividend recorded before the trade it depends on reached the ledger.
+const lateTrade = [tx("AHCL", "BUY", "2026-01-10", 21000, 15), tx("AHCL", "BUY", "2026-10-15", 19, 15)];
+const ahclKey = actionKeyOf("AHCL", "DIVIDEND", "2026-10-21", 125);
+const shortRow = { ...tx("AHCL", "DIVIDEND", "2026-10-21", 21000, 1.25), _id: "r1", totalAmount: 26250, netAmount: 22312.5, taxDeducted: 3937.5, zakatDeducted: 0, source: "auto", actionKey: ahclKey };
+const stale = staleAutoDividends({ liveTxs: [...lateTrade, shortRow] as any, defaultPortfolioId: "p", today: "2026-11-04" });
+eq("a late trade: the job's row worked out again", [stale.length, stale[0]?.was, stale[0]?.shares, stale[0]?.gross, stale[0]?.net], [1, 21000, 21019, 26273.75, 22332.69]);
+eq("a row already right is left alone", staleAutoDividends({ liveTxs: [...lateTrade, { ...shortRow, shares: 21019 }] as any, defaultPortfolioId: "p", today: "2026-11-04" }).length, 0);
+eq("a row typed in is left alone", staleAutoDividends({ liveTxs: [...lateTrade, { ...shortRow, source: "" }] as any, defaultPortfolioId: "p", today: "2026-11-04" }).length, 0);
+eq("no shares entitled now: left for the user", staleAutoDividends({ liveTxs: [shortRow] as any, defaultPortfolioId: "p", today: "2026-11-04" }).length, 0);
 
 console.log(`${passed} passed, ${failed} failed`);
 if (failed) process.exit(1);
