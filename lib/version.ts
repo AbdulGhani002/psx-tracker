@@ -1,7 +1,7 @@
 // Single source of truth for the app version + changelog.
 // Bump APP_VERSION and prepend a CHANGELOG entry on every release.
 
-export const APP_VERSION = "11.32.0";
+export const APP_VERSION = "11.33.0";
 
 export const BUILD_DATE =
   process.env.NEXT_PUBLIC_BUILD_DATE ?? "";
@@ -17,6 +17,17 @@ export type ChangelogEntry = {
 
 // Reverse-chronological. Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: "11.33.0",
+    date: "2026-11-04",
+    title: "Buying price after dividends",
+    changes: [
+      "Cost of holdings (it was Investment value) is what you paid less the dividends the shares you hold have earned, and each share's average price falls the same way, with what you paid shown under it.",
+      "Unrealized gain/loss is measured from that price, here, in the weekly digest and in the monthly statement. Total return does not change: it already counted those dividends.",
+      "Tax, realised gains and the price rules still use what you paid.",
+      "Fixed: Unrealized gain/loss counted profit already taken on redeemed funds.",
+    ],
+  },
   {
     version: "11.32.0",
     date: "2026-11-04",

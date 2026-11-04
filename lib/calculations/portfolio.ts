@@ -34,6 +34,11 @@ export type PositionRow = {
   // those the shares held now earned, and those that went with shares sold.
   heldDividends: number;
   heldDividends12m: number;
+  // What the shares held cost after the dividends they earned, in all and a
+  // share: the buying price the pages show. totalCost and avgCost stay what
+  // was paid, for tax and for every sale.
+  netCost: number;
+  netAvgCost: number;
   sold: { shares: number; cost: number; proceeds: number; dividends: number };
   currentPercent: number;
   targetPercent: number;
@@ -54,6 +59,9 @@ export type PortfolioSummary = {
   totalValue: number;
   totalCost: number;
   unrealizedPL: number;
+  // The same two after the dividends the shares held have earned (netCost).
+  netCost: number;
+  netUnrealizedPL: number;
   realizedPL: number;
   dividendsTotal: number;
   dividendsYTD: number; // dividends received in the current PK tax year (Jul–Jun)
@@ -96,6 +104,7 @@ export function buildPositionRows({
     const work = moneyAtWork(txs, asOf);
     const split = heldAndSold(txs, asOf);
     const base = work.average > 0 ? work.average : derived.totalCost;
+    const netCost = derived.totalCost - split.held.dividends;
     const totalReturnPct = base > 0 ? totalReturn / base : 0;
 
     rows.push({
@@ -121,6 +130,8 @@ export function buildPositionRows({
       dividends12m: work.dividends12m,
       heldDividends: split.held.dividends,
       heldDividends12m: split.held.dividends12m,
+      netCost,
+      netAvgCost: derived.shares > 0 ? netCost / derived.shares : 0,
       sold: split.sold,
       currentPercent: 0,
       targetPercent: h.targetAllocationPercent ?? 0,
@@ -170,6 +181,7 @@ export function summarisePortfolio({
   const totalValue = priced.reduce((s, p) => s + p.marketValue, 0);
   const totalCost = priced.reduce((s, p) => s + p.totalCost, 0);
   const unrealizedPL = totalValue - totalCost;
+  const netCost = priced.reduce((s, p) => s + p.netCost, 0);
   // Realised gains and dividends are banked cash — count them for every position, parked ones included.
   const realizedPL = rows.reduce((s, p) => s + p.realizedPL, 0);
   const dividendsTotal = rows.reduce((s, p) => s + p.dividendsReceived, 0);
@@ -242,6 +254,8 @@ export function summarisePortfolio({
     totalValue,
     totalCost,
     unrealizedPL,
+    netCost,
+    netUnrealizedPL: totalValue - netCost,
     realizedPL,
     dividendsTotal,
     dividendsYTD,

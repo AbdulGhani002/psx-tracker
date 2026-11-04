@@ -68,6 +68,7 @@ export default async function PreviewPage(
     sector,
     shares,
     avgCost: avg,
+    netAvgCost: avg - divs / shares,
     price,
     priceKnown: true,
     marketValue: shares * price,
@@ -79,6 +80,7 @@ export default async function PreviewPage(
     booked: symbol === "PTL" ? { shares: 3000, cost: 151_350, proceeds: 140_000, dividends: 6_940 } : null,
     allIn: symbol === "PTL" ? { total: -5_689, dividends: 7_514, trades: -12_299, open: -904, atWork: 49_900, days: 413 } : { total: shares * (price - avg) + divs, dividends: divs, trades: 0, open: shares * (price - avg), atWork: shares * avg, days: 200 },
     totalCost: shares * avg,
+    netCost: shares * avg - divs,
     currentPercent: (shares * price) / 4100,
     targetPercent: 20,
     deviation: 0,
@@ -109,7 +111,7 @@ export default async function PreviewPage(
           ))}
         </div>
         <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-5 gap-3 stagger">
-          <StatCard label="Investment value" value="Rs 914,610" />
+          <StatCard label="Cost of holdings" value="Rs 914,610" />
           <StatCard label="Unrealized gain/loss" value="+Rs 204,120" tone="positive" delta="+22.32%" deltaTone="positive" />
           <StatCard label="Today's return" value="+Rs 10,177" tone="positive" delta="+0.88%" deltaTone="positive" />
           <StatCard label="Dividends" value="Rs 21,334" action={<span className="text-[11px] link-underline">View details</span>} />

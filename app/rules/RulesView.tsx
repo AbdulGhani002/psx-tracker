@@ -27,7 +27,7 @@ export function RulesView({ settings, shares, usualPct, asOf }: { settings: Rule
               <thead>
                 <tr>
                   <th>Share</th>
-                  <th className="text-right">Average</th>
+                  <th className="text-right">Paid</th>
                   <th className="text-right">Close</th>
                   <th>Now</th>
                   <th>Next add</th>

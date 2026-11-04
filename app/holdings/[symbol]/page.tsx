@@ -78,13 +78,13 @@ export default async function HoldingDetail(props: Props) {
   const currentPercent = summary.positions.find((p) => p.symbol === symbol)?.currentPercent ?? 0;
   const marketValue = derived.shares * currentPrice;
   const unrealizedPL = marketValue - derived.totalCost;
-  const unrealizedPct = derived.totalCost > 0 ? unrealizedPL / derived.totalCost : 0;
   // Dividends follow the shares that earned them (heldAndSold): the shares
   // held are credited only with what they earned, and the shares sold carry
   // their dividends into what the sales booked.
   const split = heldAndSold(transactions);
   const heldTotal = unrealizedPL + split.held.dividends;
-  const rupeeTotalPct = derived.totalCost > 0 ? heldTotal / derived.totalCost : null;
+  const netCost = derived.totalCost - split.held.dividends;
+  const rupeeTotalPct = netCost > 0 ? heldTotal / netCost : null;
   // Dividend yield on cost: a year of the company's dividends a share (its
   // last finished year of payouts, from the dividend forecast) on the
   // average price paid.
@@ -181,26 +181,20 @@ export default async function HoldingDetail(props: Props) {
 
       <StatRow>
         <Stat label="Shares Held" value={fmtNum(derived.shares)} />
-        <Stat label="Avg Cost" value={fmtRs(derived.avgCost, true)} />
+        <Stat label="Avg price" value={fmtRs(derived.shares > 0 ? netCost / derived.shares : 0, true)} hint={split.held.dividends > 0 ? `Paid ${fmtRs(derived.avgCost, true)}, less dividends ${fmtRs(split.held.dividends / derived.shares, true)} a share` : undefined} />
         <Stat label="Current Price" value={fmtRs(currentPrice, true)} />
         <Stat label="Market Value" value={fmtRs(marketValue)} hint={hd ? `≈ ${fmtDollars(hd.valueUsd)} at Rs ${hd.rateNow.toFixed(2)} a dollar` : usdPkr ? `≈ ${fmtUsd(marketValue, usdPkr, false)}` : undefined} />
         <Stat
           label="Unrealised P/L"
-          value={fmtSignedRs(unrealizedPL)}
-          hint={fmtSignedPct(unrealizedPct)}
-          tone={unrealizedPL >= 0 ? "positive" : "negative"}
+          value={fmtSignedRs(heldTotal)}
+          hint={`${fmtSignedPct(rupeeTotalPct)} · before dividends ${fmtSignedRs(unrealizedPL)} · dividends these shares earned ${fmtRs(split.held.dividends)}`}
+          tone={heldTotal >= 0 ? "positive" : "negative"}
         />
         <Stat
           label="Yield on cost"
           value={fmtSignedPct(yoc)}
           hint={`${yocYear != null ? `${fmtSignedPct(yocYear)} a year. ` : ""}Dividends ${fmtSignedRs(derived.dividendsReceived)} · trades ${fmtSignedRs(derived.realizedPL)} · open ${fmtSignedRs(unrealizedPL)} = ${fmtSignedRs(everything)}, on ${fmtRs(employed)} employed on average over ${heldFor}`}
           tone={everything >= 0 ? "positive" : "negative"}
-        />
-        <Stat
-          label="Total P/L"
-          value={fmtSignedRs(heldTotal)}
-          hint={`${fmtSignedPct(rupeeTotalPct)} · open ${fmtSignedRs(unrealizedPL)} + dividends these shares earned ${fmtRs(split.held.dividends)}`}
-          tone={heldTotal >= 0 ? "positive" : "negative"}
         />
         {booked != null && (
           <Stat
@@ -210,7 +204,7 @@ export default async function HoldingDetail(props: Props) {
             tone={booked >= 0 ? "positive" : "negative"}
           />
         )}
-        <Stat label="Dividends" value={fmtRs(derived.dividendsReceived)} hint={divYieldOnCost != null ? `Dividend yield on cost ${fmtPct(divYieldOnCost, 2)}: Rs ${yearDps.toFixed(2)} a share in ${profile?.declaredLabel ?? "a year"}, on your Rs ${derived.avgCost.toFixed(2)}, before tax` : "No dividend on record for a year"} />
+        <Stat label="Dividends" value={fmtRs(derived.dividendsReceived)} hint={divYieldOnCost != null ? `Dividend yield on cost ${fmtPct(divYieldOnCost, 2)}: Rs ${yearDps.toFixed(2)} a share in ${profile?.declaredLabel ?? "a year"}, on the Rs ${derived.avgCost.toFixed(2)} you paid, before tax` : "No dividend on record for a year"} />
         {hd && (
           <Stat
             label="P&L in dollars"
@@ -224,7 +218,7 @@ export default async function HoldingDetail(props: Props) {
       {rule && (
         <div className="mt-5 flex flex-wrap items-center gap-x-6 gap-y-2 text-[13px]">
           <Link href="/rules" className="label-cap hover:underline">Price rules</Link>
-          {rule.move != null && <span><span className="mono-num" style={{ color: rule.move >= 0 ? "var(--positive)" : "var(--negative)" }}>{signedPct(rule.move)}</span> <span className="text-muted">from your {fmtRs(rule.avgCost, true)}</span>{rule.at && <span className="font-semibold">: {stepText(rule.at)}</span>}</span>}
+          {rule.move != null && <span><span className="mono-num" style={{ color: rule.move >= 0 ? "var(--positive)" : "var(--negative)" }}>{signedPct(rule.move)}</span> <span className="text-muted">from the {fmtRs(rule.avgCost, true)} you paid</span>{rule.at && <span className="font-semibold">: {stepText(rule.at)}</span>}</span>}
           {rule.addsOff ? <span className="text-muted">Adds off: 0% target</span> : rule.nextAdd && <span><span className="text-muted">Add {rule.nextAdd.step.sizePct}% at</span> <span className="mono-num">{fmtRs(rule.nextAdd.price, true)}</span></span>}
           {rule.nextSell && <span><span className="text-muted">Sell {rule.nextSell.step.sizePct}% at</span> <span className="mono-num">{fmtRs(rule.nextSell.price, true)}</span></span>}
           <span className="flex gap-1">

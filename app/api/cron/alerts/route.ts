@@ -399,8 +399,8 @@ async function runAlertsForCurrentUser(forceDigest = false) {
         const usd = usdPkr ? ` (≈ $${Math.round(netWorth.total / usdPkr).toLocaleString()})` : "";
         lines.push(`Net worth <b>Rs ${Math.round(netWorth.total).toLocaleString()}</b>${usd} — equities ${Math.round(netWorth.equity).toLocaleString()}, cash ${Math.round(netWorth.cash).toLocaleString()}${netWorth.equityFunds > 0 ? `, equity funds ${Math.round(netWorth.equityFunds).toLocaleString()}` : ""}${netWorth.sukuks > 0 ? `, sukuks ${Math.round(netWorth.sukuks).toLocaleString()}` : ""}`);
       }
-      const plPct = summary.totalCost > 0 ? (summary.unrealizedPL / summary.totalCost) * 100 : null;
-      lines.push(`Unrealised ${summary.unrealizedPL >= 0 ? "+" : ""}Rs ${Math.round(summary.unrealizedPL).toLocaleString()}${plPct != null ? ` (${plPct >= 0 ? "+" : ""}${plPct.toFixed(1)}%)` : ""} · dividends banked Rs ${Math.round(summary.dividendsTotal).toLocaleString()}`);
+      const plPct = summary.netCost > 0 ? (summary.netUnrealizedPL / summary.netCost) * 100 : null;
+      lines.push(`Unrealised after dividends ${summary.netUnrealizedPL >= 0 ? "+" : ""}Rs ${Math.round(summary.netUnrealizedPL).toLocaleString()}${plPct != null ? ` (${plPct >= 0 ? "+" : ""}${plPct.toFixed(1)}%)` : ""} · dividends banked Rs ${Math.round(summary.dividendsTotal).toLocaleString()}`);
       if (summary.xirr != null) {
         const realX = inf.pct != null ? realPct(summary.xirr * 100, inf.pct) : null;
         lines.push(`XIRR ${(summary.xirr * 100).toFixed(1)}%${realX != null ? ` — real ${realX >= 0 ? "+" : ""}${realX.toFixed(1)}% after ${inf.pct!.toFixed(1)}% CPI` : ""}`);

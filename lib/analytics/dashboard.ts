@@ -18,7 +18,7 @@ import { SavingsAccountModel } from "@/lib/models/SavingsAccount";
 import { CashEntryModel } from "@/lib/models/CashEntry";
 import { FixedIncomeModel } from "@/lib/models/FixedIncome";
 import { valueFixedIncome } from "@/lib/fixed-income/value";
-import { deriveFromTransactions } from "@/lib/calculations";
+import { deriveFromTransactions, heldAndSold } from "@/lib/calculations";
 import { computeCashBalance } from "@/lib/calculations/cash";
 import { monthlyReturns, monthlyTable, drawdowns, dailyPnl, summarise, type MonthlyTable, type Drawdown, type DailyPnl, type PerfSummary } from "./performance";
 import type { BenchmarkPoint } from "@/lib/timeseries/portfolio-history";
@@ -113,7 +113,7 @@ export type PortfolioCard = {
   names: number;
   invested: number; // the money put in, net: total less totalReturn
   costBasis: number; // cost of the shares, the fund units and the savings principal
-  unrealized: number; // shares against cost, plus the funds' gain
+  unrealized: number; // shares against their cost after dividends, plus the funds' open gain
   realized: number;
   dividends: number;
   totalReturn: number;
@@ -141,7 +141,7 @@ async function _getPortfolioCards(): Promise<PortfolioCard[]> {
   const allSymbols = new Set<string>();
   // A parked name's shares are not part of the card; what it earned before is.
   const parkedNames = new Set((await getAllHoldings()).filter((h) => h.parked).map((h) => h.symbol));
-  const perPortfolio: Array<{ p: PortfolioView; shares: Map<string, number>; invested: number; realized: number; dividends: number; cash: number }> = [];
+  const perPortfolio: Array<{ p: PortfolioView; shares: Map<string, number>; invested: number; heldDividends: number; realized: number; dividends: number; cash: number }> = [];
   for (const p of portfolios) {
     const txs = await TransactionModel.find({ userId: uid, deletedAt: null, ...filterFor(p) }).sort({ date: 1, createdAt: 1 }).lean();
     const inPortfolio = (doc: any) => (p.isDefault ? !doc.portfolioId || doc.portfolioId === p._id : doc.portfolioId === p._id);
@@ -149,7 +149,7 @@ async function _getPortfolioCards(): Promise<PortfolioCard[]> {
     const bySymbol = new Map<string, any[]>();
     for (const t of txs) (bySymbol.get(t.symbol) ?? bySymbol.set(t.symbol, []).get(t.symbol)!).push(t);
     const shares = new Map<string, number>();
-    let invested = 0, realized = 0, dividends = 0;
+    let invested = 0, heldDividends = 0, realized = 0, dividends = 0;
     for (const [s, list] of bySymbol) {
       const d = deriveFromTransactions(list as any);
       realized += d.realizedPL;
@@ -157,16 +157,17 @@ async function _getPortfolioCards(): Promise<PortfolioCard[]> {
       if (d.shares > 0 && !parkedNames.has(s)) {
         shares.set(s, d.shares);
         invested += d.totalCost;
+        heldDividends += heldAndSold(list as any).held.dividends;
         allSymbols.add(s);
       }
     }
-    perPortfolio.push({ p, shares, invested, realized, dividends, cash });
+    perPortfolio.push({ p, shares, invested, heldDividends, realized, dividends, cash });
   }
   // Value at the same quotes the net worth uses, so the card and the top of
   // the page agree; the day's move and the sparkline come from the bars, the
   // way Today's P&L does.
   const [bars, prices] = await Promise.all([eodBarsCached([...allSymbols]), getCurrentPrices([...allSymbols])]);
-  for (const { p, shares, invested, realized, dividends, cash } of perPortfolio) {
+  for (const { p, shares, invested, heldDividends, realized, dividends, cash } of perPortfolio) {
     let equity = 0, equity30 = 0, prev = 0, last30 = 0;
     const spark = new Array<number>(30).fill(0);
     for (const [s, n] of shares) {
@@ -197,11 +198,12 @@ async function _getPortfolioCards(): Promise<PortfolioCard[]> {
     const fixedTotal = pfFixed.reduce((s, x) => s + x.v.value, 0);
     const fixedCost = pfFixed.reduce((s, x) => s + Number(x.doc.cost || 0), 0);
     const fixedProfit = pfFixed.reduce((s, x) => s + x.v.profitSoFar, 0);
-    const unrealized = equity - invested + (fundsTotal - fundsCost);
+    const open = equity - invested + (fundsTotal - fundsCost);
+    const unrealized = open + heldDividends;
     const dayProfit = last30 - prev + fundsPerDay;
     const dayBase = prev + fundsTotal + savingsTotal;
     const total = equity + fundsTotal + savingsTotal + fixedTotal + cash;
-    const totalReturn = unrealized + realized + fundsRealized + dividends + (savingsTotal - savingsPrincipal) + fixedProfit;
+    const totalReturn = open + realized + fundsRealized + dividends + (savingsTotal - savingsPrincipal) + fixedProfit;
     out.push({
       portfolio: p,
       equity,
@@ -343,14 +345,21 @@ export type BookFigures = {
   // than `invested` by the realised gains and dividends that were put back to
   // work, so it is not the base for a return.
   costBasis: number;
+  // Cost of holdings: costBasis less the dividends the shares held have
+  // earned. What is held is worth this plus `open`. Total return counts each
+  // dividend once: `open` takes those of the shares held, soldDividends the
+  // rest. otherReturn is what is left of it: funds redeemed, coupons paid.
+  netCost: number;
+  open: number;
+  otherReturn: number;
   banked: number; // realised gains plus dividends received, on shares
   cash: number; // the brokerage balance
   totalReturn: number; // shares (unrealised, realised, dividends) plus fund gain plus savings profit
   totalReturnPct: number | null; // on the money put in
   todayProfit: number; // shares at today's closes plus the day's fund income
   todayPct: number | null;
-  equity: { cost: number; value: number; unrealized: number; realized: number; dividends: number; total: number; todayProfit: number; todayPct: number; parkedOpen: number };
-  funds: { cost: number; value: number; gain: number; realized: number; perDay: number; count: number }; // gain includes what redemptions banked; count is the funds still held
+  equity: { cost: number; value: number; unrealized: number; realized: number; dividends: number; heldDividends: number; soldDividends: number; total: number; todayProfit: number; todayPct: number; parkedOpen: number };
+  funds: { cost: number; value: number; open: number; gain: number; realized: number; perDay: number; count: number }; // open is the units still held; gain adds what redemptions banked; count is the funds still held
   savings: { principal: number; balance: number; profit: number };
   fixedIncome: { cost: number; value: number; profit: number; count: number }; // T-bills and sukuks still held; profit includes coupons paid
 };
@@ -369,6 +378,9 @@ async function _getBookFigures(): Promise<BookFigures> {
   const parked = summary.parked.filter((p) => p.priceKnown && p.shares > 0);
   const parkedCost = parked.reduce((s, p) => s + p.totalCost, 0);
   const parkedValue = parked.reduce((s, p) => s + p.marketValue, 0);
+  const parkedDividends = parked.reduce((s, p) => s + p.heldDividends, 0);
+  const heldDividends = summary.totalCost - summary.netCost + parkedDividends;
+  const soldDividends = summary.dividendsTotal - heldDividends;
   const eqUnrealized = summary.unrealizedPL + parkedValue - parkedCost;
   const eqTotal = eqUnrealized + summary.realizedPL + summary.dividendsTotal;
   const fCost = funds.reduce((s, f) => s + f.cost, 0);
@@ -380,6 +392,7 @@ async function _getBookFigures(): Promise<BookFigures> {
   const sPrincipal = savings.reduce((s, a) => s + a.principal, 0);
   const sBalance = savings.reduce((s, a) => s + a.balance, 0);
   const costBasis = summary.totalCost + parkedCost + fCost + sPrincipal + fiCost;
+  const open = eqUnrealized + heldDividends + (fValue - fCost) + (sBalance - sPrincipal) + (fiValue - fiCost);
   const totalReturn = eqTotal + (fValue - fCost) + fRealized + (sBalance - sPrincipal) + fiProfit;
   // Net worth less every gain ever made is the money that was put in, net of
   // what was taken out: the cost of what is held today includes the realised
@@ -391,14 +404,17 @@ async function _getBookFigures(): Promise<BookFigures> {
     netWorth: alloc.total,
     invested,
     costBasis,
+    netCost: costBasis - heldDividends,
+    open,
+    otherReturn: totalReturn - open - summary.realizedPL - soldDividends,
     banked: summary.realizedPL + summary.dividendsTotal,
     cash: alloc.brokerCash,
     totalReturn,
     totalReturnPct: invested > 0 ? (totalReturn / invested) * 100 : null,
     todayProfit,
     todayPct: base > 0 ? (todayProfit / base) * 100 : null,
-    equity: { cost: summary.totalCost + parkedCost, value: summary.totalValue + parkedValue, unrealized: eqUnrealized, realized: summary.realizedPL, dividends: summary.dividendsTotal, total: eqTotal, todayProfit: today.profit, todayPct: today.profitPct, parkedOpen: parkedValue - parkedCost },
-    funds: { cost: fCost, value: fValue, gain: fValue - fCost + fRealized, realized: fRealized, perDay: fPerDay, count: funds.filter((f) => f.units > 0).length },
+    equity: { cost: summary.totalCost + parkedCost, value: summary.totalValue + parkedValue, unrealized: eqUnrealized, realized: summary.realizedPL, dividends: summary.dividendsTotal, heldDividends, soldDividends, total: eqTotal, todayProfit: today.profit, todayPct: today.profitPct, parkedOpen: parkedValue - parkedCost + parkedDividends },
+    funds: { cost: fCost, value: fValue, open: fValue - fCost, gain: fValue - fCost + fRealized, realized: fRealized, perDay: fPerDay, count: funds.filter((f) => f.units > 0).length },
     savings: { principal: sPrincipal, balance: sBalance, profit: sBalance - sPrincipal },
     fixedIncome: { cost: fiCost, value: fiValue, profit: fiProfit, count: fixed.length },
   };

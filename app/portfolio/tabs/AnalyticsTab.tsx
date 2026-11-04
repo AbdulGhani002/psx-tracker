@@ -318,8 +318,8 @@ async function Report({ range }: { range: string }) {
         <table className="table-zar">
           <tbody>
             <Row k="Market value" v={fmtRs(summary.totalValue)} />
-            <Row k="Invested (cost of holdings)" v={fmtRs(summary.totalCost)} />
-            <Row k="Unrealised gain/loss" v={fmtSignedRs(summary.unrealizedPL)} tone={toneOf(summary.unrealizedPL)} />
+            <Row k="Paid for holdings" v={fmtRs(summary.totalCost)} />
+            <Row k="Unrealised, before dividends" v={fmtSignedRs(summary.unrealizedPL)} tone={toneOf(summary.unrealizedPL)} />
             <Row k="Realised gain/loss" v={fmtSignedRs(summary.realizedPL)} tone={toneOf(summary.realizedPL)} />
             <Row k="Dividends received" v={fmtRs(summary.dividendsTotal)} />
             <Row k={`Dividends, ${summary.taxYearLabel}`} v={fmtRs(summary.dividendsYTD)} />

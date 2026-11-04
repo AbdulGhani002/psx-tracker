@@ -66,7 +66,7 @@ export function buildStatementTex(d: MonthlyStatementData): string {
 {\\large\\bfseries Net worth: ${rs(d.netWorthTotal)}${d.usdEquivalent != null ? ` \\quad {\\normalsize(\\$${Math.round(d.usdEquivalent).toLocaleString()})}` : ""}}\\par
 \\vspace{4pt}
 Equities ${rs(d.equity)} \\quad Funds ${rs(d.funds)} \\quad Savings ${rs(d.savingsAndCash)}\\par
-Unrealised ${d.unrealizedPL >= 0 ? "+" : "$-$"}${rs(Math.abs(d.unrealizedPL)).slice(3)}${d.unrealizedPct != null ? ` (${pct(d.unrealizedPct)})` : ""} \\quad
+Unrealised after dividends ${d.unrealizedPL >= 0 ? "+" : "$-$"}${rs(Math.abs(d.unrealizedPL)).slice(3)}${d.unrealizedPct != null ? ` (${pct(d.unrealizedPct)})` : ""} \\quad
 XIRR ${pct(d.xirrPct)}${d.realXirrPct != null ? ` \\quad real ${pct(d.realXirrPct)} after ${d.inflationPct?.toFixed(1)}\\% CPI` : ""}\\par
 ${d.unpriced.length > 0 ? `\\vspace{4pt}{\\footnotesize No price for ${esc(d.unpriced.join(", "))} --- excluded from totals, not counted as losses.}\\par` : ""}
 ${d.parked.length > 0 ? `\\vspace{4pt}{\\footnotesize Parked, kept for the companies' reports and outside every figure here: ${esc(d.parked.map((p) => `${p.symbol} ${p.shares.toLocaleString()} (${rs(p.value)})`).join(", "))}.}\\par` : ""}
