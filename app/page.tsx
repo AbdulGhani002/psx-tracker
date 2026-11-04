@@ -6,7 +6,6 @@ import { SetupBanner } from "@/components/layout/SetupBanner";
 import { AllocationDonut } from "@/components/charts/AllocationDonut";
 import { Heatmap } from "@/components/charts/Heatmap";
 import { Sparkline } from "@/components/ui/Sparkline";
-import { RefreshPrices } from "@/components/layout/RefreshPrices";
 import { NetWorthChart } from "@/components/dashboard/NetWorthChart";
 import { StatCard } from "@/components/ui/StatCard";
 import { getPortfolioSummary, checkDataAvailability, getAttribution } from "@/lib/data";
@@ -206,9 +205,7 @@ async function AttributionCard() {
 export default function OverviewPage() {
   return (
     <div>
-      <div className="flex items-center justify-end mb-3">
-        <RefreshPrices />
-      </div>
+      <p className="text-right text-[11px] text-muted mb-3">Prices are the latest close, read once a day</p>
       <Suspense fallback={<Fallback h={84} />}>
         <TopCards />
       </Suspense>

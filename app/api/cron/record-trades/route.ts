@@ -7,7 +7,6 @@ import { getAllUserIds } from "@/lib/data";
 import { HoldingModel, TransactionModel } from "@/lib/models";
 import { deriveFromTransactions } from "@/lib/calculations";
 import { getCompanyInfo } from "@/lib/prices";
-import { listings } from "@/lib/listings";
 import { selectedPortfolio, defaultPortfolio } from "@/lib/portfolios";
 
 export const dynamic = "force-dynamic";
@@ -60,8 +59,7 @@ export async function POST(req: Request) {
       let holding = await HoldingModel.findOne({ userId, symbol: t.symbol });
       if (!holding) {
         const info = await getCompanyInfo(t.symbol).catch(() => null);
-        const listed = listings().find((l) => l.symbol === t.symbol);
-        holding = await HoldingModel.create({ userId, symbol: t.symbol, name: info?.name ?? listed?.name ?? t.symbol, sector: info?.sector ?? listed?.sectorName ?? "Unknown", shariaCompliant: false });
+        holding = await HoldingModel.create({ userId, symbol: t.symbol, name: info?.name ?? t.symbol, sector: info?.sector ?? "Unknown", shariaCompliant: false });
       }
       const totalAmount = t.shares * t.pricePerShare;
       const created = await TransactionModel.create({

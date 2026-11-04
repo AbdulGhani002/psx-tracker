@@ -100,14 +100,3 @@ export async function fetchIndexConstituents(code: string, relay = true): Promis
   return html ? parseIndexConstituents(html) : [];
 }
 
-// Every listed share's price now and its last close, from the All-Share
-// index page: one request for all of them, asked live (a page pushed last
-// night is no price for today), and kept for `maxAgeMs`.
-let allShares: { at: number; rows: Map<string, { current: number; ldcp: number }> } | null = null;
-export async function fetchAllPrices(maxAgeMs = 15 * 60_000): Promise<Map<string, { current: number; ldcp: number }> | null> {
-  if (allShares && Date.now() - allShares.at < maxAgeMs) return allShares.rows;
-  const cons = await fetchIndexConstituents("ALLSHR", false);
-  if (cons.length < 100) return allShares?.rows ?? null;
-  allShares = { at: Date.now(), rows: new Map(cons.map((c) => [c.symbol, { current: c.current, ldcp: c.ldcp }])) };
-  return allShares.rows;
-}

@@ -1,8 +1,6 @@
 import type { CompanyInfo, PriceFetcher, PriceQuote } from "./types";
 import { decodeEntities, titleCase } from "./types";
 import { dpsFetch } from "@/lib/prices/dps";
-import { fetchAllPrices } from "@/lib/timeseries/dps-indices";
-import { isMarketHoursNow } from "./types";
 
 const PSX_URL = (sym: string) => `https://dps.psx.com.pk/company/${encodeURIComponent(sym)}`;
 
@@ -37,7 +35,7 @@ export async function fetchPSXPage(symbol: string, relay = true): Promise<PSXSna
     // The portal, when it is refusing the server's address, either closes at
     // once or hangs; neither may hold a page for long.
     const res = await dpsFetch(PSX_URL(upper), { headers: { accept: "text/html" } }, { timeoutMs: 4000, relay });
-    if (!res.ok) return null;
+    if (!res.ok || (!relay && res.headers.get("x-dps-relay"))) return null;
     const html = await res.text();
     const priceRaw = extractField(html, "quote__close");
     const name = extractField(html, "quote__name");
@@ -72,21 +70,10 @@ export class PSXScraperFetcher implements PriceFetcher {
     };
   }
 
-  // Every name at once from the All-Share index page, one request a quarter
-  // of an hour at most, and only while the market trades: outside its hours
-  // the day's close stands (getPrices falls back to the evening file's).
-  async fetchBatch(symbols: string[]): Promise<Map<string, PriceQuote>> {
-    const out = new Map<string, PriceQuote>();
-    if (!isMarketHoursNow()) return out;
-    const board = await fetchAllPrices().catch(() => null);
-    if (!board) return out;
-    const now = new Date();
-    for (const s of symbols) {
-      const r = board.get(s.toUpperCase());
-      const price = r ? (r.current > 0 ? r.current : r.ldcp) : 0;
-      if (price > 0) out.set(s.toUpperCase(), { symbol: s.toUpperCase(), price, timestamp: now, source: this.name });
-    }
-    return out;
+  // Prices are read once a day, with the closing file (lib/quant/daily):
+  // nothing is asked of the site for a quote, and getPrices takes the close.
+  async fetchBatch(): Promise<Map<string, PriceQuote>> {
+    return new Map();
   }
 
   async fetchCompanyInfo(symbol: string): Promise<CompanyInfo | null> {

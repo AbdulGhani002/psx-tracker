@@ -3,6 +3,7 @@ import { PriceSnapshotModel } from "@/lib/models";
 import { StubFetcher } from "./stub";
 import { PSXScraperFetcher } from "./scraper";
 import { isMarketHoursNow, type CompanyInfo, type PriceFetcher, type PriceQuote } from "./types";
+import { listings } from "@/lib/listings";
 
 export type { PriceQuote, CompanyInfo } from "./types";
 
@@ -127,8 +128,12 @@ export async function refreshPrice(symbol: string): Promise<PriceQuote | null> {
   return q;
 }
 
+// A company's name and sector: from its page when one is kept, else from the
+// exchange's list, so a share new to the app is named before the sweep reads it.
 export async function getCompanyInfo(symbol: string): Promise<CompanyInfo | null> {
   const fetcher = getFetcher();
-  if (!fetcher.fetchCompanyInfo) return null;
-  return fetcher.fetchCompanyInfo(symbol);
+  const info = fetcher.fetchCompanyInfo ? await fetcher.fetchCompanyInfo(symbol).catch(() => null) : null;
+  if (info) return info;
+  const listed = listings().find((l) => l.symbol === symbol.toUpperCase());
+  return listed ? { symbol: listed.symbol, name: listed.name, sector: listed.sectorName } : null;
 }

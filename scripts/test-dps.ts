@@ -4,6 +4,7 @@
 
 process.env.DPS_GAP_MS = "30,60";
 process.env.DPS_REST_MS = "250,300";
+process.env.DPS_CLOSED_MS = "250,300";
 process.env.DPS_NO_DB = "1";
 
 let pass = 0, fail = 0;
@@ -60,6 +61,22 @@ async function main() {
   let afterForbidden: unknown = null;
   try { await dpsFetch("/indices/KMI30"); } catch (e) { afterForbidden = e; }
   check("a 403 is returned, and rests the gate", forbidden.status === 403 && afterForbidden instanceof DpsRefused);
+
+  // A closed address is not the whole site.
+  await sleep(320);
+  next = async () => new Response("no", { status: 403 });
+  const shut = await dpsFetch("/payouts", { method: "POST" }, { relay: false });
+  next = async () => new Response("ok", { status: 200 });
+  const pageAfter = await dpsFetch("/indices/ALLSHR");
+  check("a refused POST does not rest the gate: the pages still read", shut.status === 403 && pageAfter.ok);
+  const asked = calls.length;
+  const again = await dpsFetch("/payouts", { method: "POST" }, { relay: false });
+  check("and that address is not asked again for now", again.status === 403 && calls.length === asked);
+  const otherPost = await dpsFetch("/announcements", { method: "POST" }, { relay: false });
+  check("another address is its own", otherPost.ok && calls.length === asked + 1);
+  await sleep(320);
+  const later = await dpsFetch("/payouts", { method: "POST" }, { relay: false });
+  check("after its time it is asked once more", later.ok && calls.length === asked + 2);
 
   console.log("\n" + pass + " passed, " + fail + " failed");
   if (fail > 0) process.exit(1);

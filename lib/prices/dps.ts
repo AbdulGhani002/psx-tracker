@@ -1,18 +1,21 @@
 import { connectDb } from "@/lib/db";
 import { FeedSnapshotModel } from "@/lib/models/FeedSnapshot";
+import { gateRoute } from "@/lib/calculations/sweep";
 
 // Every request to the exchange's site (dps.psx.com.pk) goes through here, on
 // the server and on the home machine alike, so the site is asked as little
 // and as gently as possible:
-//   the server asks the site itself first; only when the site refuses it, or
-//   while the gate rests, is a page the home machine fetched and pushed
-//   (scripts/dps-push.ts, through /api/cron/dps-relay) within the last 26
-//   hours used instead (on the server, where the database is);
+//   on the server only the day's sweep (lib/prices/sweep) reads a page from
+//   the site: once a day, one page at a time, minutes apart. Everything else
+//   gets the copy kept, and a page never kept is wished for the next sweep.
+//   The closing file and a company's documents go when they are wanted;
 //   requests go one at a time, 3 to 9 seconds apart, chosen at random each
 //   time;
-//   once the site refuses (the connection closed on us, 403, 429), nothing is
-//   asked of it for 2 to 4 hours, chosen at random and remembered across
-//   restarts.
+//   once the site refuses a page (the connection closed on us, 403, 429),
+//   nothing is asked of it for 2 to 4 hours, chosen at random and remembered
+//   across restarts. A refused POST closes only that address, for about a
+//   week: the site shut those to everyone in September 2026, and such a
+//   refusal says nothing about the pages.
 // Every request carries the app's own name (DPS_UA): it is never dressed up
 // as a browser or as someone else.
 
@@ -20,7 +23,10 @@ export const DPS_ORIGIN = "https://dps.psx.com.pk";
 export const DPS_UA = "Mozilla/5.0 (compatible; psx-tracker/0.1)";
 export const RELAY_PREFIX = "dps:page:";
 const REFUSED_KEY = "dps:refused";
+const CLOSED_KEY = "dps:closed";
+const WISH_KEY = "dps:sweep:wish";
 const RELAY_MAX_AGE_MS = 26 * 3600_000;
+const KEPT_MAX_AGE_MS = 7 * 86400000; // over a long weekend, read a week back at most
 
 const range = (env: string | undefined, dflt: [number, number]): [number, number] => {
   const v = (env ?? "").split(",").map(Number);
@@ -28,6 +34,7 @@ const range = (env: string | undefined, dflt: [number, number]): [number, number
 };
 const GAP_MS = range(process.env.DPS_GAP_MS, [3000, 9000]);
 const REST_MS = range(process.env.DPS_REST_MS, [2 * 3600_000, 4 * 3600_000]);
+const CLOSED_MS = range(process.env.DPS_CLOSED_MS, [6 * 86400000, 8 * 86400000]);
 export const between = ([lo, hi]: [number, number], rnd: () => number = Math.random) => lo + rnd() * (hi - lo);
 const withDb = () => !!process.env.MONGODB_URI && process.env.DPS_NO_DB !== "1";
 
@@ -71,6 +78,55 @@ async function rest(reason: string): Promise<void> {
   }
 }
 
+let closed: Record<string, string> | null = null;
+
+async function closedAddresses(): Promise<Record<string, string>> {
+  if (closed) return closed;
+  closed = {};
+  if (withDb()) {
+    try {
+      await connectDb();
+      const d: any = await FeedSnapshotModel.findOne({ key: CLOSED_KEY }).lean();
+      closed = { ...(d?.data?.until ?? {}) };
+    } catch {
+      /* in memory only */
+    }
+  }
+  return closed!;
+}
+
+async function closeAddress(path: string): Promise<void> {
+  const list = await closedAddresses();
+  list[path] = new Date(Date.now() + between(CLOSED_MS)).toISOString();
+  if (!withDb()) return;
+  try {
+    await connectDb();
+    await FeedSnapshotModel.findOneAndUpdate({ key: CLOSED_KEY }, { key: CLOSED_KEY, data: { until: list }, status: "closed", note: Object.keys(list).join(", ").slice(0, 160), updatedAt: new Date() }, { upsert: true });
+  } catch {
+    /* in memory only */
+  }
+}
+
+// A page wanted that has never been kept, for the next sweep to read.
+async function wish(path: string): Promise<void> {
+  try {
+    await connectDb();
+    const d: any = await FeedSnapshotModel.findOne({ key: WISH_KEY }).lean();
+    const paths: string[] = d?.data?.paths ?? [];
+    if (paths.includes(path) || paths.length >= 40) return;
+    await FeedSnapshotModel.findOneAndUpdate({ key: WISH_KEY }, { key: WISH_KEY, data: { paths: [...paths, path] }, status: "ok", note: `${paths.length + 1} pages`, updatedAt: new Date() }, { upsert: true });
+  } catch {
+    /* it is asked for again next time */
+  }
+}
+
+// The pages wished for, cleared as the sweep takes them.
+export async function takeWishes(): Promise<string[]> {
+  await connectDb();
+  const d: any = await FeedSnapshotModel.findOneAndUpdate({ key: WISH_KEY }, { key: WISH_KEY, data: { paths: [] }, status: "ok", note: "0 pages", updatedAt: new Date() }, { upsert: true }).lean();
+  return d?.data?.paths ?? [];
+}
+
 // Whether the gate is resting, and until when.
 export async function dpsResting(): Promise<{ until: string } | null> {
   await readRest();
@@ -106,15 +162,27 @@ export async function keepRelayedPages(pages: Record<string, { html: string; fet
   return n;
 }
 
-// One request to the site, in turn: the site itself first, and the home
-// machine's copy of the page when the site refuses, fails or the gate rests.
-// A refusal rests the gate; a page that is not there (404) or a slow answer
-// does not. `relay: false` for what the home machine never pushes (posts,
-// files).
-export async function dpsFetch(url: string, init: RequestInit = {}, o: { relay?: boolean; timeoutMs?: number } = {}): Promise<Response> {
+// One request. On the server a page comes from the copy kept unless the sweep
+// is reading it (`sweep: true`). For what does go to the site, in turn: the
+// site itself first, and the home machine's copy of the page when the site
+// refuses, fails or the gate rests. A refused page rests the gate; a page
+// that is not there (404) or a slow answer does not. `relay: false` for what
+// the home machine never pushes (posts, files).
+export async function dpsFetch(url: string, init: RequestInit = {}, o: { relay?: boolean; timeoutMs?: number; sweep?: boolean } = {}): Promise<Response> {
   const full = url.startsWith("http") ? url : DPS_ORIGIN + url;
   const path = full.startsWith(DPS_ORIGIN) ? full.slice(DPS_ORIGIN.length) : full;
   const method = (init.method ?? "GET").toUpperCase();
+  const route = withDb() ? gateRoute(path, method, o.sweep === true) : "site";
+  if (route !== "site") {
+    const html = route === "kept" ? await relayedPage(path, KEPT_MAX_AGE_MS) : null;
+    if (html != null) return new Response(html, { status: 200, headers: { "content-type": "text/html; charset=utf-8", "x-dps-relay": "1" } });
+    if (route === "kept") await wish(path);
+    return new Response("", { status: 503 });
+  }
+  if (method !== "GET") {
+    const until = (await closedAddresses())[path];
+    if (until && Date.now() < Date.parse(until)) return new Response("", { status: 403 });
+  }
   const relayed = async (): Promise<Response | null> => {
     if (o.relay === false || method !== "GET") return null;
     const html = await relayedPage(path);
@@ -138,6 +206,7 @@ export async function dpsFetch(url: string, init: RequestInit = {}, o: { relay?:
 }
 
 function direct(full: string, path: string, init: RequestInit, timeoutMs?: number): Promise<Response> {
+  const isPost = (init.method ?? "GET").toUpperCase() !== "GET";
   const run = chain.then(async () => {
     const wait = lastAt + between(GAP_MS) - Date.now();
     if (wait > 0) await new Promise((r) => setTimeout(r, wait));
@@ -150,10 +219,10 @@ function direct(full: string, path: string, init: RequestInit, timeoutMs?: numbe
         cache: "no-store",
         signal: AbortSignal.timeout(timeoutMs ?? 20000),
       });
-      if (res.status === 403 || res.status === 429) await rest(`HTTP ${res.status} on ${path}`);
+      if (res.status === 403 || res.status === 429) await (isPost ? closeAddress(path) : rest(`HTTP ${res.status} on ${path}`));
       return res;
     } catch (e) {
-      if (!(e instanceof Error && (e.name === "TimeoutError" || e.name === "AbortError"))) await rest(`${String(e instanceof Error ? e.message : e).slice(0, 80)} on ${path}`);
+      if (!(e instanceof Error && (e.name === "TimeoutError" || e.name === "AbortError"))) await (isPost ? closeAddress(path) : rest(`${String(e instanceof Error ? e.message : e).slice(0, 80)} on ${path}`));
       throw e;
     } finally {
       lastAt = Date.now();

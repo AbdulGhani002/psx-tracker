@@ -1,12 +1,12 @@
 import { NextResponse } from "next/server";
 import { cronAuthorised } from "@/lib/auth/cron";
 import { connectDb } from "@/lib/db";
-import { FeedSnapshotModel, HoldingModel, BuyListModel } from "@/lib/models";
+import { FeedSnapshotModel } from "@/lib/models";
 import { keepRelayedPages, dpsResting } from "@/lib/prices/dps";
-import { qualityUniverse, lastRead, readCompanies } from "@/lib/fundamentals/refresh";
+import { pagesWanted } from "@/lib/prices/sweep";
+import { readCompanies } from "@/lib/fundamentals/refresh";
 import { SHEET_PREFIX, pktToday } from "@/lib/quant/sheet-bars";
 import { refreshCloses } from "@/lib/quant/daily";
-import { INDEX_SERIES } from "@/lib/quant/index-bars";
 import { refreshIndexForecasts } from "@/lib/index-week/data";
 import type { DayRow } from "@/lib/timeseries/psx-history";
 
@@ -14,10 +14,10 @@ export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 export const maxDuration = 900;
 
-// Machine-only. The server asks the exchange's site itself first; when the
-// site refuses it (it has closed every data request from the server's address
-// since 9 Oct 2026), the home machine, which is served as before, fetches for
-// it (scripts/dps-push.ts) and hands over here.
+// Machine-only. The server reads the exchange's site itself once a day
+// (lib/prices/sweep); while the site refuses it (as it did every data request
+// from the server's address from 9 Oct 2026), the home machine, which is
+// served as before, fetches for it (scripts/dps-push.ts) and hands over here.
 //   {plan:true, max?}: what to fetch: the weekdays after the last closing file
 //   kept, the index pages, and the company pages most wanted (every held one,
 //   then those read longest ago).
@@ -35,18 +35,17 @@ export async function POST(req: Request) {
   if (body?.plan === true) {
     const max = Math.max(1, Math.min(80, Number(body?.max ?? 25)));
     const latest: any = await FeedSnapshotModel.findOne({ key: { $regex: "^" + SHEET_PREFIX } }, { key: 1 }).sort({ key: -1 }).lean();
-    const all = await qualityUniverse();
-    const read = await lastRead(all);
-    // Held names first, then the buy list's (their letters say a dividend
-    // before the ex-date), then the rest, read longest ago first.
-    const held = [...new Set([...((await HoldingModel.find({ currentShares: { $gt: 0 } }, { symbol: 1 }).lean()) as any[]).map((h) => String(h.symbol)), ...((await BuyListModel.distinct("symbol", {})) as string[])])];
-    const rest = all.filter((s) => !held.includes(s)).sort((a, b) => (read.get(a) ?? 0) - (read.get(b) ?? 0));
+    // The server's own sweep reads the pages; this machine reads them only
+    // while the site is refusing the server. The closing files it fetches
+    // are those the server does not have.
+    const resting = await dpsResting();
+    const w = resting ? await pagesWanted(max) : null;
     return NextResponse.json({
       today: pktToday(),
       latestKept: latest ? String(latest.key).slice(SHEET_PREFIX.length) : null,
-      indices: ["/indices", ...INDEX_SERIES.map((c) => `/indices/${c}`)],
-      symbols: [...held, ...rest].slice(0, Math.max(max, held.length)),
-      resting: await dpsResting(),
+      indices: w?.indices ?? [],
+      symbols: w ? [...w.held, ...w.rest] : [],
+      resting,
     });
   }
 

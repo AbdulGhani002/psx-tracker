@@ -1,7 +1,7 @@
 // Single source of truth for the app version + changelog.
 // Bump APP_VERSION and prepend a CHANGELOG entry on every release.
 
-export const APP_VERSION = "11.31.2";
+export const APP_VERSION = "11.32.0";
 
 export const BUILD_DATE =
   process.env.NEXT_PUBLIC_BUILD_DATE ?? "";
@@ -17,6 +17,17 @@ export type ChangelogEntry = {
 
 // Reverse-chronological. Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: "11.32.0",
+    date: "2026-11-04",
+    title: "One slow read of the exchange a day",
+    changes: [
+      "The server reads the exchange once a day: after the close, starting at a random time, one page at a time with random gaps, over 8 to 9 hours. Closing prices, index closes, announcements, dividends and results all come in that window. Nothing else asks the site.",
+      "Prices on the site are now the latest official close, not live. The Refresh prices button is gone.",
+      "Fixed: when the exchange could not be reached, old prices were saved again as new ones (HINOON showed 929 after closing at 969).",
+      "An address the exchange has closed is asked about once a week, and no longer stops every other read for hours.",
+    ],
+  },
   {
     version: "11.31.2",
     date: "2026-11-04",
