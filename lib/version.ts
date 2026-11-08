@@ -1,7 +1,7 @@
 // Single source of truth for the app version + changelog.
 // Bump APP_VERSION and prepend a CHANGELOG entry on every release.
 
-export const APP_VERSION = "11.33.0";
+export const APP_VERSION = "11.34.0";
 
 export const BUILD_DATE =
   process.env.NEXT_PUBLIC_BUILD_DATE ?? "";
@@ -17,6 +17,15 @@ export type ChangelogEntry = {
 
 // Reverse-chronological. Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: "11.34.0",
+    date: "2026-11-08",
+    title: "Dark mode",
+    changes: [
+      "A dark theme. The moon button in the top bar turns it on and the sun turns it off; the pick is kept in this browser.",
+      "Until you pick, the site follows your device's light or dark setting.",
+    ],
+  },
   {
     version: "11.33.0",
     date: "2026-11-04",

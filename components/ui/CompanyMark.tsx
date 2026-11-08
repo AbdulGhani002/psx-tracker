@@ -32,7 +32,7 @@ export function CompanyMark({ symbol, sector, size = "md", className = "" }: { s
     <span
       aria-hidden
       className={`inline-flex items-center justify-center shrink-0 select-none rounded-full ${className}`}
-      style={{ width: px, height: px, background: `color-mix(in srgb, ${tint} 14%, white)`, border: `1px solid color-mix(in srgb, ${tint} 35%, white)`, color: tint }}
+      style={{ width: px, height: px, background: `color-mix(in srgb, ${tint} 14%, var(--surface))`, border: `1px solid color-mix(in srgb, ${tint} 35%, var(--surface))`, color: tint }}
       title={sym}
     >
       <span className="font-semibold leading-none" style={{ fontSize: Math.round(px * 0.36), letterSpacing: "0.01em" }}>{letters}</span>

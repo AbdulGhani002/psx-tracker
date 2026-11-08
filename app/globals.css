@@ -6,11 +6,12 @@
 @tailwind utilities;
 
 /* ─────────────────────────────────────────────────────────────────────────────
-   One light theme, the way Sarmaaya's Zar draws it: a pale grey page, white
+   The light theme, the way Sarmaaya's Zar draws it: a pale grey page, white
    cards with a hairline border, navy text, grey labels, green for gains and
    the brand, red for losses, teal for the value line and blue for the money
-   put in. The variable names are the old ones (paper, ink, rule) so every
-   page keeps working.
+   put in. The dark theme below swaps the same variables (data-theme="dark",
+   set before paint by ThemeScript), so a page never names a colour of its
+   own. The variable names are the old ones (paper, ink, rule).
    ───────────────────────────────────────────────────────────────────────── */
 :root {
   color-scheme: light;
@@ -40,6 +41,13 @@
   --inverted-bg: #0f172a;
   --inverted-fg: #ffffff;
   --shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+  --navy-ink: #ffffff;
+  --row-hover: #fafbfc;
+  --positive-bg: #ecfdf3;
+  --negative-bg: #fef2f2;
+  --amber-bg: #fffbeb;
+  --tint-positive: #dcfce7;
+  --tint-negative: #fee2e2;
 
   --series-1: #22c55e;
   --series-2: #26a69a;
@@ -68,11 +76,65 @@
   --ramp-7: #86efac;
   --ramp-8: #bbf7d0;
 
+  --blues-1: #1e3a8a;
+  --blues-2: #1d4ed8;
+  --blues-3: #2563eb;
+  --blues-4: #3b82f6;
+  --blues-5: #60a5fa;
+  --blues-6: #93c5fd;
+  --blues-7: #bfdbfe;
+
   --zone-strong-buy: #15803d;
   --zone-buy: #16a34a;
   --zone-fair: #d97706;
   --zone-expensive: #dc2626;
 }
+
+/* The dark theme: a deep slate page, cards a step lighter, light text, the
+   one dark button turned light, and the greens, reds and the value line a
+   shade brighter so they read on the dark ground. */
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --paper: #0b111b;
+  --paper-2: #121a26;
+  --surface: #121a26;
+  --surface-2: #1a2331;
+  --surface-3: #253041;
+  --ink: #e6eaf0;
+  --muted: #95a0b0;
+  --faint: #677385;
+  --rule: #222c3a;
+  --rule-strong: #313d4f;
+  --navy: #e6eaf0;
+  --navy-2: #c4ccd8;
+  --navy-ink: #0b111b;
+  --accent-deep: #4ade80;
+  --positive: #22c55e;
+  --negative: #f87171;
+  --amber: #fbbf24;
+  --gold: #fbbf24;
+  --blue: #60a5fa;
+  --teal: #2dd4bf;
+  --inverted-bg: #1d2738;
+  --inverted-fg: #f5f7fa;
+  --shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --row-hover: #161f2c;
+  --positive-bg: rgba(34, 197, 94, 0.14);
+  --negative-bg: rgba(248, 113, 113, 0.14);
+  --amber-bg: rgba(251, 191, 36, 0.14);
+  --tint-positive: #12291b;
+  --tint-negative: #2d1719;
+  --series-8: #94a3b8;
+  --panel-series-8: #94a3b8;
+  --blues-1: #bfdbfe;
+  --blues-2: #93c5fd;
+  --blues-3: #60a5fa;
+  --blues-4: #3b82f6;
+  --blues-5: #2563eb;
+  --blues-6: #1d4ed8;
+  --blues-7: #1e40af;
+}
+:root[data-theme="dark"] .btn-green:hover { background: #15803d; }
 
 html, body {
   background: var(--paper);
@@ -321,18 +383,18 @@ table { font-variant-numeric: tabular-nums; }
   padding: 2px 8px; border-radius: 6px; font-size: 12px; font-weight: 500;
   background: var(--surface-2); color: var(--ink);
 }
-.pill[data-tone="positive"] { color: var(--positive); background: #ecfdf3; }
-.pill[data-tone="negative"] { color: var(--negative); background: #fef2f2; }
-.pill[data-tone="amber"] { color: var(--amber); background: #fffbeb; }
+.pill[data-tone="positive"] { color: var(--positive); background: var(--positive-bg); }
+.pill[data-tone="negative"] { color: var(--negative); background: var(--negative-bg); }
+.pill[data-tone="amber"] { color: var(--amber); background: var(--amber-bg); }
 .pill[data-tone="muted"] { color: var(--muted); }
 
 .seg { display: inline-flex; background: var(--surface-2); border-radius: 8px; padding: 3px; gap: 2px; }
 .seg button, .seg a { padding: 4px 10px; border-radius: 6px; font-size: 12px; font-weight: 500; color: var(--muted); white-space: nowrap; }
-.seg button[data-active="true"], .seg a[data-active="true"] { background: var(--navy); color: #fff; }
+.seg button[data-active="true"], .seg a[data-active="true"] { background: var(--navy); color: var(--navy-ink); }
 
 .btn-primary {
   display: inline-flex; align-items: center; justify-content: center; gap: 6px;
-  background: var(--navy); color: #fff; font-weight: 500; border-radius: 8px; padding: 8px 14px; font-size: 13px;
+  background: var(--navy); color: var(--navy-ink); font-weight: 500; border-radius: 8px; padding: 8px 14px; font-size: 13px;
   transition: background-color 120ms linear;
 }
 .btn-primary:hover { background: var(--navy-2); }
@@ -357,7 +419,7 @@ table { font-variant-numeric: tabular-nums; }
 .table-zar th.text-center { text-align: center; }
 .table-zar td { padding: 12px 12px; border-bottom: 1px solid var(--rule); vertical-align: middle; }
 .table-zar tr:last-child td { border-bottom: 0; }
-.table-zar tbody tr:hover td { background: #fafbfc; }
+.table-zar tbody tr:hover td { background: var(--row-hover); }
 
 .heat { display: grid; grid-template-columns: 40px repeat(12, minmax(0, 1fr)) 52px; gap: 4px; font-size: 11px; }
 .heat .cell { border-radius: 6px; padding: 9px 2px; text-align: center; font-variant-numeric: tabular-nums; min-width: 0; overflow: hidden; white-space: nowrap; }
@@ -409,4 +471,7 @@ td input.field, td select.field { min-height: 32px; padding: 5px 8px; font-size:
 /* The old editorial rules were drawn in the text colour. They read as
    hairlines now, wherever they still appear. */
 .border-ink { border-color: var(--rule); }
+
+/* A chart tooltip left to the library's own white box. */
+.recharts-default-tooltip { background: var(--surface) !important; border-color: var(--rule) !important; color: var(--ink); }
 .tracking-button { letter-spacing: 0.04em; }

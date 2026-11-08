@@ -463,7 +463,7 @@ export function AddTradeForm({ held, funds, accounts, taxPct, portfolios, defaul
           </>
         ) : null}
 
-        {(asset !== "cash" || cashKind === "mmf") && error && <div className="text-[12.5px] mt-3 rounded-lg px-3 py-2" style={{ color: "var(--negative)", background: "#fef2f2" }}>{error}</div>}
+        {(asset !== "cash" || cashKind === "mmf") && error && <div className="text-[12.5px] mt-3 rounded-lg px-3 py-2" style={{ color: "var(--negative)", background: "var(--negative-bg)" }}>{error}</div>}
 
         {(asset !== "cash" || cashKind === "mmf") && (
         <div className="flex items-center gap-2 mt-4">

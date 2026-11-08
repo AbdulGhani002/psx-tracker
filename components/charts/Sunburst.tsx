@@ -13,7 +13,7 @@ const rs = (v: number) => `Rs ${Math.round(v).toLocaleString("en-US")}`;
 function tone(pct: number): string {
   // pct is the unrealised gain as a fraction; saturate at 30%
   const a = Math.min(1, Math.abs(pct) / 0.3);
-  return pct >= 0 ? `color-mix(in srgb, #16a34a ${Math.round(35 + a * 65)}%, #dcfce7)` : `color-mix(in srgb, #dc2626 ${Math.round(35 + a * 65)}%, #fee2e2)`;
+  return pct >= 0 ? `color-mix(in srgb, var(--positive) ${Math.round(35 + a * 65)}%, var(--tint-positive))` : `color-mix(in srgb, var(--negative) ${Math.round(35 + a * 65)}%, var(--tint-negative))`;
 }
 
 function arc(cx: number, cy: number, r0: number, r1: number, a0: number, a1: number): string {
@@ -41,18 +41,18 @@ export function Sunburst({ leaves, centreLabel, centreValue, centreTone, size = 
     const span = (g.value / total) * Math.PI * 2;
     const a0 = a, a1 = a + span;
     inner.push(
-      <path key={`s-${g.sector}`} d={arc(cx, cy, R * 0.42, R * 0.6, a0 + gap / 2, Math.max(a0 + gap / 2, a1 - gap / 2))} fill="#e5e7eb" stroke="#fff" strokeWidth={1} onMouseEnter={() => setHover({ label: g.sector, sub: `${((g.value / total) * 100).toFixed(1)}% · ${rs(g.value)}` })} onMouseLeave={() => setHover(null)} />
+      <path key={`s-${g.sector}`} d={arc(cx, cy, R * 0.42, R * 0.6, a0 + gap / 2, Math.max(a0 + gap / 2, a1 - gap / 2))} fill="var(--surface-3)" stroke="var(--surface)" strokeWidth={1} onMouseEnter={() => setHover({ label: g.sector, sub: `${((g.value / total) * 100).toFixed(1)}% · ${rs(g.value)}` })} onMouseLeave={() => setHover(null)} />
     );
     if (span > 0.35) {
       const mid = (a0 + a1) / 2, r = R * 0.51;
-      labels.push(<text key={`t-${g.sector}`} x={cx + r * Math.cos(mid)} y={cy + r * Math.sin(mid)} textAnchor="middle" dominantBaseline="middle" fontSize={8.5} fill="#475569" style={{ pointerEvents: "none" }}>{g.sector.length > 12 ? g.sector.slice(0, 11) + "…" : g.sector}</text>);
+      labels.push(<text key={`t-${g.sector}`} x={cx + r * Math.cos(mid)} y={cy + r * Math.sin(mid)} textAnchor="middle" dominantBaseline="middle" fontSize={8.5} fill="var(--muted)" style={{ pointerEvents: "none" }}>{g.sector.length > 12 ? g.sector.slice(0, 11) + "…" : g.sector}</text>);
     }
     let b = a0;
     for (const l of g.items) {
       const ls = (l.value / total) * Math.PI * 2;
       const b0 = b, b1 = b + ls;
       outer.push(
-        <path key={l.symbol} d={arc(cx, cy, R * 0.62, R, b0 + gap / 2, Math.max(b0 + gap / 2, b1 - gap / 2))} fill={tone(l.pct)} stroke="#fff" strokeWidth={1} onMouseEnter={() => setHover({ label: l.symbol, sub: `${((l.value / total) * 100).toFixed(1)}% · ${rs(l.value)} · ${l.pct >= 0 ? "+" : ""}${(l.pct * 100).toFixed(1)}% on cost` })} onMouseLeave={() => setHover(null)} />
+        <path key={l.symbol} d={arc(cx, cy, R * 0.62, R, b0 + gap / 2, Math.max(b0 + gap / 2, b1 - gap / 2))} fill={tone(l.pct)} stroke="var(--surface)" strokeWidth={1} onMouseEnter={() => setHover({ label: l.symbol, sub: `${((l.value / total) * 100).toFixed(1)}% · ${rs(l.value)} · ${l.pct >= 0 ? "+" : ""}${(l.pct * 100).toFixed(1)}% on cost` })} onMouseLeave={() => setHover(null)} />
       );
       if (ls > 0.22) {
         const mid = (b0 + b1) / 2, r = R * 0.81;
@@ -68,8 +68,8 @@ export function Sunburst({ leaves, centreLabel, centreValue, centreTone, size = 
         {inner}
         {outer}
         {labels}
-        <text x={cx} y={cy - 4} textAnchor="middle" fontSize={15} fontWeight={600} fill={hover ? "#0f172a" : centreTone ?? "#0f172a"}>{hover ? hover.label : centreValue}</text>
-        <text x={cx} y={cy + 12} textAnchor="middle" fontSize={9.5} fill="#6b7280">{hover ? hover.sub : centreLabel}</text>
+        <text x={cx} y={cy - 4} textAnchor="middle" fontSize={15} fontWeight={600} fill={hover ? "var(--ink)" : centreTone ?? "var(--ink)"}>{hover ? hover.label : centreValue}</text>
+        <text x={cx} y={cy + 12} textAnchor="middle" fontSize={9.5} fill="var(--muted)">{hover ? hover.sub : centreLabel}</text>
       </svg>
       <div className="flex items-center gap-2 text-[10.5px] text-muted mt-1">
         <span>Loss</span>

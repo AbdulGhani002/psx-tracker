@@ -4,6 +4,7 @@ import type { Metadata } from "next";
 import { IBM_Plex_Sans } from "next/font/google";
 import { AppShell } from "@/components/layout/AppShell";
 import { ThemeScript } from "@/components/layout/ThemeToggle";
+import { THEME_BAR } from "@/components/layout/theme-key";
 import { NoNumberScroll } from "@/components/ui/NoNumberScroll";
 import { PwaRegister } from "@/components/layout/PwaRegister";
 import { CommandPalette } from "@/components/layout/CommandPalette";
@@ -23,7 +24,10 @@ export const metadata: Metadata = {
 };
 
 export const viewport = {
-  themeColor: "#ffffff",
+  themeColor: [
+    { media: "(prefers-color-scheme: light)", color: THEME_BAR.light },
+    { media: "(prefers-color-scheme: dark)", color: THEME_BAR.dark },
+  ],
 };
 
 // What the shell needs about the signed-in user: nothing when there is none
@@ -63,7 +67,7 @@ async function shellData() {
 export default async function RootLayout({ children }: { children: React.ReactNode }) {
   const shell = await shellData();
   return (
-    <html lang="en" className={sans.variable} data-theme="light">
+    <html lang="en" className={sans.variable} suppressHydrationWarning>
       <head>
         <ThemeScript />
       </head>

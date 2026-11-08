@@ -28,7 +28,7 @@ const toneOf = (v: number) => (v >= 0 ? "var(--positive)" : "var(--negative)");
 
 function corrShade(c: number): string {
   const a = Math.min(1, Math.abs(c));
-  return c >= 0 ? `color-mix(in srgb, #3b82f6 ${Math.round(8 + a * 60)}%, white)` : `color-mix(in srgb, #dc2626 ${Math.round(8 + a * 60)}%, white)`;
+  return c >= 0 ? `color-mix(in srgb, #3b82f6 ${Math.round(8 + a * 60)}%, var(--surface))` : `color-mix(in srgb, #dc2626 ${Math.round(8 + a * 60)}%, var(--surface))`;
 }
 
 export async function AnalyticsTab({ search }: { search: PortfolioSearch }) {

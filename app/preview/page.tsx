@@ -97,7 +97,7 @@ export default async function PreviewPage(
       <div>
         <div className="flex items-center justify-between gap-3 flex-wrap mb-3">
           <div className="flex items-center gap-3">
-            <span className="initials text-[12px]" style={{ background: "#dcfce7", color: "#16a34a" }}>MA</span>
+            <span className="initials text-[12px]" style={{ background: "var(--tint-positive)", color: "var(--positive)" }}>MA</span>
             <div>
               <div className="text-[18px] font-semibold leading-tight">Main</div>
               <div className="text-[11.5px] text-muted flex items-center gap-1.5"><span className="inline-block w-1.5 h-1.5 rounded-full" style={{ background: "var(--positive)" }} /> Priced at the last close · BMA Capital</div>
@@ -221,7 +221,7 @@ export default async function PreviewPage(
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3">
           {[["Main", "MA", "#16a34a", 1227799, 9496, 0.89, 995511, 60390, 103120], ["Trading book", "TB", "#26a69a", 182400, -1092, -0.41, 170000, 12400, 12400]].map(([n, ini, c, v, dp, dpct, inv, unr, tot]) => (
             <div key={String(n)} className="card card-pad">
-              <div className="flex items-center gap-2.5"><span className="initials text-[11px]" style={{ background: `color-mix(in srgb, ${c} 18%, white)`, color: String(c) }}>{ini}</span><span className="text-[13px] font-semibold">{n}</span></div>
+              <div className="flex items-center gap-2.5"><span className="initials text-[11px]" style={{ background: `color-mix(in srgb, ${c} 18%, var(--surface))`, color: String(c) }}>{ini}</span><span className="text-[13px] font-semibold">{n}</span></div>
               <div className="flex items-end justify-between gap-3 mt-3">
                 <div><div className="fig text-[17px] whitespace-nowrap">{rs(Number(v))}</div><span className="pill mt-1.5" data-tone={Number(dp) >= 0 ? "positive" : "negative"}>{signed(Number(dp))} ({Number(dpct) >= 0 ? "+" : ""}{dpct}%)</span></div>
                 <Sparkline points={pts.slice(-30).map((p) => p.value)} width={72} height={28} />

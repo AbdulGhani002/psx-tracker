@@ -2,7 +2,7 @@
 // per month stacked by asset in shades of blue, and the life-to-date total
 // per asset as teal bars.
 
-const BLUES = ["#1e3a8a", "#1d4ed8", "#2563eb", "#3b82f6", "#60a5fa", "#93c5fd", "#bfdbfe"];
+const BLUES = [1, 2, 3, 4, 5, 6, 7].map((i) => `var(--blues-${i})`);
 
 const fmtK = (v: number) => (v >= 1e6 ? `Rs ${(v / 1e6).toFixed(1)}M` : v >= 1e3 ? `Rs ${(v / 1e3).toFixed(v >= 1e5 ? 0 : 1)}K` : `Rs ${v.toFixed(0)}`);
 const monthLabel = (k: string) => {

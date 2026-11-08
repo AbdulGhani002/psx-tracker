@@ -70,7 +70,7 @@ function Footer({ busy, label, error, onSubmit }: { busy: boolean; label: string
   const router = useRouter();
   return (
     <>
-      {error && <div className="text-[12.5px] mt-3 rounded-lg px-3 py-2" style={{ color: "var(--negative)", background: "#fef2f2" }}>{error}</div>}
+      {error && <div className="text-[12.5px] mt-3 rounded-lg px-3 py-2" style={{ color: "var(--negative)", background: "var(--negative-bg)" }}>{error}</div>}
       <div className="flex items-center gap-2 mt-4">
         <button type="button" onClick={onSubmit} disabled={busy} className="btn-primary">{busy ? "Saving…" : label}</button>
         <button type="button" className="btn-ghost" onClick={() => router.back()}>Cancel</button>

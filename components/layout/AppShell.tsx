@@ -5,6 +5,7 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { Icon, type IconName } from "./Icons";
 import { Wordmark, LogoMark } from "./Logo";
+import { ThemeButton } from "./ThemeButton";
 import type { IndexTicker } from "@/lib/timeseries/eod-cache";
 
 // The shell, drawn the way Zar draws it: a white sidebar with the menu and
@@ -86,7 +87,7 @@ function PortfolioChip({ portfolios, selected }: { portfolios: ShellPortfolio[];
   return (
     <div className="relative" ref={ref}>
       <button type="button" onClick={() => setOpen(!open)} className="flex items-center gap-2 rounded-lg border border-[var(--rule)] pl-1.5 pr-2.5 py-1 hover:bg-[var(--surface-2)]" disabled={busy} title="Which portfolio the pages show">
-        <span className="initials !w-7 !h-7 text-[10px]" style={{ background: current ? `color-mix(in srgb, ${current.color} 18%, white)` : "var(--surface-2)", color: current ? current.color : "var(--ink)" }}>
+        <span className="initials !w-7 !h-7 text-[10px]" style={{ background: current ? `color-mix(in srgb, ${current.color} 18%, var(--surface))` : "var(--surface-2)", color: current ? current.color : "var(--ink)" }}>
           {current ? initialsOf(current.name) : "ALL"}
         </span>
         <span className="text-left leading-tight hidden sm:block">
@@ -102,7 +103,7 @@ function PortfolioChip({ portfolios, selected }: { portfolios: ShellPortfolio[];
           </button>
           {portfolios.map((p) => (
             <button key={p._id} type="button" onClick={() => choose(p._id)} className="w-full text-left px-3 py-2 text-[13px] hover:bg-[var(--surface-2)] flex items-center gap-2" style={{ fontWeight: current?._id === p._id ? 600 : 400 }}>
-              <span className="initials !w-6 !h-6 text-[9px]" style={{ background: `color-mix(in srgb, ${p.color} 18%, white)`, color: p.color }}>{initialsOf(p.name)}</span>
+              <span className="initials !w-6 !h-6 text-[9px]" style={{ background: `color-mix(in srgb, ${p.color} 18%, var(--surface))`, color: p.color }}>{initialsOf(p.name)}</span>
               <span className="truncate">{p.name}</span>
               {p.isDefault && <span className="text-[10px] text-muted ml-auto">default</span>}
             </button>
@@ -268,6 +269,7 @@ export function AppShell({ children, authed, tickers, portfolios, selected, init
             <Link href="/transactions/new" className="btn-primary hidden sm:inline-flex">
               <Icon.plus className="w-4 h-4" /> Add trade
             </Link>
+            <ThemeButton />
             <div className="relative">
               <button type="button" className="avatar" title="Account" onClick={() => setAccountOpen((v) => !v)}>{initial}</button>
               {accountOpen && (

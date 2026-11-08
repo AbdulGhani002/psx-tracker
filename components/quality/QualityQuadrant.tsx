@@ -79,7 +79,7 @@ export function QualityQuadrant({ rows, costOfEquityPct, marketMedianCape }: { r
           const right = cx < W - R - 60;
           return (
             <g key={r.symbol}>
-              <circle cx={cx} cy={cy} r={rad} fill={c} fillOpacity="0.85" stroke="#fff" strokeWidth="1.5">
+              <circle cx={cx} cy={cy} r={rad} fill={c} fillOpacity="0.85" stroke="var(--surface)" strokeWidth="1.5">
                 <title>{`${r.symbol}: ROE ${r.q.roePct!.toFixed(1)}%, CAPE ${r.q.cape!.toFixed(1)}×, ${(r.weightPct ?? 0).toFixed(1)}% of the portfolio`}</title>
               </circle>
               <text x={right ? cx + rad + 3 : cx - rad - 3} y={cy + 3.5} fontSize="10.5" fontWeight="600" fill="var(--ink)" textAnchor={right ? "start" : "end"}>{r.symbol}</text>

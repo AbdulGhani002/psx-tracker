@@ -22,7 +22,7 @@ export default async function PortfoliosPage() {
         {cards.map((c) => (
           <a key={c.portfolio._id} href={`/api/portfolios/select?id=${c.portfolio._id}&next=/portfolio`} className="card card-pad block hover:border-[var(--rule-strong)] transition-colors">
             <div className="flex items-center gap-2.5">
-              <span className="initials text-[11px]" style={{ background: `color-mix(in srgb, ${c.portfolio.color} 18%, white)`, color: c.portfolio.color }}>{initials(c.portfolio.name)}</span>
+              <span className="initials text-[11px]" style={{ background: `color-mix(in srgb, ${c.portfolio.color} 18%, var(--surface))`, color: c.portfolio.color }}>{initials(c.portfolio.name)}</span>
               <div className="min-w-0">
                 <div className="text-[13.5px] font-semibold truncate">{c.portfolio.name}</div>
                 <div className="text-[11px] text-muted">{c.portfolio.broker || (c.portfolio.isDefault ? "Default portfolio" : "")}{c.names ? ` · ${c.names} names` : ""}</div>

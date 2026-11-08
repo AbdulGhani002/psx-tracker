@@ -48,7 +48,7 @@ export default async function PortfolioPage(props: { searchParams: Promise<Portf
     <div>
       <div className="flex items-center justify-between gap-3 flex-wrap mb-3">
         <div className="flex items-center gap-3">
-          <span className="initials text-[12px]" style={{ background: `color-mix(in srgb, ${color} 18%, white)`, color }}>{initials || "ALL"}</span>
+          <span className="initials text-[12px]" style={{ background: `color-mix(in srgb, ${color} 18%, var(--surface))`, color }}>{initials || "ALL"}</span>
           <div>
             <div className="text-[18px] font-semibold leading-tight">{name}</div>
             <div className="text-[11.5px] text-muted flex items-center gap-1.5">

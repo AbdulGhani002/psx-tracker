@@ -90,7 +90,7 @@ export function CompareChart({ initialRange = "1Y", height = 320 }: { initialRan
                 disabled={!has}
                 onClick={() => toggle(s.key)}
                 className="inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-[11.5px] border transition-colors disabled:opacity-30"
-                style={{ borderColor: active ? s.color : "var(--rule)", background: active ? `color-mix(in srgb, ${s.color} 10%, white)` : "var(--surface)", color: active ? "var(--ink)" : "var(--muted)" }}
+                style={{ borderColor: active ? s.color : "var(--rule)", background: active ? `color-mix(in srgb, ${s.color} 10%, var(--surface))` : "var(--surface)", color: active ? "var(--ink)" : "var(--muted)" }}
               >
                 <span className="inline-block w-2 h-2 rounded-full" style={{ background: active ? s.color : "var(--rule-strong)" }} />
                 {s.label}
@@ -113,13 +113,13 @@ export function CompareChart({ initialRange = "1Y", height = 320 }: { initialRan
         ) : (
           <ResponsiveContainer width="100%" height="100%">
             <LineChart data={data!.points} margin={{ top: 8, right: 12, bottom: 4, left: 0 }}>
-              <CartesianGrid stroke="#eef0f3" vertical={false} />
-              <XAxis dataKey="date" tickFormatter={(v: string) => { const d = new Date(v); return d.toLocaleDateString("en-US", { month: "short", day: range === "3M" ? "numeric" : undefined, year: range === "ALL" || range === "3Y" ? "2-digit" : undefined }); }} tick={{ fill: "#6b7280", fontSize: 10.5 }} tickLine={false} axisLine={{ stroke: "#e5e7eb" }} minTickGap={40} />
-              <YAxis domain={domain as any} tickFormatter={(v: number) => v.toFixed(0)} tick={{ fill: "#6b7280", fontSize: 10.5 }} tickLine={false} axisLine={false} width={34} />
-              <ReferenceLine y={100} stroke="#d1d5db" strokeDasharray="4 4" />
+              <CartesianGrid stroke="var(--rule)" vertical={false} />
+              <XAxis dataKey="date" tickFormatter={(v: string) => { const d = new Date(v); return d.toLocaleDateString("en-US", { month: "short", day: range === "3M" ? "numeric" : undefined, year: range === "ALL" || range === "3Y" ? "2-digit" : undefined }); }} tick={{ fill: "var(--muted)", fontSize: 10.5 }} tickLine={false} axisLine={{ stroke: "#e5e7eb" }} minTickGap={40} />
+              <YAxis domain={domain as any} tickFormatter={(v: number) => v.toFixed(0)} tick={{ fill: "var(--muted)", fontSize: 10.5 }} tickLine={false} axisLine={false} width={34} />
+              <ReferenceLine y={100} stroke="var(--rule-strong)" strokeDasharray="4 4" />
               <Tooltip
-                contentStyle={{ background: "#fff", border: "1px solid #e5e7eb", borderRadius: 8, fontSize: 12, boxShadow: "0 4px 14px rgba(15,23,42,.08)" }}
-                labelStyle={{ color: "#6b7280", fontSize: 11, marginBottom: 4 }}
+                contentStyle={{ background: "var(--surface)", border: "1px solid var(--rule)", borderRadius: 8, fontSize: 12, boxShadow: "0 4px 14px rgba(15,23,42,.08)" }}
+                labelStyle={{ color: "var(--muted)", fontSize: 11, marginBottom: 4 }}
                 formatter={(v: number, name: string) => [`${(v - 100 >= 0 ? "+" : "") + (v - 100).toFixed(2)}%`, name]}
                 labelFormatter={(v: string) => new Date(v).toLocaleDateString("en-US", { day: "numeric", month: "short", year: "numeric" })}
               />

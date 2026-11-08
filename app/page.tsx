@@ -80,7 +80,7 @@ async function PortfolioCardsRow() {
         {cards.map((c) => (
           <a key={c.portfolio._id} href={`/api/portfolios/select?id=${c.portfolio._id}&next=/portfolio`} className="card card-pad block hover:border-[var(--rule-strong)] transition-colors">
             <div className="flex items-center gap-2.5">
-              <span className="initials text-[11px]" style={{ background: `color-mix(in srgb, ${c.portfolio.color} 18%, white)`, color: c.portfolio.color }}>{initials(c.portfolio.name)}</span>
+              <span className="initials text-[11px]" style={{ background: `color-mix(in srgb, ${c.portfolio.color} 18%, var(--surface))`, color: c.portfolio.color }}>{initials(c.portfolio.name)}</span>
               <span className="text-[13px] font-semibold truncate">{c.portfolio.name}</span>
               {c.portfolio.isDefault && <span className="ml-auto w-2 h-2 rounded-full" style={{ background: "var(--positive)" }} title="Default" />}
             </div>
