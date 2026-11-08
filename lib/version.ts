@@ -1,7 +1,7 @@
 // Single source of truth for the app version + changelog.
 // Bump APP_VERSION and prepend a CHANGELOG entry on every release.
 
-export const APP_VERSION = "11.34.0";
+export const APP_VERSION = "11.35.0";
 
 export const BUILD_DATE =
   process.env.NEXT_PUBLIC_BUILD_DATE ?? "";
@@ -17,6 +17,15 @@ export type ChangelogEntry = {
 
 // Reverse-chronological. Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: "11.35.0",
+    date: "2026-11-08",
+    title: "A report on each night's read",
+    changes: [
+      "Each morning at 8, one Telegram line on the night's read of the exchange: pages read or missed, closing prices saved for your shares, and the companies with new announcements.",
+      "A warning instead when the read did not run, stopped early, missed pages or brought no prices, and at 8 pm when the night's read has not started.",
+    ],
+  },
   {
     version: "11.34.0",
     date: "2026-11-08",

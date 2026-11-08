@@ -32,6 +32,7 @@ import { marketEvents, marketHolidays, missedDecision } from "@/lib/market-calen
 import { eventsMessage, missedMpcMessage, nextTradingDay, policyMessage } from "@/lib/calculations/market-calendar";
 import { freshPolicyStep } from "@/lib/market-history";
 import { rolledMessage } from "@/lib/fixed-income/rollover";
+import { readAlerts } from "@/lib/prices/sweep";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -482,6 +483,10 @@ async function runAlertsForCurrentUser(forceDigest = false) {
       /* no reminder this run */
     }
   }
+
+  // How the night's read of the exchange went (lib/prices/sweep): one line
+  // the morning after, and a warning in the evening if it has not started.
+  candidates.push(...(await readAlerts(await uid()).catch(() => [])));
 
   // Insert-only dedup: a successful insert means this key is fresh today.
   // Scoped by userId so each user has their own daily dedupe slots.

@@ -4,7 +4,7 @@
 //
 //   npx tsx scripts/test-sweep.ts
 
-import { gateRoute, isWeekday, MIN_GAP_MS, nextGap, seeded, sweepItems, sweepLength, sweepStart } from "../lib/calculations/sweep";
+import { gateRoute, isWeekday, lastTradingDay, MIN_GAP_MS, nextGap, readLate, readLine, seeded, sweepItems, sweepLength, sweepStart } from "../lib/calculations/sweep";
 
 let pass = 0, fail = 0;
 function check(name: string, cond: boolean, got?: unknown) {
@@ -50,6 +50,28 @@ check("behind time, it hurries no faster than four minutes", nextGap(100, 50, 10
 const list = sweepItems({ indices: ["/indices", "/indices/KSE100"], held: ["MEBL", "AHCL"], rest: ["BOP", "NBP"], wished: ["/company/ATIL", "/company/BOP"] }, seeded("x"));
 check("the index pages first, then the shares held", list.slice(0, 2).every((p) => p.startsWith("/indices")) && list.slice(2, 4).sort().join() === "/company/AHCL,/company/MEBL", list);
 check("no page twice", new Set(list).size === list.length && list.length === 7, list.length);
+
+// The morning line and the evening warning.
+const none = new Set<string>();
+check("Saturday reports Friday's read", lastTradingDay("2026-11-07", none) === "2026-11-06");
+check("Monday reports Friday's read too (sent once)", lastTradingDay("2026-11-09", none) === "2026-11-06");
+check("a holiday is skipped", lastTradingDay("2026-11-11", new Set(["2026-11-10"])) === "2026-11-09");
+const done = { day: "2026-11-06", items: 35, done: 35, read: 35, missed: 0, finishedAt: "2026-11-06T20:26:00Z" };
+const ok = readLine({ day: "2026-11-06", read: done, held: 11, closes: 11, lastClose: "2026-11-06", news: [], refusing: false });
+check("a good night is one plain line", !ok.warn && ok.text === "📖 <b>Exchange read</b> Fri 6 Nov: 35 of 35 pages, closes for 11 of 11 shares, no new announcements.", ok.text);
+const newsy = readLine({ day: "2026-11-06", read: done, held: 11, closes: 11, lastClose: "2026-11-06", news: ["AHCL", "MUREB", "PPL"], refusing: false });
+check("new announcements are named", newsy.text.endsWith("new announcements: AHCL, MUREB, PPL."), newsy.text);
+const missed = readLine({ day: "2026-11-06", read: { ...done, read: 33, missed: 2 }, held: 11, closes: 11, lastClose: "2026-11-06", news: [], refusing: false });
+check("missed pages warn", missed.warn && missed.text.includes("33 of 35 pages, 2 missed"), missed.text);
+const noClose = readLine({ day: "2026-11-06", read: done, held: 11, closes: 0, lastClose: "2026-11-05", news: [], refusing: false });
+check("no closes warns and says how old the prices are", noClose.warn && noClose.text.includes("no closes for 6 Nov, prices are from 5 Nov"), noClose.text);
+const stopped = readLine({ day: "2026-11-06", read: { ...done, done: 12, read: 12, finishedAt: null }, held: 11, closes: 11, lastClose: "2026-11-06", news: [], refusing: true });
+check("a read cut short warns", stopped.warn && stopped.text.startsWith("⚠️ <b>Exchange read</b> Fri 6 Nov stopped at 12 of 35 pages, the site is refusing. Closes"), stopped.text);
+const notRun = readLine({ day: "2026-11-06", read: { ...done, day: "2026-11-05" }, held: 11, closes: 0, lastClose: "2026-11-05", news: [], refusing: false });
+check("a day with no read warns", notRun.warn && notRun.text.startsWith("⚠️ <b>Exchange read</b> Fri 6 Nov did not run. No closes"), notRun.text);
+check("no evening warning before 8 pm", readLate({ today: "2026-11-09", hour: 19, holidays: none, readDay: "2026-11-06" }) === null);
+check("an evening warning when tonight's read has not started", readLate({ today: "2026-11-09", hour: 20, holidays: none, readDay: "2026-11-06" }) === "⚠️ <b>Exchange read</b> has not started tonight (Mon 9 Nov).");
+check("none once it has started, at weekends or on holidays", readLate({ today: "2026-11-09", hour: 21, holidays: none, readDay: "2026-11-09" }) === null && readLate({ today: "2026-11-08", hour: 21, holidays: none, readDay: "2026-11-06" }) === null && readLate({ today: "2026-11-10", hour: 21, holidays: new Set(["2026-11-10"]), readDay: "2026-11-09" }) === null);
 
 console.log("\n" + pass + " passed, " + fail + " failed");
 if (fail > 0) process.exit(1);
