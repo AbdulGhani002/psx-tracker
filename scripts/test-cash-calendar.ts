@@ -33,8 +33,7 @@ const div = dividendItems({
     { symbol: "HUBC", date: "2026-10-30", net: 51, auto: false },
   ],
 });
-const ahcl = div.find((d) => d.label.startsWith("AHCL"));
-check("a book closure passed: the dividend recorded, owed", ahcl?.pkr === 22333 && ahcl.claim === "receivable" && ahcl.date === "2026-11-11" && ahcl.about, ahcl);
+check("a book closure passed: the dividend counts as paid, not listed", !div.some((d) => d.label.startsWith("AHCL") || d.label.startsWith("CSAP")), div);
 const mebl = div.find((d) => d.label.startsWith("MEBL"));
 check("a book closure to come: on the shares held now, after tax, expected", mebl?.pkr === Math.round(889 * 8 * 0.85) && mebl.claim === "expected" && mebl.label === "MEBL interim dividend", mebl);
 check("one entered by hand after its book closure has been paid", !div.some((d) => d.label.startsWith("HUBC")));
@@ -66,7 +65,22 @@ const twoNear = dividendItems({
     { symbol: "MUREB", date: "2026-10-16", net: 8985, auto: true },
   ],
 });
-check("two dividends close together: each is its own recorded row", twoNear.map((x) => x.pkr).join() === "8985,4359", twoNear);
+check("two dividends close together: both closed, both paid", twoNear.length === 0, twoNear);
+const closing = dividendItems({
+  today: "2026-10-23",
+  days: 90,
+  taxPct: 15,
+  entitled: () => 789,
+  payouts: [
+    { symbol: "MUREB", bookClosure: "2026-10-16", pctOfFace: 145, face: 10, cycle: "F" },
+    { symbol: "MUREB", bookClosure: "2026-10-23", pctOfFace: 65, face: 10, cycle: "i" },
+  ],
+  recorded: [
+    { symbol: "MUREB", date: "2026-10-23", net: 4359, auto: true },
+    { symbol: "MUREB", date: "2026-10-16", net: 8985, auto: true },
+  ],
+});
+check("on its book closure day a dividend is owed, from its own row; the one before is paid", closing.length === 1 && closing[0].pkr === 4359 && closing[0].claim === "receivable" && closing[0].date === "2026-11-13", closing);
 
 const fixed = fixedItems({
   today,

@@ -15,10 +15,11 @@ export type CashCalendar = { today: string; until: string; cashNow: number; item
 
 export const dividendPayDay = (bookClosure: string) => addDays(bookClosure, PAY_LAG_DAYS);
 
-// Each cash payout. One whose books have closed is owed on the shares held
+// Each cash payout. One whose books close today is owed on the shares held
 // then (the dividend recorded for it); one still to close is expected on the
-// shares entitled so far. One paid already (a dividend entered on or after
-// its book closure that the job did not write) is left out.
+// shares entitled so far. From the day after its book closure a dividend
+// counts as paid (the user's rule: it reaches the bank within days), and so
+// does one entered by hand on or after its book closure; neither is listed.
 export function dividendItems(i: {
   today: string;
   days: number;
@@ -31,7 +32,7 @@ export function dividendItems(i: {
   const out: CalItem[] = [];
   for (const p of i.payouts) {
     const pay = dividendPayDay(p.bookClosure);
-    if (pay <= i.today || pay > until || !(p.pctOfFace > 0)) continue;
+    if (p.bookClosure < i.today || pay > until || !(p.pctOfFace > 0)) continue;
     const own = i.recorded.filter((r) => r.symbol === p.symbol && r.date >= p.bookClosure && r.date <= addDays(p.bookClosure, 60));
     if (own.some((r) => !r.auto)) continue;
     const kind = p.cycle === "F" ? "final" : p.cycle ? "interim" : "";

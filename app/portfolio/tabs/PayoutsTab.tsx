@@ -23,6 +23,7 @@ const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "
 const fmtK = (v: number) => (v >= 1e6 ? `Rs ${(v / 1e6).toFixed(2)}M` : v >= 1e3 ? `Rs ${(v / 1e3).toFixed(2)}K` : `Rs ${v.toFixed(0)}`);
 
 export async function PayoutsTab() {
+  const todayPk = new Date(Date.now() + 5 * 3600_000).toISOString().slice(0, 10);
   const [allTx, holdings, yields, forecast, announced, calendar] = await Promise.all([
     getAllTransactions(),
     getAllHoldings(),
@@ -169,7 +170,7 @@ export async function PayoutsTab() {
       )}
 
       {(announced.upcoming.length > 0 || announced.recorded.length > 0) && (
-        <Card className="mt-3" title="Announced on the exchange" eyebrow="Recorded on the book-closure date from the shares you held; a warrant replaces the figures" action={<Link href="/settings" className="text-[12px] link-underline">Settings</Link>}>
+        <Card className="mt-3" title="Announced on the exchange" eyebrow="Recorded on the book closure from the shares you held, paid from the next day; a warrant replaces the figures" action={<Link href="/settings" className="text-[12px] link-underline">Settings</Link>}>
           {announced.upcoming.length > 0 && (
             <div className="overflow-x-auto -mx-2">
               <table className="table-zar">
@@ -186,7 +187,7 @@ export async function PayoutsTab() {
                       <td className="text-right mono-num" style={{ color: a.type === "DIVIDEND" ? "var(--positive)" : undefined }}>{a.type === "DIVIDEND" ? fmtRs(a.net) : "–"}</td>
                       <td>
                         <span className="pill" data-tone={a.status === "recorded" ? "positive" : a.status === "upcoming" ? "muted" : a.status === "due" ? "amber" : "negative"}>
-                          {a.status === "recorded" ? "Recorded" : a.status === "upcoming" ? (a.type === "RIGHT" ? "Record when subscribed" : "Will record") : a.status === "due" ? (a.type === "RIGHT" ? "Subscribe or let lapse" : "To record") : "Not entitled"}
+                          {a.status === "recorded" ? (a.type === "DIVIDEND" && String(a.bookClosure).slice(0, 10) < todayPk ? "Paid" : "Recorded") : a.status === "upcoming" ? (a.type === "RIGHT" ? "Record when subscribed" : "Will record") : a.status === "due" ? (a.type === "RIGHT" ? "Subscribe or let lapse" : "To record") : "Not entitled"}
                         </span>
                       </td>
                     </tr>

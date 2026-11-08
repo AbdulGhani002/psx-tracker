@@ -1,7 +1,7 @@
 // Single source of truth for the app version + changelog.
 // Bump APP_VERSION and prepend a CHANGELOG entry on every release.
 
-export const APP_VERSION = "11.35.0";
+export const APP_VERSION = "11.36.0";
 
 export const BUILD_DATE =
   process.env.NEXT_PUBLIC_BUILD_DATE ?? "";
@@ -17,6 +17,15 @@ export type ChangelogEntry = {
 
 // Reverse-chronological. Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: "11.36.0",
+    date: "2026-11-08",
+    title: "Dividends paid after their book closure",
+    changes: [
+      "A dividend counts as paid from the day after its book closure: the cash calendar no longer lists it as money to come, and Announced on the exchange shows it as Paid.",
+      "Before its book closure it is listed as before, dated about three weeks after it.",
+    ],
+  },
   {
     version: "11.35.0",
     date: "2026-11-08",

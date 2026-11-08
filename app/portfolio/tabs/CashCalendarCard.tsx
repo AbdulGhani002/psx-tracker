@@ -44,7 +44,7 @@ export function CashCalendarCard({ cal }: { cal: CashCalendar }) {
           {cal.shortBy > 0 ? <span style={{ color: "var(--negative)" }}>Short by {fmtRs(cal.shortBy)} even with all of it in.</span> : <span className="text-muted">Covered by cash now and what comes in.</span>}
         </p>
       )}
-      <p className="text-[11.5px] text-muted mt-2">≈ Dividends land about three weeks after the book closure, in your bank. Deposits and T-bills count when they mature.</p>
+      <p className="text-[11.5px] text-muted mt-2">≈ Dividends are dated about three weeks after the book closure and count as paid from the day after it. Deposits and T-bills count when they mature.</p>
     </Card>
   );
 }
