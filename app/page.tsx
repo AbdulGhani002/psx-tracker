@@ -8,6 +8,9 @@ import { Heatmap } from "@/components/charts/Heatmap";
 import { Sparkline } from "@/components/ui/Sparkline";
 import { NetWorthChart } from "@/components/dashboard/NetWorthChart";
 import { StatCard } from "@/components/ui/StatCard";
+import { UpdatePrices } from "@/components/layout/UpdatePrices";
+import { pricesLabel } from "@/lib/prices/manual";
+import { uid } from "@/lib/auth/uid";
 import { getPortfolioSummary, checkDataAvailability, getAttribution } from "@/lib/data";
 import { getToday, getPortfolioCards, getRecentActivity, getPerformance, getAllocation, getBookFigures, getDollarized } from "@/lib/analytics/dashboard";
 import { getRecentAnnouncements } from "@/lib/announcements";
@@ -201,10 +204,18 @@ async function AttributionCard() {
   );
 }
 
+// How new the prices are, beside the button that updates them.
+async function PricesLine() {
+  const label = await pricesLabel(await uid()).catch(() => "Prices are the latest close");
+  return <UpdatePrices label={label} className="mb-3" />;
+}
+
 export default function OverviewPage() {
   return (
     <div>
-      <p className="text-right text-[11px] text-muted mb-3">Prices are the latest close, read once a day</p>
+      <Suspense fallback={<UpdatePrices label="Prices are the latest close" className="mb-3" />}>
+        <PricesLine />
+      </Suspense>
       <Suspense fallback={<Fallback h={84} />}>
         <TopCards />
       </Suspense>

@@ -1,7 +1,7 @@
 // Single source of truth for the app version + changelog.
 // Bump APP_VERSION and prepend a CHANGELOG entry on every release.
 
-export const APP_VERSION = "11.36.0";
+export const APP_VERSION = "11.37.0";
 
 export const BUILD_DATE =
   process.env.NEXT_PUBLIC_BUILD_DATE ?? "";
@@ -17,6 +17,15 @@ export type ChangelogEntry = {
 
 // Reverse-chronological. Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: "11.37.0",
+    date: "2026-11-10",
+    title: "Update prices button",
+    changes: [
+      "An Update prices button on the overview and on each portfolio, beside the one daily read. In market hours it reads the exchange's all-share page once for prices now; after the close it brings in the day's official closing prices.",
+      "Pressed again within 15 minutes it reads nothing. The line beside it says how new the prices are.",
+    ],
+  },
   {
     version: "11.36.0",
     date: "2026-11-08",

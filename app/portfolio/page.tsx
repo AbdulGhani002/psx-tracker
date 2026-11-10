@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { Suspense } from "react";
 import { Skeleton } from "@/components/ui/Skeleton";
+import { UpdatePrices } from "@/components/layout/UpdatePrices";
 import { selectedPortfolio, listPortfolios } from "@/lib/portfolios";
 import { HoldingTab } from "./tabs/HoldingTab";
 import { YearlyTab } from "./tabs/YearlyTab";
@@ -56,7 +57,8 @@ export default async function PortfolioPage(props: { searchParams: Promise<Portf
             </div>
           </div>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap justify-end">
+          <UpdatePrices />
           <Link href="/transactions/import" className="btn-ghost">Import</Link>
           <Link href="/transactions/new" className="btn-primary">Add trade</Link>
         </div>
